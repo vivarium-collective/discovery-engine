@@ -37,12 +37,26 @@ yield the same bundle.
 
 ## Install
 
+Not published to PyPI (the `discovery-engine` name there is an **unrelated**
+project — don't `pip install discovery-engine`). Install from git:
+
 ```bash
-pip install discovery-engine          # or: uv pip install -e .
+uv pip install "discovery-engine @ git+https://github.com/vivarium-collective/discovery-engine.git"
+# or, from a clone, editable:
+uv pip install -e .
+```
+
+In the Vivarium ecosystem it's wired as a git source, e.g. in
+viva-superpowers / vivarium-workbench:
+
+```toml
+[tool.uv.sources]
+discovery-engine = { git = "https://github.com/vivarium-collective/discovery-engine.git", branch = "main" }
 ```
 
 Depends on `viva-emitters` (reads run results) and `viva-workspace` (resolves a
-workspace's layout); plus numpy, polars, ruamel.yaml, pyyaml, click.
+workspace's layout); plus process-bigraph, bigraph-schema, numpy, polars,
+ruamel.yaml, pyyaml, click.
 
 ## Use
 
