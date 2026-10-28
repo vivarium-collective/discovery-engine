@@ -1,0 +1,27 @@
+name: study-band-with-cites
+baseline:
+  - name: b1
+    composite: pkg.composites.x
+# behavior_tests[] with numeric bands AND cites — should be silent
+behavior_tests:
+  - name: dnaa-atp-fraction-in-band
+    classification: primary
+    measure:
+      kind: generation_average
+      path: bulk MONOMER0-160[c]
+    pass_if:
+      op: generation_average_in_range
+      low: 0.2
+      high: 0.5
+    cites:
+      - Boesen2024   # known key — no warning
+
+tests:
+  - name: v4-fraction-test
+    classification: primary
+    pass_if:
+      op: generation_average_in_range
+      low: 0.2
+      high: 0.5
+    cites:
+      - Boesen2024   # known key — no warning

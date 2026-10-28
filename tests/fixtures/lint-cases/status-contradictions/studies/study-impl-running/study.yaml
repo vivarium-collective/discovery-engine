@@ -1,0 +1,7 @@
+name: study-impl-running
+baseline:
+  - name: b1
+    composite: pkg.composites.x
+# Contradiction: implementation not started but simulation_status is ran.
+implementation_status: not_started
+simulation_status: ran

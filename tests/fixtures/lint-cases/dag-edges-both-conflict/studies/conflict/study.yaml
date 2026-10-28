@@ -1,0 +1,10 @@
+name: conflict
+baseline:
+  - name: b1
+    composite: pkg.composites.x
+pipeline_gate:
+  prerequisites:
+    - upstream-a
+parent_studies:
+  - upstream-z   # silently ignored by the dashboard — this is the foot-gun
+# Fires `dag_edges_legacy_and_canonical_disagree` (error).

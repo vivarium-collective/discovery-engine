@@ -1,0 +1,21 @@
+name: study-ran-no-outcomes
+# Ran (a completed run) and declares gate passed, with tests — but the run has
+# no outcomes:, so every test pill would render "pending". The clarity check
+# should flag this so the reviewer isn't left guessing.
+baseline:
+  - name: b1
+    composite: pkg.composites.x
+status: completed
+gate_status: passed
+simulation_status: ran
+evaluation_status: evaluated
+tests:
+  - name: test-a
+    status: passed
+  - name: test-b
+    status: passed
+runs:
+  - name: r1
+    status: completed
+    parquet: studies/study-ran-no-outcomes/parquet-runs/r1
+    seeds: [0]

@@ -21,6 +21,9 @@ dependencies = [
     "viva-emitters[parquet]>=0.2.3",
     # resolves a workspace's package/layout
     "viva-workspace",
+    # composite spec / generator registry (composite_spec, core_introspection)
+    "process-bigraph",
+    "bigraph-schema",
 ]
 
 [project.optional-dependencies]
@@ -39,3 +42,7 @@ viva-workspace = { git = "https://github.com/vivarium-collective/viva-workspace.
 
 [tool.hatch.build.targets.wheel]
 packages = ["discovery_engine"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+norecursedirs = ["tests/fixtures", "tests/_fixtures", ".*", "build", "dist"]

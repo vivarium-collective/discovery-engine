@@ -1,0 +1,8 @@
+name: drift
+baseline:
+  - name: b1
+    composite: pkg.composites.x
+runs:
+  - {run_id: ghost-1, variant: null, status: completed, n_steps: 5}
+  - {run_id: ghost-2, variant: fast, status: completed, n_steps: 5}
+# No runs.db on disk → both run_ids are yaml-only → warning fires.

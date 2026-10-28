@@ -1,0 +1,6 @@
+schema_version: 2
+name: finding-unknown-bib
+created: "2026-05-17"
+plugin_version: 0.9.0
+package_path: pkg
+references_bib: references/papers.bib

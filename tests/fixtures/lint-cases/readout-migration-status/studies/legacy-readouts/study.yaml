@@ -1,0 +1,23 @@
+name: legacy-readouts
+baseline:
+  - name: b1
+    composite: pkg.composites.x
+readouts:
+  # already canonical — dry-run migrate leaves it byte-identical
+  - name: DnaA monomer total
+    index_by:
+      type: literal_index
+      value: 3861
+    store_path: listeners.monomer_counts
+    units: molecules/cell
+    status: primary
+  # clean legacy identifier dialect — resolvable, canonical form DIFFERS → migratable
+  - name: Cell mass
+    status: primary
+    identifier: listeners.mass.cell_mass[2]
+    units: fg
+  # prose ·-group — unresolvable → needs_human
+  - name: DnaA-form counts
+    status: measured
+    identifier: "bulk PD03831[c] (apo) · MONOMER0-160[c] (DnaA-ATP)"
+    units: molecules/cell

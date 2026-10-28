@@ -1,0 +1,14 @@
+name: study-viz
+baseline:
+  - name: b1
+    composite: pkg.composites.x
+visualizations:
+  # Figure files declared via the bare `path:` field (no `address:` scheme).
+  # The workbench renders + downloads these, but the canonical form is
+  # `address: <scheme>:<file>` — the linter should nudge, not error.
+  - name: pop-timeseries
+    path: viz/pop.html          # interactive HTML -> address: html:viz/pop.html
+  - name: colony-snapshot
+    path: viz/colony.png        # image -> address: image:viz/colony.png
+  - name: live-renderer
+    address: "local:CouplingTrace"   # a real live renderer — must NOT be nudged

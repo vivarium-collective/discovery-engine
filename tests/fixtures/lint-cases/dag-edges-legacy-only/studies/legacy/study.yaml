@@ -1,0 +1,8 @@
+name: legacy
+baseline:
+  - name: b1
+    composite: pkg.composites.x
+parent_studies:
+  - upstream-a
+  - {study: upstream-b, condition: ran}
+# No pipeline_gate.prerequisites — fires `dag_edges_legacy_only`.

@@ -1,0 +1,5 @@
+schema_version: 2
+name: dag-edges-legacy-only
+created: "2026-05-18"
+plugin_version: 0.8.1
+package_path: pkg

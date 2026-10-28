@@ -1,0 +1,28 @@
+name: study-x
+baseline:
+  - name: b1
+    composite: pkg.composites.x
+
+readouts:
+  # ERROR: status implemented but path doesn't resolve.
+  - name: alpha-real
+    status: implemented
+    path: out/trajectories/alpha_nonexistent.csv
+    units: mM
+
+  # WARNING: status planned + speculative path with no TBD marker.
+  - name: beta-speculative
+    status: planned
+    path: out/trajectories/beta.csv
+    units: count
+
+  # OK: status planned + explicit TBD prefix — no warning.
+  - name: gamma-honest
+    status: planned
+    path: "TBD — planned at out/trajectories/gamma.csv"
+    units: mM
+
+  # OK: no path at all — no warning.
+  - name: delta-no-path
+    status: planned
+    units: count

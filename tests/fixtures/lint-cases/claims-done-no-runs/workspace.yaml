@@ -1,0 +1,5 @@
+schema_version: 2
+name: claims-done-no-runs
+created: "2026-05-31"
+plugin_version: 0.8.1
+package_path: pkg

@@ -1,0 +1,7 @@
+name: study-contradict
+baseline:
+  - name: b1
+    composite: pkg.composites.x
+# Contradiction 1: gate passed but evaluation failed.
+gate_status: passed
+evaluation_status: failed_evaluation

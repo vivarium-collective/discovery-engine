@@ -1,11 +1,13 @@
 # discovery-engine
 
-A **derive-first scientific-investigation discovery cycle engine** for the
-Vivarium ecosystem. It turns an investigation (an `investigation.yaml` plus its
-member `study.yaml` files) into a structured, reproducible view of what is known,
-what is unresolved, what is most valuable to do next, whether a study is
-materially ready to run, and how to cycle it forward — without performing the
-science itself.
+The **investigation/study framework + the derive-first discovery cycle** for the
+Vivarium ecosystem. It owns the investigation/study data model, its lifecycle
+(canonicalize, contracts, scaffold, seed, migrate, audit), report/card
+generation — and the discovery cycle itself: it turns an investigation (an
+`investigation.yaml` plus its member `study.yaml` files) into a structured,
+reproducible view of what is known, what is unresolved, what is most valuable to
+do next, whether a study is materially ready to run, and how to cycle it forward
+— without performing the science itself.
 
 It is a standalone library, consumed by:
 

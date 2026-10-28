@@ -1,0 +1,23 @@
+name: study-expert
+baseline:
+  - name: b1
+    composite: pkg.composites.x
+findings:
+  - id: F-01
+    kind: biological
+    status: confirms
+    statement: "References an expert doc that exists."
+    evidence:
+      from_test: t1
+    expert_reference:
+      doc: known_expert_doc
+      note: "Curator gloss."
+  - id: F-02
+    kind: biological
+    status: contradicts
+    statement: "References an expert doc that does not exist."
+    evidence:
+      from_test: t2
+    expert_reference:
+      doc: mystery_doc_not_in_workspace
+      note: "This should trigger the unknown-expert-doc check."

@@ -1,0 +1,13 @@
+name: study-viz
+baseline:
+  - name: b1
+    composite: pkg.composites.x
+visualizations:
+  - name: dnaa-state
+    address: "local:DnaAStateVisualization"   # resolved via explicit class
+  - name: time-series
+    address: "local:TimeSeriesPlot"            # resolved via @as_visualization update_time_series_plot
+  - name: pascal
+    address: "local:HeatmapView"               # resolved via @as_visualization update_heatmap_view (PascalCase variant)
+  - name: snake
+    address: "local:heatmap_view"              # resolved via the same factory (snake_case variant)

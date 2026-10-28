@@ -1,0 +1,55 @@
+name: study-bad-cites
+baseline:
+  - name: b1
+    composite: pkg.composites.x
+
+# behavior_tests[] with cites including unknown keys
+behavior_tests:
+  - name: fraction-test
+    classification: primary
+    measure:
+      kind: generation_average
+      path: bulk MONOMER0-160[c]
+    pass_if:
+      op: generation_average_in_range
+      low: 0.2
+      high: 0.5
+    cites:
+      - Boesen2024         # known — ok
+      - FakeRef1999        # unknown — should error
+
+  - name: total-dnaa-test
+    classification: secondary
+    measure:
+      kind: generation_average
+      path: bulk PD03831[c]
+    pass_if:
+      op: generation_average_in_range
+      low: 300
+      high: 800
+    calibration_anchor:
+      literature_target: 550
+      cites:
+        - AnotherFake2001  # unknown — should error
+
+# tests[] (v4 per-test array) with unknown cites
+tests:
+  - name: v4-fraction-test
+    classification: primary
+    pass_if:
+      op: generation_average_in_range
+      low: 0.2
+      high: 0.5
+    cites:
+      - KnownAuthor2020    # known — ok
+      - GhostRef9999       # unknown — should error
+
+# readouts[] with unknown cites
+readouts:
+  - name: DnaA-ATP fraction
+    identifier: bulk MONOMER0-160[c] / ...
+    units: fraction
+    status: primary
+    cites:
+      - Boesen2024         # known — ok
+      - MissingRef2042     # unknown — should error

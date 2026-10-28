@@ -1,0 +1,15 @@
+name: study-decide
+baseline:
+  - name: b1
+    composite: pkg.composites.x
+phase: Decide
+# No findings[] — should fire decide_phase_missing_findings.
+# Also include a conclusion_logic so incomplete_summaries doesn't fire.
+evaluation_status: evaluated
+simulation_status: ran
+implementation_status: complete
+conclusion_logic:
+  if_primary_tests_pass:
+    biological_validation: "Reproduces the expected steady-state DnaA count."
+  if_primary_tests_fail:
+    block_downstream: "Halt downstream studies until calibration resolved."

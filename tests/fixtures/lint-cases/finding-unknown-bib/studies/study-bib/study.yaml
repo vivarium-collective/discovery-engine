@@ -1,0 +1,21 @@
+name: study-bib
+baseline:
+  - name: b1
+    composite: pkg.composites.x
+findings:
+  - id: F-01
+    kind: biological
+    status: confirms
+    statement: "Cites a mix of known and unknown bib_keys."
+    evidence:
+      from_test: t1
+    expected:
+      cites: [Hansen2018DnaATale, MadeUpKey2099, AnotherFakeRef]
+  - id: F-02
+    kind: biological
+    status: confirms
+    statement: "Cites only known keys."
+    evidence:
+      from_test: t2
+    expected:
+      cites: [KnownAuthor2020]

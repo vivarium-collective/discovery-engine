@@ -1,0 +1,29 @@
+name: study-evid
+baseline:
+  - name: b1
+    composite: pkg.composites.x
+findings:
+  # 1. biological without evidence — should fire (warning)
+  - id: F-01
+    kind: biological
+    status: contradicts
+    statement: "Claim with no run/test link."
+  # 2. computational with evidence.from_run — should NOT fire
+  - id: F-02
+    kind: computational
+    status: novel
+    statement: "Wiring bug found."
+    evidence:
+      from_run: baseline-01
+  # 3. methodological without evidence — should NOT fire (kind not checked)
+  - id: F-03
+    kind: methodological
+    status: confirms
+    statement: "Multi-seed pooling rescues correlation tests."
+  # 4. biological with evidence.from_test — should NOT fire
+  - id: F-04
+    kind: biological
+    status: confirms
+    statement: "Linked via from_test."
+    evidence:
+      from_test: dnaA-count-in-range

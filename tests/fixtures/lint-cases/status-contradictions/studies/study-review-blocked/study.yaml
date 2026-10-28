@@ -1,0 +1,7 @@
+name: study-review-blocked
+baseline:
+  - name: b1
+    composite: pkg.composites.x
+# Contradiction: expert approved but gate blocked.
+expert_review_status: approved
+gate_status: blocked

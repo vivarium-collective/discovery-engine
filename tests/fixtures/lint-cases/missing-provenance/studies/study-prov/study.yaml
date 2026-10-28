@@ -1,0 +1,21 @@
+name: study-prov
+baseline:
+  - name: b1
+    composite: pkg.composites.x
+evaluation_status: evaluated
+simulation_status: ran
+implementation_status: complete
+conclusion_logic:
+  if_primary_tests_pass:
+    biological_validation: "Reproduces."
+  if_primary_tests_fail:
+    block_downstream: "Halt."
+findings:
+  - id: F-01
+    statement: "Run-derived finding lacking provenance."
+    # provenance.run_ids absent — should fire missing_provenance.
+  - id: F-02
+    statement: "Another finding with empty run_ids."
+    provenance:
+      run_ids: []
+      model_commit_hash: "deadbeef"

@@ -1,0 +1,5 @@
+schema_version: 2
+name: speculative-readout-paths
+created: "2026-05-25"
+plugin_version: 0.10.1
+package_path: pkg

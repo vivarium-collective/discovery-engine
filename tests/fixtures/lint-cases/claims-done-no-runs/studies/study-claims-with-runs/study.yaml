@@ -1,0 +1,14 @@
+name: study-claims-with-runs
+# Same completion claim, but backed by a runs: block — must NOT fire.
+baseline:
+  - name: b1
+    composite: pkg.composites.x
+status: completed
+gate_status: passed
+simulation_status: ran
+evaluation_status: evaluated
+runs:
+  - name: r1
+    status: completed
+    parquet: studies/study-claims-with-runs/parquet-runs/r1
+    seeds: [0]

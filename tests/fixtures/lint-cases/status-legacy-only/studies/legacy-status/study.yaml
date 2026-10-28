@@ -1,0 +1,5 @@
+name: legacy-status
+baseline:
+  - name: b1
+    composite: pkg.composites.x
+status: in-progress      # legacy single-enum field, no multi-axis set → fires

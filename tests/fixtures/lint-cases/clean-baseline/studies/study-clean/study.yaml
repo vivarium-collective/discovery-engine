@@ -1,0 +1,63 @@
+name: study-clean
+baseline:
+  - name: b1
+    composite: pkg.composites.x
+variants:
+  - name: reference
+    description: "Reference variant with published parameters."
+planned_runs:
+  - name: r1
+    status: planned
+    n_steps: 100
+    details: "Baseline reference run."
+readouts:
+  - name: dnaa-copies
+    units: count
+    notes: "DnaA copy count time series."
+visualizations:
+  - name: dnaa-timeseries
+    address: "file:reports/figures/study-clean/dnaa.html"
+    description: "DnaA copies over time."
+conditions:
+  baseline:
+    composite: pkg.composites.x
+    params:
+      seed: 0
+      initiation_rate: 0.02
+      dnaa_atp_fraction: 0.7
+  variants:
+    - name: reference
+      description: "Reference variant with published parameters."
+simulation_set:
+  - name: r1
+    kind: single
+    status: planned
+    base_model: pkg.composites.x
+    duration_steps: 100
+    details: "Baseline reference run."
+evaluation_status: evaluated
+simulation_status: ran
+implementation_status: complete
+gate_status: passed
+expert_review_status: approved
+conclusion_logic:
+  if_primary_tests_pass:
+    implementation_status: confirmed
+    biological_validation: "Model reproduces the expected DnaA steady state within tolerance."
+    pipeline_unblocks:
+      - downstream-study
+  if_primary_tests_fail:
+    diagnose:
+      - "Inspect listener output for DnaA copies."
+    block_downstream: "Halt downstream studies until DnaA reproduces expected steady state."
+behavior_tests:
+  - name: dnaa-steady
+    description: "Measure DnaA copy count at steady state and assert it lies within the literature-anchored 350-500 range over the second half of the run."
+  - name: autorepression-correlation
+    description: "Compute Pearson correlation between DnaA-ATP concentration and dnaA transcript count; assert the value is significantly negative."
+findings:
+  - id: F-01
+    statement: "v2ecoli reproduces the DnaA shortfall."
+    provenance:
+      run_ids: ["run-001", "run-002"]
+      model_commit_hash: "deadbeef"

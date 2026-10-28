@@ -1,0 +1,11 @@
+name: study-dupe
+baseline:
+  - name: b1
+    composite: pkg.composites.x
+behavior_tests:
+  - name: test-one
+    description: "Assert that the DnaA steady-state count remains within 350 and 500 over the second half of the run."
+  - name: test-two
+    description: "Assert that the DnaA steady-state count remains within 350 and 500 over the second half of the run."
+  - name: test-three
+    description: "Measure transcription elongation rate and compare against the literature mean of 42 nt/s."

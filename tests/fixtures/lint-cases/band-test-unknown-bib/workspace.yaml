@@ -1,0 +1,5 @@
+schema_version: 2
+name: band-test-unknown-bib
+created: "2026-06-10"
+plugin_version: 0.9.0
+package_path: pkg

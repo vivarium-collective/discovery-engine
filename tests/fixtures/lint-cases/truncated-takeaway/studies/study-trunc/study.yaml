@@ -1,0 +1,8 @@
+name: study-trunc
+baseline:
+  - name: b1
+    composite: pkg.composites.x
+evaluation_status: evaluated
+conclusion_logic:
+  if_pass: "Confirm reproduces and"
+  if_fail: "Halt"

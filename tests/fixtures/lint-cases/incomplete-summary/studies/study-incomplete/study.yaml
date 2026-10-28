@@ -1,0 +1,28 @@
+name: study-incomplete
+baseline:
+  - name: b1
+    composite: pkg.composites.x
+# A DECLARED viz (embed_visualizations → the on-disk viz/chart.html) so this
+# study clears the hard viz gate (missing_visualizations, which now requires a
+# declared viz — an on-disk file alone no longer counts) and stays isolated to
+# the incomplete_summaries check it exists to exercise. An embed (html_path) is
+# used rather than a `local:` address so it needs no address resolution.
+embed_visualizations:
+  - name: mechanism-chart
+    html_path: viz/chart.html
+evaluation_status: evaluated
+simulation_status: ran
+implementation_status: complete
+# conclusion_logic intentionally absent — should fire incomplete_summaries.
+# A minimal finding is present so this fixture isolates the
+# incomplete_summaries check (the Pass 10A decide_phase_missing_findings
+# check would otherwise also fire on this combination).
+findings:
+  - id: F-01
+    kind: methodological
+    status: confirms
+    statement: "Placeholder finding so the Pass 10A decide-phase check is satisfied."
+    evidence:
+      from_test: t1
+    provenance:
+      run_ids: ["run-001"]

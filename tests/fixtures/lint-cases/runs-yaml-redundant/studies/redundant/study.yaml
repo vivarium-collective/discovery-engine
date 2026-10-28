@@ -1,0 +1,9 @@
+name: redundant
+baseline:
+  - name: b1
+    composite: pkg.composites.x
+runs:
+  - {run_id: r1, variant: null, status: completed, n_steps: 5}
+  - {run_id: r2, variant: fast, status: completed, n_steps: 5}
+# runs.db is populated programmatically by the test setup so both r1 and
+# r2 are also in runs_meta → INFO finding (redundant) fires, no warning.

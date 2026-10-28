@@ -1,0 +1,10 @@
+name: study-tbd
+baseline:
+  - name: b1
+    composite: pkg.composites.x
+objective: "Demonstrate something TBD before publication."
+description: "Background: TODO fill this in."
+purpose:
+  question: "What happens when X?"
+  mechanism: "<insert>"
+  expected_outcome: "Predicted outcome: [fill in]."

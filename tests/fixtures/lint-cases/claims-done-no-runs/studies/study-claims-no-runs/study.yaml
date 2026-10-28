@@ -1,0 +1,11 @@
+name: study-claims-no-runs
+# Declares completion (gate passed + evaluated + ran) but records NOTHING about
+# what ran: no runs:, no simulation_set:, no planned_runs:. This is the
+# dnaa-0/1 pre-migration state — the report would show it as not-run/pending.
+baseline:
+  - name: b1
+    composite: pkg.composites.x
+status: completed
+gate_status: passed
+simulation_status: ran
+evaluation_status: evaluated

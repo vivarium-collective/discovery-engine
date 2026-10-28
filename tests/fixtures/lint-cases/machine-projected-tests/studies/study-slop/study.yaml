@@ -1,0 +1,32 @@
+name: study-slop
+schema_version: 4
+question: "Does the slop pattern exist?"
+conditions:
+  baseline:
+    composite: pkg.composites.x
+  variants: []
+  model_settings: []
+
+# v3-style expected_behavior entries.
+expected_behavior:
+  - name: alpha-test
+    en: "ATP reproduces expected steady state."
+    measure: "observable-comparison"
+  - name: beta-test
+    en: "NAD/NADH ratio stays in band."
+    measure: "observable-comparison"
+  - name: gamma-test
+    en: "Growth rate matches Phase 0."
+    measure: "observable-comparison"
+
+# tests[] machine-projected from expected_behavior — the AI-slop shape:
+# - names match expected_behavior names
+# - measure is a single-key {expr: <stringified content>} dict
+# - no classification set on any entry
+tests:
+  - name: alpha-test
+    measure: {expr: "{kind: 'observable-comparison', observable: 'atp'}"}
+  - name: beta-test
+    measure: {expr: "{kind: 'observable-comparison', observable: 'nadh_ratio'}"}
+  - name: gamma-test
+    measure: {expr: "{kind: 'observable-comparison', observable: 'growth_rate'}"}

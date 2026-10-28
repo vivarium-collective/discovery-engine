@@ -1,0 +1,10 @@
+name: study-viz
+baseline:
+  - name: b1
+    composite: pkg.composites.x
+visualizations:
+  - name: barrier-kinematics            # no address — would 500 at render time
+  - name: coupling-trace
+    address: "local:CouplingTrace"      # OK — has address (won't be in workspace; that's the unresolved check)
+  - name: phase-space
+    address: ""                          # empty — same as missing
