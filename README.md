@@ -37,22 +37,19 @@ yield the same bundle.
 
 ## Install
 
-Not published to PyPI (the `discovery-engine` name there is an **unrelated**
-project — don't `pip install discovery-engine`). Install from git:
-
-```bash
-uv pip install "discovery-engine @ git+https://github.com/vivarium-collective/discovery-engine.git"
-# or, from a clone, editable:
-uv pip install -e .
-```
-
-In the Vivarium ecosystem it's wired as a git source, e.g. in
-viva-superpowers / vivarium-workbench:
+Use it as a **git dependency** (not published to a package index). In the
+Vivarium ecosystem it's wired as a git source in the consumer's `pyproject.toml`,
+e.g. in viva-superpowers / vivarium-workbench:
 
 ```toml
+dependencies = ["discovery-engine", ...]
+
 [tool.uv.sources]
 discovery-engine = { git = "https://github.com/vivarium-collective/discovery-engine.git", branch = "main" }
 ```
+
+Then `uv lock` / `uv sync` resolves it. To work on this repo directly, clone it
+and run `uv sync`.
 
 Depends on `viva-emitters` (reads run results) and `viva-workspace` (resolves a
 workspace's layout); plus process-bigraph, bigraph-schema, numpy, polars,
