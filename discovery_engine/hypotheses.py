@@ -432,3 +432,60 @@ def discriminating_hypotheses(inv_spec: dict) -> dict:
         if best is not None:
             out[slug] = best
     return out
+
+
+def anomalies(inv_spec: dict, study_specs: list[dict]) -> list[dict]:
+    """Observed values that satisfy NONE of the live competing hypotheses'
+    predicted bands for their observable — surprises the current hypothesis set
+    did not anticipate (e.g. a value in the gap between two opposed predictions).
+
+    Each is a seed for a new question (spec stage 7 FR-07.05 / stage 8 FR-08.03:
+    generate follow-ups from anomalies), returned as ``{study, observable,
+    observed, note, proposed_question}``. Only fires where a study actually
+    measured the observable (findings' ``evidence.observed``) and >=2 live
+    hypotheses make a prediction on it. Pure; AI-free; raises nothing."""
+    inv_spec = inv_spec or {}
+    hyps = inv_spec.get("hypotheses")
+    if not isinstance(hyps, list):
+        return []
+    bands: dict[tuple[str, str], list[dict]] = {}
+    for h in hyps:
+        if not isinstance(h, dict):
+            continue
+        if str(h.get("status", "open")).strip().lower() in _RETIRED_STATUS:
+            continue
+        slug = h.get("study")
+        if not slug:
+            continue
+        for p in _as_list(h.get("predictions")):
+            if not isinstance(p, dict):
+                continue
+            band = _expected_band(p.get("expected"))
+            if p.get("observable") and band:
+                bands.setdefault((slug, p["observable"]), []).append(band)
+    out: list[dict] = []
+    for study in study_specs or []:
+        if not isinstance(study, dict):
+            continue
+        sslug = _study_slug(study)
+        for f in _findings(study):
+            measure, observed = _finding_measure_observed(f)
+            val = _to_float(observed)
+            if measure is None or val is None:
+                continue
+            live = bands.get((sslug, measure))
+            if not live or len(live) < 2:
+                continue
+            if any(_evaluate(val, b) for b in live):
+                continue
+            out.append({
+                "study": sslug,
+                "observable": measure,
+                "observed": val,
+                "note": "observed outside all competing predictions — a surprise the "
+                        "current hypotheses did not anticipate",
+                "proposed_question": f"What mechanism produces {measure} = {val} in "
+                                     f"{sslug}? It falls outside every competing hypothesis's "
+                                     "predicted band — a new hypothesis is needed.",
+            })
+    return out
