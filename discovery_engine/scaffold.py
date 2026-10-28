@@ -128,7 +128,7 @@ _INPLACE_PLACEHOLDERS = ("workspace_name", "package_path", "today",
 
 
 def _plugin_version() -> str:
-    """Read pbg-superpowers' own __version__ — replaces template-init.sh's
+    """Read viva-superpowers' own __version__ — replaces template-init.sh's
     hardcoded constant. Falls back to a literal if the package didn't expose
     one (shouldn't happen but defensive)."""
     try:
@@ -372,7 +372,7 @@ def _inplace_merge_gitignore(existing_path: Path, template_lines: list[str]) -> 
         return 0
     sep = "\n" if (existing and existing[-1].strip()) else ""
     new_text = existing_path.read_text(encoding="utf-8") if existing_path.exists() else ""
-    new_text += sep + "\n# Added by pbg-superpowers in-place scaffolder\n"
+    new_text += sep + "\n# Added by viva-superpowers in-place scaffolder\n"
     new_text += "\n".join(to_add) + "\n"
     existing_path.write_text(new_text)
     return len(to_add)
@@ -632,7 +632,7 @@ def scaffold_workspace_in_place(
     branch: str | None = None,
     package_path: str | None = None,
 ) -> Path:
-    """Promote an existing git checkout into a pbg-superpowers workspace.
+    """Promote an existing git checkout into a viva-superpowers workspace.
 
     Implements the manual ritual the friction log called out: copies the
     template tree minus a small conflict set, renders the .j2 files,
@@ -762,7 +762,7 @@ def scaffold_workspace_in_place(
                        check=True, capture_output=True)
         subprocess.run(
             ["git", "-C", str(workspace_root), "commit",
-             "-m", f"feat: workspace bootstrap (pbg-superpowers --in-place)\n\n"
+             "-m", f"feat: workspace bootstrap (viva-superpowers --in-place)\n\n"
                    f"Promoted to workspace via scaffold_workspace_in_place "
                    f"from viva-template. Branch: {branch}. Package: {pkg_slug}."],
             check=True, capture_output=True,
