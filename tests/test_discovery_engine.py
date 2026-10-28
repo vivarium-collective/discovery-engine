@@ -279,6 +279,23 @@ def test_criterion_falls_back_to_verdict_when_no_behavior_outcome():
     assert "s" in [i["target"] for i in de.frontier(cyc, inv) if i["kind"] == "unaddressed_criterion"]
 
 
+def test_calibrated_study_reads_distinct_from_never_touched():
+    # A calibrated-but-unassessed study (recorded findings, no tracked verdict) still blocks
+    # closure, but its frontier rationale says "calibrated, pending a tracked run" — distinct
+    # from a never-touched study whose rationale carries no such note.
+    cyc = _cycle(verdicts={
+        "cal": {"verdict": "unassessed", "calibrated": True},
+        "raw": {"verdict": "unassessed", "calibrated": False},
+    })
+    inv = {"acceptance_criteria": [{"study": "cal", "behavior": "b"},
+                                   {"study": "raw", "behavior": "b"}]}
+    rats = {i["target"]: i["rationale"] for i in de.frontier(cyc, inv)
+            if i["kind"] == "unaddressed_criterion"}
+    assert "cal" in rats and "raw" in rats           # both still block closure
+    assert "calibrated" in rats["cal"] and "pending" in rats["cal"]
+    assert "calibrated" not in rats["raw"]
+
+
 def test_frontier_skips_items_resolved_in_the_investigation():
     # Uniform resolution: one recorded resolution discharges a frontier item of ANY kind,
     # via a single check in add() — the op that produced the artifact records a resolution.

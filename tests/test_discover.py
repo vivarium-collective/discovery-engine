@@ -624,3 +624,42 @@ def test_run_readiness_flags_declared_but_unrendered_viz(tmp_path):
     r2 = discover.run_readiness(spec, tmp_path)
     assert r2["visualizations_rendered"] is True
     assert not any("not rendered" in g for g in r2["gaps"])
+
+
+def test_run_readiness_flags_unresolved_derived_measure(monkeypatch):
+    # a derived measure whose computer is NOT in the env's registry will grade SKIP — flag it
+    # (the env that runs readiness is the env that grades). A non-empty registry is "trustworthy".
+    import discovery_engine.study_evaluator as SE
+    study = {"behavior_tests": [{"name": "t", "measure": {"kind": "derived_scalar", "path": "foo"}}]}
+    monkeypatch.setattr(SE, "load_workspace_derived_scalars", lambda ws: {"bar": object()}, raising=False)
+    r = discover.run_readiness(study, "/tmp")
+    assert r["measures_resolvable"] is False
+    assert any("no registered evaluator" in g for g in r["gaps"])
+    assert r["complete"] is False
+    # registry HAS the computer → resolvable, no SKIP gap
+    monkeypatch.setattr(SE, "load_workspace_derived_scalars",
+                        lambda ws: {"foo": object(), "bar": object()}, raising=False)
+    r2 = discover.run_readiness(study, "/tmp")
+    assert r2["measures_resolvable"] is True
+    assert not any("no registered evaluator" in g for g in r2["gaps"])
+
+
+def test_run_readiness_empty_registry_does_not_false_flag(monkeypatch):
+    # an empty registry (no workspace package / no evaluators here) must NOT flag everything.
+    import discovery_engine.study_evaluator as SE
+    monkeypatch.setattr(SE, "load_workspace_derived_scalars", lambda ws: {}, raising=False)
+    study = {"behavior_tests": [{"name": "t", "measure": {"kind": "derived_scalar", "path": "foo"}}]}
+    r = discover.run_readiness(study, "/tmp")
+    assert r["measures_resolvable"] is True
+    assert not any("no registered evaluator" in g for g in r["gaps"])
+
+
+def test_summarize_completion_surfaces_publishable_axis():
+    # publishable (presentation complete) is distinct from closure — a closed investigation can
+    # still be not-publishable when a study's artifacts haven't materialized.
+    cmap = {"closed": True, "open_items": 0, "unaddressed_criteria": [], "pending_gates": [],
+            "gating_decisions": [], "suggested_studies": [], "next_steps": [],
+            "publishable": False, "not_publishable": {"s1": ["no contracts declared"]}}
+    out = discover.summarize_completion(cmap)
+    assert "publishable (presentation complete): NO" in out
+    assert "s1: no contracts declared" in out

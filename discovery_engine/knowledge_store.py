@@ -133,12 +133,26 @@ def canonical_verdict(study_spec: dict) -> dict:
     else:
         rationale = f"Derived from coded test roll-up (result: {derived})."
 
+    # Recorded findings are PARTIAL, non-tracked evidence: a study with findings but no tracked
+    # verdict is CALIBRATED (recorded evidence, pending a tracked run) — distinct from a never-
+    # touched study. They do NOT constitute a tracked verdict and never close an acceptance
+    # criterion on their own (the verdict stays `unassessed`, so closure stays blocked). This just
+    # lets the cycle label "calibrated, pending run" instead of flatly "unassessed / no evidence".
+    finding_ids = _finding_ids(study_spec)
+    evidence_recorded = bool(finding_ids)
+    calibrated = (not authored) and derived == "unassessed" and evidence_recorded
+    if calibrated:
+        rationale = (f"No tracked verdict yet, but {len(finding_ids)} recorded finding(s) present "
+                     f"— calibrated, pending a tracked run.")
+
     out: dict[str, Any] = {
         "verdict": verdict,
         "verdict_source": source,
         "diverges": diverges,
         "rationale": rationale,
-        "evidence_refs": _finding_ids(study_spec),
+        "evidence_refs": finding_ids,
+        "evidence_recorded": evidence_recorded,
+        "calibrated": calibrated,
     }
 
     progress = study_spec.get("execution_status")

@@ -130,6 +130,43 @@ class TestCanonicalVerdictAuthoredWins:
         assert cv["verdict"] == "qualified" and cv["diverges"] is True
 
 
+class TestFindingsAsPartialEvidence:
+    """Recorded findings are a weak, non-tracked signal: a calibrated-but-unassessed
+    study reads 'calibrated, pending a tracked run' — distinct from a never-touched one —
+    without the findings ever becoming a verdict or closing a criterion."""
+
+    def test_unassessed_with_findings_is_calibrated(self):
+        spec = _spec(_named("t1"), has_runs=False) | {
+            "findings": [{"id": "f1", "text": "connected arm 0.54 vs isolated 0.46"}]}
+        cv = canonical_verdict(spec)
+        assert cv["verdict"] == "unassessed"      # findings do NOT become a verdict
+        assert cv["calibrated"] is True
+        assert cv["evidence_recorded"] is True
+        assert cv["evidence_refs"] == ["f1"]
+        assert "pending" in cv["rationale"]
+
+    def test_unassessed_without_findings_is_not_calibrated(self):
+        cv = canonical_verdict(_spec(_named("t1"), has_runs=False))
+        assert cv["verdict"] == "unassessed"
+        assert cv["calibrated"] is False
+        assert cv["evidence_recorded"] is False
+
+    def test_findings_never_override_a_tracked_verdict(self):
+        # a passing (tracked) study with findings is supported, NOT flagged calibrated —
+        # calibrated is only the unassessed-but-recorded limbo state.
+        cv = canonical_verdict(_pass("t1") | {"findings": [{"id": "f1"}]})
+        assert cv["verdict"] == "supported"
+        assert cv["calibrated"] is False
+
+    def test_authored_unassessed_findings_do_not_calibrate(self):
+        # an author who explicitly recorded inconclusive is a tracked judgment, not limbo.
+        cv = canonical_verdict(
+            _spec(_named("t1"), has_runs=False)
+            | {"verdict": "inconclusive", "findings": [{"id": "f1"}]})
+        assert cv["verdict"] == "inconclusive"
+        assert cv["calibrated"] is False
+
+
 class TestProgressVerdictDecoupling:
     def test_failed_execution_does_not_downgrade_authored_verdict(self):
         """Review focus: execution failed, author says supported — the verdict is

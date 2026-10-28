@@ -115,13 +115,20 @@ def frontier(cycle_result: dict, inv_spec: dict) -> list[dict]:
         beh_result = (behaviors.get(study) or {}).get(behavior) if behavior else None
         if beh_result == "PASS":
             continue  # the named acceptance behavior passed → criterion met
-        v = (verdicts.get(study) or {}).get("verdict")
+        vrec = verdicts.get(study) or {}
+        v = vrec.get("verdict")
         if v not in _MET:
+            # Recorded findings are partial, non-tracked evidence (knowledge_store): a
+            # calibrated-but-unrun study is "calibrated, pending a tracked run" — distinct
+            # from a never-touched one — but the criterion stays UNMET (findings never
+            # close it on their own), so this only enriches the rationale.
+            note = (" — calibrated (recorded findings present), pending a tracked run"
+                    if vrec.get("calibrated") else "")
             add("unaddressed_criterion", study,
                 (f"acceptance criterion '{behavior}' on {study} not met "
-                 f"(behavior: {beh_result or 'no-run'}, verdict: {v or 'none'})"
+                 f"(behavior: {beh_result or 'no-run'}, verdict: {v or 'none'}){note}"
                  if behavior else
-                 f"acceptance criterion on {study} not met (verdict: {v or 'none'})"))
+                 f"acceptance criterion on {study} not met (verdict: {v or 'none'}){note}"))
         elif behavior:
             # Met via the study's verdict, but the NAMED gate behavior never actually
             # passed (no run / not PASS). The criterion is satisfied on paper but the
