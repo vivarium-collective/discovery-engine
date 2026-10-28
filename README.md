@@ -1,5 +1,9 @@
 # discovery-engine
 
+<p align="center">
+  <img src="docs/discovery-engine-cycle.png" alt="The Discovery Engine — the eight-stage scientific discovery cycle" width="640">
+</p>
+
 The **investigation/study framework + the derive-first discovery cycle** for the
 Vivarium ecosystem. It owns the investigation/study data model, its lifecycle
 (canonicalize, contracts, scaffold, seed, migrate, audit), report/card
