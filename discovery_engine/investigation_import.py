@@ -646,7 +646,7 @@ def _ensure_source(rev: str, *, git: str | None, src: Path | None, cache_key: st
             "no upstream git URL to clone from — declare `imported_investigations.git` "
             "in workspace.yaml or pass --upstream-src PATH."
         )
-    cache = Path.home() / ".cache" / "viva-superpowers" / "investigation-import" / cache_key
+    cache = Path.home() / ".cache" / "discovery-engine" / "investigation-import" / cache_key
     if not (cache / ".git").exists():
         cache.parent.mkdir(parents=True, exist_ok=True)
         _git("clone", "--filter=blob:none", git, str(cache))

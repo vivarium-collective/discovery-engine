@@ -1071,8 +1071,8 @@ def _apply_window(series: pl.DataFrame, window_spec: str) -> tuple:
             from viva_emitters import by_generation  # noqa: PLC0415
         except ImportError as _ie:
             raise ImportError(
-                "by_generation requires the evaluator extra: "
-                "pip install 'pbg-superpowers[evaluator]'"
+                "by_generation requires the parquet reader: "
+                "pip install 'viva-emitters[parquet]'"
             ) from _ie
         return ("per_gen_all", by_generation(series))
 
@@ -1350,8 +1350,8 @@ def _apply_op(windowed: tuple, pass_if: dict, kind: str, op: str, config=None) -
                 from viva_emitters import by_generation  # noqa: PLC0415
             except ImportError as _ie:
                 raise ImportError(
-                    "by_generation requires the evaluator extra: "
-                    "pip install 'pbg-superpowers[evaluator]'"
+                    "by_generation requires the parquet reader: "
+                    "pip install 'viva-emitters[parquet]'"
                 ) from _ie
             gen_data = by_generation(data)
         else:
@@ -1404,8 +1404,8 @@ def _apply_op(windowed: tuple, pass_if: dict, kind: str, op: str, config=None) -
                 from viva_emitters import by_generation  # noqa: PLC0415
             except ImportError as _ie:
                 raise ImportError(
-                    "by_generation requires the evaluator extra: "
-                    "pip install 'pbg-superpowers[evaluator]'"
+                    "by_generation requires the parquet reader: "
+                    "pip install 'viva-emitters[parquet]'"
                 ) from _ie
             gen_data_2 = by_generation(data)
         else:
@@ -1469,8 +1469,8 @@ def _apply_op(windowed: tuple, pass_if: dict, kind: str, op: str, config=None) -
                 from viva_emitters import by_generation  # noqa: PLC0415
             except ImportError as _ie:
                 raise ImportError(
-                    "by_generation requires the evaluator extra: "
-                    "pip install 'pbg-superpowers[evaluator]'"
+                    "by_generation requires the parquet reader: "
+                    "pip install 'viva-emitters[parquet]'"
                 ) from _ie
             gen_data_3 = by_generation(data)
         else:
@@ -1769,8 +1769,8 @@ def compute_outcomes(
                 from viva_emitters import RunReader  # noqa: PLC0415
             except ImportError as _ie:
                 raise ImportError(
-                    "RunReader requires the evaluator extra: "
-                    "pip install 'pbg-superpowers[evaluator]'"
+                    "RunReader requires the parquet reader: "
+                    "pip install 'viva-emitters[parquet]'"
                 ) from _ie
             reader = RunReader.open(store_path)
             outcomes = evaluate_study(per_run_spec, reader, ws_root=ws_root)

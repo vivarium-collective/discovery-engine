@@ -1,7 +1,7 @@
 """Compat shim — the workspace-layout resolver now lives in ``viva-workspace``.
 
 This module used to be a HAND-VENDORED copy of the canonical resolver, kept in
-sync by hand (with a drift-guard test) because pbg-superpowers did not depend on
+sync by hand (with a drift-guard test) because viva-superpowers did not depend on
 the workbench. That sync burden is gone: the single source of truth is the
 standalone, dependency-light ``viva-workspace`` package, which viva-superpowers
 now depends on directly.

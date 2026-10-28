@@ -12,7 +12,7 @@ version-control.
 
 Task 8: substitution, type normalisation, and composite construction delegate
 to the unified engine in process_bigraph.composite_spec; this module keeps only
-file I/O (load_spec) and pbg-superpowers-specific wrapping behaviour
+file I/O (load_spec) and viva-superpowers-specific wrapping behaviour
 (validate_spec, build_composite_from_spec with install_default_emitters).
 """
 from __future__ import annotations

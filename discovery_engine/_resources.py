@@ -26,6 +26,6 @@ def resource_dir(name: str) -> Path:
     if fallback.is_dir():
         return fallback
     raise RuntimeError(
-        f"pbg-superpowers resource '{name}' not found at {bundled} or {fallback}; "
+        f"viva-superpowers resource '{name}' not found at {bundled} or {fallback}; "
         "is the plugin installed correctly?"
     )
