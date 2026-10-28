@@ -21,7 +21,7 @@ dependencies = [
     "viva-emitters[parquet]>=0.2.3",
     # resolves a workspace's package/layout
     "viva-workspace",
-    # composite spec / generator registry (composite_spec, core_introspection)
+    # composite spec / generator registry (composite_spec)
     "process-bigraph",
     "bigraph-schema",
     "filelock>=3.12",
