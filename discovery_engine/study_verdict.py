@@ -754,7 +754,7 @@ def write_gate_evaluator(study_dir) -> bool:
 # that qualify or oppose it (partial = caveat-like, contradicts = refuting), plus
 # the literal caveat/refuted/exploratory labels some authors put in status/kind.
 _NON_SUPPORTING_FINDING = frozenset({
-    "partial", "contradicts", "caveat", "refuted", "exploratory"})
+    "partial", "contradicts", "caveat", "refuted", "exploratory", "planned"})
 
 _ACCEPTED_VERDICTS = frozenset({
     "passed", "pass", "passing", "passing-with-caveats", "accepted"})

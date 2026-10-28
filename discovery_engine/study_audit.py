@@ -751,7 +751,7 @@ def _check_preregistration(audit, spec: dict) -> None:
 def _check_supporting_provenance(audit, spec: dict) -> None:
     """L2 supporting-provenance: when the study's confidence is Accepted, every
     finding that backs it (status confirms/novel/unset; not caveat, partial,
-    contradicts, refuted, exploratory, or obsoleted) must carry a resolvable
+    contradicts, refuted, exploratory, planned, or obsoleted) must carry a resolvable
     ``evidence.from_test`` (names a behavior_tests/tests entry) AND a non-empty
     ``provenance.run_ids``. Abstains (appends nothing) on non-Accepted studies,
     no findings, or any error. Read-only; never raises or writes a verdict."""
