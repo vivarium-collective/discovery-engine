@@ -344,3 +344,91 @@ def support_summary(support_log: list[dict]) -> dict:
         # weakening evidence. A transparent scalar, not a probability.
         "net": counts[SUPPORTS] + counts[EXCLUDES] - counts[WEAKENS],
     }
+
+
+# ---------------------------------------------------------------------------
+# Discrimination — which studies carry competing hypotheses a single run separates
+# ---------------------------------------------------------------------------
+# A hypothesis is "live" (still in contention) unless its status retires it.
+_RETIRED_STATUS = frozenset({"excluded", "rejected", "retired", "refuted"})
+
+
+def _interval(expected: Any) -> tuple[float, float] | None:
+    """The numeric interval ``[lo, hi]`` a prediction's ``expected`` asserts, or
+    ``None`` when it is non-numeric. ``>=/> v`` -> ``(v, +inf)``; ``<=/< v`` ->
+    ``(-inf, v)``; ``{low, high}`` -> ``(low, high)``; ``== v`` -> ``(v, v)``."""
+    band = _expected_band(expected)
+    if not band:
+        return None
+    inf = float("inf")
+    if "low" in band or "high" in band:
+        return (band.get("low", -inf), band.get("high", inf))
+    op, v = band.get("op"), band.get("value")
+    if v is None:
+        return None
+    if op in (">=", ">", "gte", "gt"):
+        return (v, inf)
+    if op in ("<=", "<", "lte", "lt"):
+        return (-inf, v)
+    if op in ("==", "="):
+        return (v, v)
+    return None
+
+
+def _discriminating(a: Any, b: Any) -> bool:
+    """True when two predicted intervals are disjoint enough that one run's
+    scalar lands in at most one — so a single measurement separates them.
+    (Touching at a single boundary point counts: a scalar rarely lands exactly
+    on it, and the two predictions still point opposite ways.)"""
+    ia, ib = _interval(a), _interval(b)
+    if not ia or not ib:
+        return False
+    return ia[1] <= ib[0] or ib[1] <= ia[0]
+
+
+def discriminating_hypotheses(inv_spec: dict) -> dict:
+    """Map each study slug to its discrimination state over its LIVE competing
+    hypotheses: ``{observable, discriminable: bool, competing: [{hypothesis,
+    observable, expected}]}``.
+
+    A study is *discriminable* when two or more of its live hypotheses predict
+    the SAME observable with disjoint expected intervals, so one run on that
+    observable separates them. This is the heuristic information-value signal the
+    engine uses to fill an opportunity's ``competing_predictions`` and to prefer
+    the next experiment that best distinguishes the alternatives (spec stage 3 —
+    report heuristic value, not a calibrated EIG). Pure; AI-free."""
+    inv_spec = inv_spec or {}
+    hyps = inv_spec.get("hypotheses")
+    if not isinstance(hyps, list):
+        return {}
+    by_study: dict[str, dict[str, list[dict]]] = {}
+    for h in hyps:
+        if not isinstance(h, dict):
+            continue
+        if str(h.get("status", "open")).strip().lower() in _RETIRED_STATUS:
+            continue
+        slug = h.get("study")
+        if not slug:
+            continue
+        for p in _as_list(h.get("predictions")):
+            if not isinstance(p, dict) or not p.get("observable"):
+                continue
+            by_study.setdefault(slug, {}).setdefault(p["observable"], []).append(
+                {"hypothesis": h.get("id"), "observable": p["observable"],
+                 "expected": p.get("expected")})
+    out: dict[str, dict] = {}
+    for slug, by_obs in by_study.items():
+        best = None
+        for obs, preds in by_obs.items():
+            if len(preds) < 2:
+                continue
+            disjoint = any(
+                _discriminating(preds[i]["expected"], preds[j]["expected"])
+                for i in range(len(preds)) for j in range(i + 1, len(preds)))
+            if disjoint:
+                best = {"observable": obs, "discriminable": True, "competing": preds}
+                break
+            best = best or {"observable": obs, "discriminable": False, "competing": preds}
+        if best is not None:
+            out[slug] = best
+    return out

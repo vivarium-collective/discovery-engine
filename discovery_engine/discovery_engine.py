@@ -396,7 +396,10 @@ def diagnose(cycle_result: dict, inv_spec: dict) -> dict:
 # w_enable·Enable − w_cost·Cost), NOT a calibrated Bayesian value — it is explainable
 # and tunable, and it reports unknowns rather than inventing them.
 
-_OPP_WEIGHTS = {"info": 0.30, "impact": 0.40, "enable": 0.20, "cost": 0.30, "closure": 0.35}
+_OPP_WEIGHTS = {"info": 0.30, "impact": 0.40, "enable": 0.20, "cost": 0.30, "closure": 0.35,
+                # discriminate: a test/branch whose study carries competing hypotheses
+                # one run would separate is worth more — the stage-3 information signal.
+                "discriminate": 0.50}
 # Frontier kinds that block closure (the closure() condition). They sit on the
 # investigation's critical path, so they carry leverage even when the argument graph has
 # no edges to compute downstream `impact` from — otherwise, on an edgeless graph, cost
@@ -440,8 +443,10 @@ def opportunities(cycle_result: dict, inv_spec: dict) -> list[dict]:
     sorted by score (then fixed priority, then id, so the ranking is deterministic and
     not an artifact of list order). Fields the engine cannot derive are left explicit
     (``None`` / listed in ``unknowns``), never silently defaulted."""
+    from . import hypotheses as _hyp
     edges = (cycle_result.get("argument") or {}).get("edges") or []
     suggestions = cycle_result.get("suggestions") or []
+    disc = _hyp.discriminating_hypotheses(inv_spec)
     w = _OPP_WEIGHTS
     opps: list[dict] = []
     for it in frontier(cycle_result, inv_spec):
@@ -449,10 +454,19 @@ def opportunities(cycle_result: dict, inv_spec: dict) -> list[dict]:
         info, cost = _OPP_INFO.get(op, 0.3), _OPP_COST.get(op, 0.3)
         impact, enable = _opp_impact(target, edges), _opp_enable(it, suggestions)
         closure_leverage = 1.0 if it["kind"] in _CLOSURE_BLOCKING else 0.0
+        # Information value: an evidence-generating op (test/branch) whose study
+        # carries competing hypotheses a single run would separate is worth more.
+        slug = target[len("claim:"):] if str(target).startswith("claim:") else target
+        dinfo = disc.get(slug) if op in ("test", "branch") else None
+        discrimination = 1.0 if (dinfo and dinfo["discriminable"]) else 0.0
+        competing_predictions = dinfo["competing"] if (dinfo and dinfo["discriminable"]) else None
         score = (w["info"] * info + w["impact"] * impact + w["enable"] * enable
-                 + w["closure"] * closure_leverage - w["cost"] * cost)
+                 + w["closure"] * closure_leverage + w["discriminate"] * discrimination
+                 - w["cost"] * cost)
         is_claim = str(target).startswith("claim:")
-        unknowns = ["competing_predictions", "proposed_validator"]
+        unknowns = ["proposed_validator"]
+        if competing_predictions is None:
+            unknowns.insert(0, "competing_predictions")
         if not is_claim:
             unknowns.append("impact (no argument-graph signal for this target)")
         opps.append({
@@ -462,11 +476,12 @@ def opportunities(cycle_result: dict, inv_spec: dict) -> list[dict]:
             "kind": it["kind"],
             "priority": it["priority"],
             "question": it.get("rationale") or "",
-            "competing_predictions": None,
+            "competing_predictions": competing_predictions,
             "proposed_validator": None,
             "value": {"info": round(info, 3), "impact": round(impact, 3),
                       "enable": round(enable, 3), "cost": round(cost, 3),
-                      "closure": round(closure_leverage, 3), "score": round(score, 3)},
+                      "closure": round(closure_leverage, 3),
+                      "discriminate": round(discrimination, 3), "score": round(score, 3)},
             "confidence": 0.7 if is_claim else 0.4,
             "state": "open",
             "unknowns": unknowns,
@@ -543,12 +558,18 @@ def summarize_execute_plan(plan: list[dict], top: int = 10) -> str:
 def summarize_opportunities(opps: list[dict], top: int = 10) -> str:
     lines = [f"opportunities: {len(opps)} ranked by value "
              f"(score = {_OPP_WEIGHTS['info']}·info + {_OPP_WEIGHTS['impact']}·impact + "
-             f"{_OPP_WEIGHTS['enable']}·enable − {_OPP_WEIGHTS['cost']}·cost)"]
+             f"{_OPP_WEIGHTS['enable']}·enable + {_OPP_WEIGHTS['discriminate']}·discriminate "
+             f"− {_OPP_WEIGHTS['cost']}·cost)"]
     for o in opps[:top]:
         v = o["value"]
         lines.append(f"  {v['score']:+.2f}  [{o['action_type']:>10}] {o['source']}")
         lines.append(f"       info {v['info']}  impact {v['impact']}  enable {v['enable']}  "
-                     f"cost {v['cost']}  conf {o['confidence']}")
+                     f"discriminate {v.get('discriminate', 0)}  cost {v['cost']}  conf {o['confidence']}")
+        cp = o.get("competing_predictions")
+        if cp:
+            obs = cp[0].get("observable")
+            ids = ", ".join(str(c.get("hypothesis")) for c in cp)
+            lines.append(f"       ⇄ separates on {obs}: {ids}")
     if not opps:
         lines.append("  none — the frontier is empty.")
     return "\n".join(lines)

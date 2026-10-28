@@ -421,3 +421,29 @@ def test_diagnose_census_splits_frontier_and_standing():
     d = de.diagnose(_cycle(validations=recs), {})
     assert d["census_standing"]["failed"] == 1
     assert d["census_frontier"]["failed"] == 1 and d["census_frontier"]["passed"] == 1
+
+
+def test_competing_hypotheses_boost_opportunity_value_and_fill_competing_predictions():
+    """A test/branch whose study carries competing hypotheses one run would
+    separate gets a discrimination boost and its competing_predictions filled
+    (no longer a declared unknown) — the stage-3 information-value signal."""
+    cyc = _cycle(open_calls=[{"kind": "open_question", "title": "Q", "refs": ["claim:s"]}])
+    inv = {"hypotheses": [
+        {"id": "hi", "study": "s", "status": "open",
+         "predictions": [{"observable": "x", "expected": {"op": ">=", "value": 0.5}}]},
+        {"id": "lo", "study": "s", "status": "open",
+         "predictions": [{"observable": "x", "expected": {"op": "<=", "value": 0.5}}]},
+    ]}
+    o = next(o for o in de.opportunities(cyc, inv) if o["source"] in ("s", "claim:s"))
+    assert o["action_type"] in ("test", "branch")
+    assert o["value"]["discriminate"] == 1.0
+    assert {c["hypothesis"] for c in o["competing_predictions"]} == {"hi", "lo"}
+    assert "competing_predictions" not in o["unknowns"]
+
+
+def test_without_competing_hypotheses_discriminate_is_zero_and_predictions_unknown():
+    cyc = _cycle(open_calls=[{"kind": "open_question", "title": "Q", "refs": ["claim:s"]}])
+    o = de.opportunities(cyc, {})[0]
+    assert o["value"]["discriminate"] == 0.0
+    assert o["competing_predictions"] is None
+    assert "competing_predictions" in o["unknowns"]
