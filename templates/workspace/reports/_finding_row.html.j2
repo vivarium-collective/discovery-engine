@@ -1,0 +1,23 @@
+{# Single finding row, used by both group-by-status and group-by-kind views.
+   Expects loop variable `f` with: study_slug, study_link, id, kind, status,
+   statement, statement_oneliner, cites[], expert_doc (optional). #}
+<div class="finding-row" data-status="{{ f.status }}" data-kind="{{ f.kind }}">
+  <div class="top">
+    <span class="id">{{ f.id }}</span>
+    <span class="study">
+      {% if f.study_link %}<a href="{{ f.study_link }}">{{ f.study_slug }}</a>{% else %}{{ f.study_slug }}{% endif %}
+    </span>
+    <span class="badge status-{{ f.status }}">{{ f.status }}</span>
+    <span class="badge kind-{{ f.kind }}">{{ f.kind }}</span>
+    <span class="statement">{{ f.statement_oneliner }}</span>
+  </div>
+  {% if f.statement_oneliner != f.statement %}
+  <details><summary>full statement</summary><pre>{{ f.statement }}</pre></details>
+  {% endif %}
+  {% if f.cites or f.expert_doc %}
+  <div class="row-extras">
+    {% for c in f.cites %}<span class="chip inline bib">{{ c }}</span>{% endfor %}
+    {% if f.expert_doc %}<span class="chip inline doc">📄 {{ f.expert_doc }}</span>{% endif %}
+  </div>
+  {% endif %}
+</div>

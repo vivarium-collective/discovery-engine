@@ -1,0 +1,6 @@
+from viva_{{ model_slug }}.document import build_document
+
+
+def test_build_document_returns_dict():
+    doc = build_document()
+    assert isinstance(doc, dict)

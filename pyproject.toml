@@ -46,3 +46,7 @@ packages = ["discovery_engine"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 norecursedirs = ["tests/fixtures", "tests/_fixtures", ".*", "build", "dist"]
+
+[tool.hatch.build.targets.wheel.force-include]
+# scaffold/report resource templates (resource_dir("templates") -> _templates in the wheel)
+"templates" = "discovery_engine/_templates"

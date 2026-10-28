@@ -1,0 +1,178 @@
+<!DOCTYPE html>
+<html lang="en"><head>
+<meta charset="UTF-8"><title>{{ workspace_name }} — findings index</title>
+<link rel="stylesheet" href="assets/style.css">
+<style>
+/* Pass 10B findings-index — small additions on top of the shared style.css */
+.crumb{font-size:0.9em;margin-bottom:8px}
+.crumb a{color:var(--accent2);text-decoration:none}
+.crumb a:hover{text-decoration:underline}
+.chips{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin:8px 0 14px 0}
+.chips label{font-size:0.82em;color:var(--gray);margin-right:4px}
+.chip{display:inline-block;padding:3px 8px;border:1px solid var(--border);border-radius:12px;font-size:0.82em;background:#fff;cursor:pointer;user-select:none}
+.chip.active{background:var(--accent);color:#fff;border-color:var(--accent)}
+.chip.inline{cursor:default;background:rgba(0,0,0,0.04);font-size:0.78em;padding:2px 6px}
+.view-toggle{display:inline-flex;border:1px solid var(--border);border-radius:4px;overflow:hidden;margin-left:auto}
+.view-toggle button{padding:5px 10px;background:#fff;border:0;border-right:1px solid var(--border);font-size:0.85em;cursor:pointer}
+.view-toggle button:last-child{border-right:0}
+.view-toggle button.active{background:var(--accent2);color:#fff}
+.group-head{margin:18px 0 6px 0;font-size:1.05em;color:#333}
+.group-head .count{color:var(--gray);font-weight:normal;font-size:0.85em;margin-left:6px}
+.finding-row{padding:8px 10px;border-bottom:1px solid var(--border)}
+.finding-row:last-child{border-bottom:0}
+.finding-row .top{display:flex;flex-wrap:wrap;align-items:baseline;gap:8px}
+.finding-row .id{font-family:ui-monospace,Menlo,monospace;font-weight:600;color:var(--accent2)}
+.finding-row .study{font-size:0.85em;color:var(--gray)}
+.finding-row .study a{color:var(--gray)}
+.finding-row .statement{flex:1;min-width:260px}
+.finding-row details{margin-top:4px;font-size:0.9em;color:#444}
+.finding-row details summary{cursor:pointer;color:var(--accent2);font-size:0.85em}
+.finding-row details pre{background:rgba(0,0,0,0.03);padding:6px 8px;border-radius:4px;white-space:pre-wrap;font-size:0.85em}
+.badge{display:inline-block;padding:1px 7px;border-radius:10px;font-size:0.75em;line-height:1.6;border:1px solid var(--border)}
+.badge.status-confirms{background:#d1fae5;border-color:#a7f3d0;color:#065f46}
+.badge.status-partial{background:#fef3c7;border-color:#fde68a;color:#92400e}
+.badge.status-contradicts{background:#fee2e2;border-color:#fca5a5;color:#991b1b}
+.badge.status-novel{background:#ede9fe;border-color:#c4b5fd;color:#5b21b6}
+.badge.status-planned{background:#eef2f7;border-color:#cbd5e1;color:#475569}
+/* Planned / targets — visually set apart from realized results. */
+.planned-panel{border:1px dashed var(--border);background:rgba(71,85,105,0.03)}
+.planned-head{margin:0 0 2px 0;font-size:1.05em;color:#475569}
+.planned-head .count{color:var(--gray);font-weight:normal;font-size:0.85em;margin-left:6px}
+.planned-note{margin:0 0 10px 0;font-size:0.85em;color:var(--gray);font-style:italic}
+.badge.kind-biological{background:#e0f2fe;border-color:#bae6fd;color:#075985}
+.badge.kind-computational{background:#fef3c7;border-color:#fde68a;color:#854d0e}
+.badge.kind-methodological{background:#f3e8ff;border-color:#e9d5ff;color:#6b21a8}
+.row-extras{display:flex;gap:4px;flex-wrap:wrap;margin-top:3px}
+.row-extras .chip.bib{background:#eff6ff;border-color:#dbeafe;color:#1e40af;font-family:ui-monospace,Menlo,monospace}
+.row-extras .chip.doc{background:#fefce8;border-color:#fef08a;color:#854d0e}
+.hidden{display:none !important}
+.empty{padding:18px;color:var(--gray);text-align:center;font-style:italic}
+</style>
+</head><body>
+<header><h1>{{ workspace_name }} — findings</h1>
+<p class="subtitle">Cross-study findings index · regenerated {{ generated_at }}</p></header>
+<main>
+<p class="crumb"><a href="index.html">← Workspace dashboard</a></p>
+
+{% if realized %}
+<div class="panel">
+  <div class="chips" id="filter-bar">
+    <label>Filter status:</label>
+    {% for s in ["confirms", "partial", "contradicts", "novel"] %}
+      <span class="chip filter-status active" data-status="{{ s }}">{{ s }}</span>
+    {% endfor %}
+    <label style="margin-left:14px">Filter kind:</label>
+    {% for k in ["biological", "computational", "methodological"] %}
+      <span class="chip filter-kind active" data-kind="{{ k }}">{{ k }}</span>
+    {% endfor %}
+    <span class="view-toggle">
+      <button data-view="status" class="active">Group by status</button>
+      <button data-view="kind">Group by kind</button>
+    </span>
+  </div>
+
+  <div id="realized-views">
+  {# ----- View 1: grouped by status ----- #}
+  <div id="view-status">
+    {% for status in ["confirms", "partial", "contradicts", "novel"] %}
+      {% set rows = by_status.get(status, []) %}
+      {% if rows %}
+        <h3 class="group-head" data-group-status="{{ status }}">{{ status }}<span class="count">({{ rows|length }})</span></h3>
+        <div class="group" data-group-status="{{ status }}">
+        {% for f in rows %}
+          {% include "_finding_row.html.j2" %}
+        {% endfor %}
+        </div>
+      {% endif %}
+    {% endfor %}
+  </div>
+
+  {# ----- View 2: grouped by kind (hidden by default) ----- #}
+  <div id="view-kind" class="hidden">
+    {% for kind in ["biological", "computational", "methodological"] %}
+      {% set rows = by_kind.get(kind, []) %}
+      {% if rows %}
+        <h3 class="group-head" data-group-kind="{{ kind }}">{{ kind }}<span class="count">({{ rows|length }})</span></h3>
+        <div class="group" data-group-kind="{{ kind }}">
+        {% for f in rows %}
+          {% include "_finding_row.html.j2" %}
+        {% endfor %}
+        </div>
+      {% endif %}
+    {% endfor %}
+  </div>
+  </div>{# /realized-views #}
+</div>
+{% endif %}
+
+{% if planned_findings %}
+<div class="panel planned-panel">
+  <h2 class="planned-head">Planned / targets <span class="count">({{ planned_findings|length }})</span></h2>
+  <p class="planned-note">Design-phase target findings — stated before the study runs. These are <strong>not results</strong>: each is a target the study is built to test, replaced by a realized finding once the study runs.</p>
+  <div class="group planned-group">
+    {% for f in planned_findings %}
+      {% include "_finding_row.html.j2" %}
+    {% endfor %}
+  </div>
+</div>
+{% endif %}
+
+{% if not findings %}
+<div class="panel">
+  <p class="empty">No findings recorded across workspace. Run <code>/viva-study findings &lt;slug&gt;</code> to start.</p>
+</div>
+{% endif %}
+
+</main>
+<script src="assets/render-helpers.js"></script>
+<script>
+// Tiny in-page filter + view toggle. No framework.
+(function(){
+  const bar = document.getElementById('filter-bar');
+  if(!bar) return;
+  // Filters apply to realized findings only; the Planned / targets section
+  // lives outside #realized-views and is never filtered.
+  const realizedViews = document.getElementById('realized-views');
+  if(!realizedViews) return;
+  const statusChips = bar.querySelectorAll('.filter-status');
+  const kindChips = bar.querySelectorAll('.filter-kind');
+  const viewBtns = bar.querySelectorAll('.view-toggle button');
+  const viewStatus = document.getElementById('view-status');
+  const viewKind = document.getElementById('view-kind');
+
+  function activeSet(chips, attr){
+    const out = new Set();
+    chips.forEach(c => { if(c.classList.contains('active')) out.add(c.dataset[attr]); });
+    return out;
+  }
+  function applyFilter(){
+    const sActive = activeSet(statusChips, 'status');
+    const kActive = activeSet(kindChips, 'kind');
+    realizedViews.querySelectorAll('.finding-row').forEach(row => {
+      const s = row.dataset.status, k = row.dataset.kind;
+      row.classList.toggle('hidden', !sActive.has(s) || !kActive.has(k));
+    });
+    // Hide group heads whose group has no visible rows.
+    realizedViews.querySelectorAll('.group-head').forEach(h => {
+      const groupAttr = h.dataset.groupStatus ? 'group-status' : 'group-kind';
+      const val = h.dataset.groupStatus || h.dataset.groupKind;
+      const sel = `.group[data-${groupAttr}="${val}"]`;
+      const group = h.parentElement.querySelector(sel);
+      if(!group){ return; }
+      const visible = group.querySelectorAll('.finding-row:not(.hidden)').length;
+      h.classList.toggle('hidden', visible === 0);
+      group.classList.toggle('hidden', visible === 0);
+    });
+  }
+  statusChips.forEach(c => c.addEventListener('click', () => { c.classList.toggle('active'); applyFilter(); }));
+  kindChips.forEach(c => c.addEventListener('click', () => { c.classList.toggle('active'); applyFilter(); }));
+  viewBtns.forEach(b => b.addEventListener('click', () => {
+    viewBtns.forEach(x => x.classList.remove('active'));
+    b.classList.add('active');
+    if(b.dataset.view === 'status'){ viewStatus.classList.remove('hidden'); viewKind.classList.add('hidden'); }
+    else { viewKind.classList.remove('hidden'); viewStatus.classList.add('hidden'); }
+    applyFilter();
+  }));
+})();
+</script>
+</body></html>

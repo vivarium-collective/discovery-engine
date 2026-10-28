@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<html lang="en"><head>
+<meta charset="UTF-8"><title>{{ workspace_name }}</title>
+<link rel="stylesheet" href="assets/style.css">
+</head><body>
+<header><h1>{{ workspace_name }}</h1>
+<p class="subtitle">Workspace dashboard · regenerated {{ generated_at }}</p></header>
+<main>
+<div id="guidance" class="guidance panel"></div>
+<div class="panel"><h2>Models</h2>
+{% if models %}
+<table><thead><tr><th>Model</th><th>Stages complete</th><th>Report</th></tr></thead><tbody>
+{% for name, m in models.items() %}
+<tr><td><code>{{ name }}</code></td>
+<td>{{ m.stages|length }} / 7</td>
+<td><a href="../models/{{ name }}/reports/index.html">deep dive →</a></td></tr>
+{% endfor %}
+</tbody></table>
+{% else %}<p>No models yet. <code>/pbg-add-model &lt;name&gt;</code></p>{% endif %}
+</div>
+<div class="panel"><h2>Findings index</h2>
+<p>Cross-study findings aggregated from every <code>study.yaml</code>.
+{% if findings_count %}{{ findings_count }} finding{{ findings_count != 1 and 's' or '' }} recorded.{% else %}None recorded yet.{% endif %}
+<a href="findings.html">Open findings index →</a></p></div>
+<div class="panel"><h2>Recent decisions</h2>
+{% if decisions %}<ul>{% for d in (decisions[-10:] | reverse) %}<li><strong>{{ d.skill }}</strong> · {{ d.timestamp }} — {{ d.summary }}</li>{% endfor %}</ul>
+{% else %}<p>No decisions logged yet.</p>{% endif %}
+</div>
+</main>
+<script src="assets/render-helpers.js"></script></body></html>

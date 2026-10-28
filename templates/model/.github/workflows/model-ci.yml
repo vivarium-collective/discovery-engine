@@ -1,0 +1,24 @@
+name: model-ci
+on: [push, pull_request]
+
+# Per-model CI — runs L3 + L4 standalone for independent submodule PRs.
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install uv
+        run: pip install uv
+      - name: Set up venv and install
+        run: |
+          uv venv .venv
+          source .venv/bin/activate
+          uv pip install -e .[dev]
+      - name: Run model tests
+        run: |
+          source .venv/bin/activate
+          pytest -v

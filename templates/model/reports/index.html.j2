@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html lang="en"><head>
+<meta charset="UTF-8"><title>{{ model_name }}</title>
+<link rel="stylesheet" href="assets/style.css">
+<script src="https://cdn.plot.ly/plotly-2.27.0.min.js"></script>
+</head><body>
+<header><h1>{{ model_name }}</h1>
+<p class="subtitle">Per-model deep dive · regenerated {{ generated_at }}</p></header>
+<main>
+<div id="guidance" class="guidance panel"></div>
+
+<div class="panel"><h2>Process registry</h2>
+{% if registry.processes %}<table><thead><tr><th>Name</th></tr></thead><tbody>
+{% for proc in registry.processes %}<tr><td><code>{{ proc }}</code></td></tr>{% endfor %}
+</tbody></table>
+{% else %}<p>No processes registered yet (run <code>/pbg-pull-processes</code> + <code>/pbg-baseline</code>).</p>{% endif %}
+</div>
+
+<div class="panel"><h2>Type registry</h2>
+{% if registry.types %}<table><thead><tr><th>Type</th></tr></thead><tbody>
+{% for t in registry.types %}<tr><td><code>{{ t }}</code></td></tr>{% endfor %}
+</tbody></table>
+{% else %}<p>No custom types yet.</p>{% endif %}
+</div>
+
+<div class="panel"><h2>Composite document</h2>
+<div id="pbg-tree" class="json-tree"></div>
+<script>
+const PBG_DOC = {{ pbg_doc_json | safe }};
+document.getElementById('pbg-tree').innerHTML = window.renderJsonTree(PBG_DOC);
+</script>
+</div>
+
+</main>
+<script src="assets/render-helpers.js"></script></body></html>

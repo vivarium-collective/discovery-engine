@@ -1,0 +1,72 @@
+"""Verify build_core() registers expected processes and types.
+
+This is the L3 core/type registry test cluster from spec §14. It runs from
+the workspace's perspective (not standalone) — it reads workspace.yaml to
+learn which pbg-* wrappers were declared for this model and asserts that
+build_core() registered them all.
+"""
+from __future__ import annotations
+import json
+from pathlib import Path
+
+import pytest
+import yaml
+
+from viva_{{ model_slug }}.core import build_core
+from viva_superpowers.core_introspection import (
+    list_processes, list_types, registry_snapshot,
+)
+
+
+WS_ROOT = Path(__file__).resolve().parents[3]
+SNAP_PATH = Path(__file__).resolve().parents[1] / "tests" / "registry-snapshot.json"
+
+
+def _expected_processes():
+    """Read workspace.yaml to learn which wrappers this model declares.
+
+    Wrapper -> registered-name mapping convention: drop `pbg-` prefix and
+    convert dashes to underscores. Adjust if your wrappers register under
+    different names.
+    """
+    ws_file = WS_ROOT / "workspace.yaml"
+    if not ws_file.exists():
+        return None
+    ws = yaml.safe_load(ws_file.read_text()) or {}
+    model = (ws.get("models") or {}).get("{{ model_name }}", {})
+    pbg_processes = model.get("pbg_processes", [])
+    return [p.replace("pbg-", "").replace("-", "_") for p in pbg_processes]
+
+
+def test_build_core_succeeds():
+    core = build_core()
+    assert core is not None
+
+
+def test_expected_processes_registered():
+    expected = _expected_processes()
+    if expected is None:
+        pytest.skip("workspace.yaml not found — run from workspace context")
+    if not expected:
+        pytest.skip("no pbg-* wrappers declared yet (run /pbg-pull-processes first)")
+    core = build_core()
+    registered = set(list_processes(core))
+    missing = set(expected) - registered
+    assert not missing, f"missing process registrations: {sorted(missing)}"
+
+
+def test_expected_types_accessible():
+    core = build_core()
+    for tname in list_types(core):
+        assert core.access(tname) is not None, f"type {tname} not accessible"
+
+
+def test_registry_drift_detector():
+    if not SNAP_PATH.exists():
+        pytest.skip("no snapshot yet (first /pbg-baseline run will write it)")
+    expected = json.loads(SNAP_PATH.read_text())
+    actual = registry_snapshot(build_core())
+    assert sorted(actual["processes"]) == sorted(expected["processes"]), \
+        "process registry drifted from snapshot"
+    assert sorted(actual["types"]) == sorted(expected["types"]), \
+        "type registry drifted from snapshot"
