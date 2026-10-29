@@ -438,7 +438,7 @@ def discriminating_hypotheses(inv_spec: dict) -> dict:
 # Evidence may carry ``fidelity: <level>``; an absent/unknown level is rank 0.
 _FIDELITY_RANK = {
     "heuristic": 1, "analytic": 1, "analytical": 1, "budget": 1, "geometric_feasibility": 1,
-    "reduced": 2, "coarse_spatial": 2, "spatial_dynamics": 2,
+    "reduced": 2, "coarse_spatial": 2, "spatial_dynamics": 2, "reproduction": 2, "population": 2,
     "continuum": 3, "continuum_membrane_energetics": 3, "mechanistic": 3, "dynamical": 3,
     "mesh": 4, "molecular": 4, "high_fidelity": 4,
 }
