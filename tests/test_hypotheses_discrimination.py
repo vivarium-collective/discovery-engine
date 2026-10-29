@@ -131,3 +131,35 @@ def test_high_fidelity_support_is_not_flagged():
 
 def test_no_evidence_no_flags():
     assert H.fidelity_flags(_inv_s3(), [{"name": "s3", "findings": []}]) == []
+
+
+# --- conditional predictions (when a regime holds) ---
+
+def _conditional_hyp():
+    return {"id": "benefit", "study": "s4", "status": "open", "predictions": [
+        {"observable": "survivors", "when": {"pump": "efficient"}, "expected": {"op": ">=", "value": 0.5}}]}
+
+
+def test_conditional_prediction_matched_only_in_its_regime():
+    hyp = _conditional_hyp()
+    eff = {"name": "s4", "findings": [{"evidence": {
+        "measure": "survivors", "observed": 1.0, "conditions": {"pump": "efficient"}}}]}
+    weak = {"name": "s4", "findings": [{"evidence": {
+        "measure": "survivors", "observed": 0.0, "conditions": {"pump": "weak"}}}]}
+    # efficient-regime finding confirms the efficient-regime prediction
+    assert H.support_summary(H.score_support(hyp, [eff]))["supports"] == 1
+    # weak-regime finding does NOT test the efficient-regime prediction -> no weaken
+    assert H.score_support(hyp, [weak]) == []
+
+
+def test_unconditional_prediction_still_matches_any_finding():
+    hyp = {"id": "h", "study": "s", "status": "open",
+           "predictions": [{"observable": "x", "expected": {"op": ">=", "value": 0.5}}]}
+    study = {"name": "s", "findings": [{"evidence": {"measure": "x", "observed": 0.9}}]}
+    assert H.support_summary(H.score_support(hyp, [study]))["supports"] == 1
+
+
+def test_conditional_prediction_is_not_matched_by_an_unconditioned_finding():
+    hyp = _conditional_hyp()
+    study = {"name": "s4", "findings": [{"evidence": {"measure": "survivors", "observed": 1.0}}]}
+    assert H.score_support(hyp, [study]) == []  # no conditions -> cannot confirm the regime

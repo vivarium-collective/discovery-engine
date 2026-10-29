@@ -176,29 +176,47 @@ def _evaluate(observed: float, band: dict) -> bool:
     return False
 
 
+def _conditions_match(when: Any, finding_conditions: Any) -> bool:
+    """Does a finding measured under ``finding_conditions`` test a prediction made
+    ``when`` a regime holds? An unconditional prediction (no ``when``) matches any
+    finding. A conditional prediction matches only a finding whose ``conditions``
+    name the same regime for every key in ``when`` — so a result measured in one
+    regime neither confirms nor refutes a prediction made about another."""
+    if not when:
+        return True
+    if not isinstance(when, dict) or not isinstance(finding_conditions, dict):
+        return False
+    for k, v in when.items():
+        if str(finding_conditions.get(k)).strip().lower() != str(v).strip().lower():
+            return False
+    return True
+
+
 def score_support(hypothesis: dict, study_specs: list[dict]) -> list[dict]:
     """Tally the quantitative support each study lends a hypothesis (#16).
 
     For each study finding carrying an ``evidence.observed`` keyed by a measure
     that matches one of the hypothesis ``predictions[].observable``, compare the
     observed value to the prediction's ``expected`` band/operator → a
-    ``supports`` / ``weakens`` entry. Transparent tally, NOT a Bayesian update.
+    ``supports`` / ``weakens`` entry. A prediction may be **conditional**
+    (``when: {regime: value}``); it is tested only by a finding whose
+    ``evidence.conditions`` name the same regime, so a result measured in one
+    regime does not spuriously confirm or weaken a claim about another. A
+    transparent tally, NOT a Bayesian update.
 
     Returns ``list[{study, observation, delta, discriminating}]``. Only findings
-    whose measure matches a prediction AND carry a numeric observed value are
-    included (the rest cannot discriminate). ``discriminating`` is always True
-    here (a conclusive numeric comparison was made); the field exists so callers
-    can distinguish quantitative entries from the prose entries folded in by
-    :func:`rollup_support`.
+    whose measure matches a prediction (under a compatible condition) AND carry a
+    numeric observed value are included.
     """
     hypothesis = hypothesis or {}
-    preds: dict[str, Any] = {}
+    preds: list[dict] = []
     for p in _as_list(hypothesis.get("predictions")):
         if not isinstance(p, dict):
             continue
         obs = p.get("observable")
         if isinstance(obs, str) and obs.strip():
-            preds[obs.strip().lower()] = p.get("expected")
+            preds.append({"obs": obs.strip().lower(), "expected": p.get("expected"),
+                          "when": p.get("when")})
     if not preds:
         return []
 
@@ -211,30 +229,32 @@ def score_support(hypothesis: dict, study_specs: list[dict]) -> list[dict]:
             measure, observed = _finding_measure_observed(finding)
             if not measure:
                 continue
-            # A prediction's ``observable`` may name the behavior-test (e.g.
-            # ``operational-closure``) OR the underlying measure field (e.g.
-            # ``closure_gap_size``). Resolve both so authored predictions that
-            # reference the measure field still match findings keyed by test.
+            ov = _to_float(observed)
+            if ov is None:
+                continue
+            ev = finding.get("evidence") if isinstance(finding.get("evidence"), dict) else {}
+            conds = ev.get("conditions")
+            # A prediction's ``observable`` may name the behavior-test OR the
+            # underlying measure field; resolve both.
             candidates = {measure.lower()}
             field = _test_measure_field(study, measure)
             if field:
                 candidates.add(field.lower())
-            matched = next((c for c in candidates if c in preds), None)
-            if matched is None:
-                continue
-            ov = _to_float(observed)
-            if ov is None:
-                continue
-            band = _expected_band(preds[matched])
-            if band is None:
-                continue
-            ok = _evaluate(ov, band)
-            log.append({
-                "study": slug,
-                "observation": f"{matched}={observed} vs expected {preds[matched]}",
-                "delta": SUPPORTS if ok else WEAKENS,
-                "discriminating": True,
-            })
+            for pr in preds:
+                if pr["obs"] not in candidates:
+                    continue
+                if not _conditions_match(pr["when"], conds):
+                    continue
+                band = _expected_band(pr["expected"])
+                if band is None:
+                    continue
+                cond = f" when {pr['when']}" if pr["when"] else ""
+                log.append({
+                    "study": slug,
+                    "observation": f"{pr['obs']}={observed} vs expected {pr['expected']}{cond}",
+                    "delta": SUPPORTS if _evaluate(ov, band) else WEAKENS,
+                    "discriminating": True,
+                })
     return log
 
 
