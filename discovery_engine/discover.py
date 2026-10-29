@@ -1041,6 +1041,65 @@ def summarize(result: dict) -> str:
     )
 
 
+def _fmt_expected(expected) -> str:
+    """Compact one-line rendering of a prediction's ``expected`` band."""
+    if isinstance(expected, dict):
+        if "op" in expected and "value" in expected:
+            return f"{expected['op']} {expected['value']}"
+        if "low" in expected or "high" in expected:
+            return f"{expected.get('low', '-inf')}..{expected.get('high', 'inf')}"
+    return str(expected)
+
+
+def _summarize_hypotheses(inv_spec: dict, study_specs: list) -> str:
+    """Render the competing-hypotheses contest: each hypothesis, its predicted
+    observable, and the ▲supports/▼weakens/⊘excludes tally its studies' runs give
+    it (empty until the studies run). Marks which studies are *discriminable* —
+    carry competing hypotheses a single run would separate."""
+    from . import hypotheses as _hyp
+    rolled = _hyp.rollup_support(inv_spec or {}, study_specs or [])
+    hyps = rolled.get("hypotheses") or []
+    if not hyps:
+        return "hypotheses: none authored (add a `hypotheses:` block to investigation.yaml)"
+    disc = _hyp.discriminating_hypotheses(inv_spec or {})
+    anoms = _hyp.anomalies(inv_spec or {}, study_specs or [])
+    flags = _hyp.fidelity_flags(inv_spec or {}, study_specs or [])
+    n_disc = sum(1 for d in disc.values() if d.get("discriminable"))
+    by_study: dict[str, list] = {}
+    for h in hyps:
+        by_study.setdefault(h.get("study") or "(unassigned)", []).append(h)
+    lines = [f"hypotheses: {len(hyps)} competing across {len(by_study)} study(ies) — "
+             f"{n_disc} discriminable (a single run separates the alternatives)"
+             + (f", {len(anoms)} anomaly(ies)" if anoms else "")
+             + (f", {len(flags)} fidelity caveat(s)" if flags else "")]
+    for slug in sorted(by_study):
+        d = disc.get(slug) or {}
+        mark = (f"  ⇄ discriminable on {d['observable']}" if d.get("discriminable")
+                else "  (not yet discriminable — needs opposed predictions on one observable)")
+        lines.append(f"\n{slug}{mark}")
+        for h in by_study[slug]:
+            s = _hyp.support_summary(h.get("support_log") or [])
+            preds = h.get("predictions") or []
+            obs = preds[0].get("observable") if preds else "?"
+            exp = _fmt_expected(preds[0].get("expected")) if preds else "?"
+            lines.append(f"  ▲{s['supports']} ▼{s['weakens']} ⊘{s['excludes']}  "
+                         f"{h.get('id'):<28} {obs} {exp}   [{h.get('status', 'open')}]")
+    if anoms:
+        lines.append("\nanomalies — observed outside all competing predictions (seed a new hypothesis):")
+        for a in anoms:
+            lines.append(f"  ⚠ {a['study']}: {a['observable']} = {a['observed']}")
+            lines.append(f"      → {a['proposed_question']}")
+    if flags:
+        lines.append("\nfidelity caveats — support must not rest on a coarse/wrong-mechanism model (stage 4/6):")
+        for fl in flags:
+            tag = {"superseded_evidence": "superseded", "gated_evidence": "gated",
+                   "low_fidelity_support": "low-fidelity"}.get(fl["kind"], fl["kind"])
+            hyp = (" [" + ", ".join(fl["hypotheses"]) + "]") if fl.get("hypotheses") else ""
+            lines.append(f"  ⚑ {fl['study']} ({tag}): {fl['detail']}{hyp}")
+    lines.append("\n(support tallies populate from each study's findings once it runs)")
+    return "\n".join(lines)
+
+
 # ---------------------------------------------------------------------------
 # CLI
 # ---------------------------------------------------------------------------
@@ -1075,6 +1134,10 @@ def main(argv: list[str] | None = None) -> int:
     p_opp = sub.add_parser("opportunities",
                            help="rank the frontier by value — what is most valuable to investigate next")
     p_opp.add_argument("investigation", help="investigation slug")
+
+    p_hyp = sub.add_parser("hypotheses",
+                           help="the competing-hypotheses contest: each hypothesis, its predicted observable, and the support its studies' runs give it")
+    p_hyp.add_argument("investigation", help="investigation slug")
 
     p_comp = sub.add_parser("complete",
                             help="the completion map: gates to verify, decisions that gate the next studies, and the ordered next-step commands")
@@ -1208,6 +1271,12 @@ def main(argv: list[str] | None = None) -> int:
         result = run_cycle(inv_spec, studies)
         opps = discovery_engine.opportunities(result, inv_spec)
         print(discovery_engine.summarize_opportunities(opps))
+        return 0
+
+    if args.cmd == "hypotheses":
+        _, inv_spec, studies = load_cycle_inputs(ws, args.investigation)
+        specs = list(studies.values()) if isinstance(studies, dict) else list(studies or [])
+        print(_summarize_hypotheses(inv_spec, specs))
         return 0
 
     if args.cmd == "complete":

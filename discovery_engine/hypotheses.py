@@ -176,29 +176,49 @@ def _evaluate(observed: float, band: dict) -> bool:
     return False
 
 
+def _conditions_match(when: Any, finding_conditions: Any) -> bool:
+    """Does a finding measured under ``finding_conditions`` test a prediction made
+    ``when`` a regime holds? An unconditional prediction (no ``when``) matches any
+    finding. A conditional prediction matches only a finding whose ``conditions``
+    name the same regime for every key in ``when`` — so a result measured in one
+    regime neither confirms nor refutes a prediction made about another."""
+    if not when:
+        return True
+    if not isinstance(when, dict) or not isinstance(finding_conditions, dict):
+        return False
+    for k, v in when.items():
+        if k not in finding_conditions:   # the finding never established this regime
+            return False
+        if str(finding_conditions.get(k)).strip().lower() != str(v).strip().lower():
+            return False
+    return True
+
+
 def score_support(hypothesis: dict, study_specs: list[dict]) -> list[dict]:
     """Tally the quantitative support each study lends a hypothesis (#16).
 
     For each study finding carrying an ``evidence.observed`` keyed by a measure
     that matches one of the hypothesis ``predictions[].observable``, compare the
     observed value to the prediction's ``expected`` band/operator → a
-    ``supports`` / ``weakens`` entry. Transparent tally, NOT a Bayesian update.
+    ``supports`` / ``weakens`` entry. A prediction may be **conditional**
+    (``when: {regime: value}``); it is tested only by a finding whose
+    ``evidence.conditions`` name the same regime, so a result measured in one
+    regime does not spuriously confirm or weaken a claim about another. A
+    transparent tally, NOT a Bayesian update.
 
     Returns ``list[{study, observation, delta, discriminating}]``. Only findings
-    whose measure matches a prediction AND carry a numeric observed value are
-    included (the rest cannot discriminate). ``discriminating`` is always True
-    here (a conclusive numeric comparison was made); the field exists so callers
-    can distinguish quantitative entries from the prose entries folded in by
-    :func:`rollup_support`.
+    whose measure matches a prediction (under a compatible condition) AND carry a
+    numeric observed value are included.
     """
     hypothesis = hypothesis or {}
-    preds: dict[str, Any] = {}
+    preds: list[dict] = []
     for p in _as_list(hypothesis.get("predictions")):
         if not isinstance(p, dict):
             continue
         obs = p.get("observable")
         if isinstance(obs, str) and obs.strip():
-            preds[obs.strip().lower()] = p.get("expected")
+            preds.append({"obs": obs.strip().lower(), "expected": p.get("expected"),
+                          "when": p.get("when")})
     if not preds:
         return []
 
@@ -211,30 +231,32 @@ def score_support(hypothesis: dict, study_specs: list[dict]) -> list[dict]:
             measure, observed = _finding_measure_observed(finding)
             if not measure:
                 continue
-            # A prediction's ``observable`` may name the behavior-test (e.g.
-            # ``operational-closure``) OR the underlying measure field (e.g.
-            # ``closure_gap_size``). Resolve both so authored predictions that
-            # reference the measure field still match findings keyed by test.
+            ov = _to_float(observed)
+            if ov is None:
+                continue
+            ev = finding.get("evidence") if isinstance(finding.get("evidence"), dict) else {}
+            conds = ev.get("conditions")
+            # A prediction's ``observable`` may name the behavior-test OR the
+            # underlying measure field; resolve both.
             candidates = {measure.lower()}
             field = _test_measure_field(study, measure)
             if field:
                 candidates.add(field.lower())
-            matched = next((c for c in candidates if c in preds), None)
-            if matched is None:
-                continue
-            ov = _to_float(observed)
-            if ov is None:
-                continue
-            band = _expected_band(preds[matched])
-            if band is None:
-                continue
-            ok = _evaluate(ov, band)
-            log.append({
-                "study": slug,
-                "observation": f"{matched}={observed} vs expected {preds[matched]}",
-                "delta": SUPPORTS if ok else WEAKENS,
-                "discriminating": True,
-            })
+            for pr in preds:
+                if pr["obs"] not in candidates:
+                    continue
+                if not _conditions_match(pr["when"], conds):
+                    continue
+                band = _expected_band(pr["expected"])
+                if band is None:
+                    continue
+                cond = f" when {pr['when']}" if pr["when"] else ""
+                log.append({
+                    "study": slug,
+                    "observation": f"{pr['obs']}={observed} vs expected {pr['expected']}{cond}",
+                    "delta": SUPPORTS if _evaluate(ov, band) else WEAKENS,
+                    "discriminating": True,
+                })
     return log
 
 
@@ -344,3 +366,236 @@ def support_summary(support_log: list[dict]) -> dict:
         # weakening evidence. A transparent scalar, not a probability.
         "net": counts[SUPPORTS] + counts[EXCLUDES] - counts[WEAKENS],
     }
+
+
+# ---------------------------------------------------------------------------
+# Discrimination — which studies carry competing hypotheses a single run separates
+# ---------------------------------------------------------------------------
+# A hypothesis is "live" (still in contention) unless its status retires it.
+_RETIRED_STATUS = frozenset({"excluded", "rejected", "retired", "refuted"})
+
+
+def _interval(expected: Any) -> tuple[float, float] | None:
+    """The numeric interval ``[lo, hi]`` a prediction's ``expected`` asserts, or
+    ``None`` when it is non-numeric. ``>=/> v`` -> ``(v, +inf)``; ``<=/< v`` ->
+    ``(-inf, v)``; ``{low, high}`` -> ``(low, high)``; ``== v`` -> ``(v, v)``."""
+    band = _expected_band(expected)
+    if not band:
+        return None
+    inf = float("inf")
+    if "low" in band or "high" in band:
+        return (band.get("low", -inf), band.get("high", inf))
+    op, v = band.get("op"), band.get("value")
+    if v is None:
+        return None
+    if op in (">=", ">", "gte", "gt"):
+        return (v, inf)
+    if op in ("<=", "<", "lte", "lt"):
+        return (-inf, v)
+    if op in ("==", "="):
+        return (v, v)
+    return None
+
+
+def _discriminating(a: Any, b: Any) -> bool:
+    """True when two predicted intervals are disjoint enough that one run's
+    scalar lands in at most one — so a single measurement separates them.
+    (Touching at a single boundary point counts: a scalar rarely lands exactly
+    on it, and the two predictions still point opposite ways.)"""
+    ia, ib = _interval(a), _interval(b)
+    if not ia or not ib:
+        return False
+    return ia[1] <= ib[0] or ib[1] <= ia[0]
+
+
+def discriminating_hypotheses(inv_spec: dict) -> dict:
+    """Map each study slug to its discrimination state over its LIVE competing
+    hypotheses: ``{observable, discriminable: bool, competing: [{hypothesis,
+    observable, expected}]}``.
+
+    A study is *discriminable* when two or more of its live hypotheses predict
+    the SAME observable with disjoint expected intervals, so one run on that
+    observable separates them. This is the heuristic information-value signal the
+    engine uses to fill an opportunity's ``competing_predictions`` and to prefer
+    the next experiment that best distinguishes the alternatives (spec stage 3 —
+    report heuristic value, not a calibrated EIG). Pure; AI-free."""
+    inv_spec = inv_spec or {}
+    hyps = inv_spec.get("hypotheses")
+    if not isinstance(hyps, list):
+        return {}
+    by_study: dict[str, dict[str, list[dict]]] = {}
+    for h in hyps:
+        if not isinstance(h, dict):
+            continue
+        if str(h.get("status", "open")).strip().lower() in _RETIRED_STATUS:
+            continue
+        slug = h.get("study")
+        if not slug:
+            continue
+        for p in _as_list(h.get("predictions")):
+            if not isinstance(p, dict) or not p.get("observable"):
+                continue
+            by_study.setdefault(slug, {}).setdefault(p["observable"], []).append(
+                {"hypothesis": h.get("id"), "observable": p["observable"],
+                 "expected": p.get("expected")})
+    out: dict[str, dict] = {}
+    for slug, by_obs in by_study.items():
+        best = None
+        for obs, preds in by_obs.items():
+            if len(preds) < 2:
+                continue
+            disjoint = any(
+                _discriminating(preds[i]["expected"], preds[j]["expected"])
+                for i in range(len(preds)) for j in range(i + 1, len(preds)))
+            if disjoint:
+                best = {"observable": obs, "discriminable": True, "competing": preds}
+                break
+            best = best or {"observable": obs, "discriminable": False, "competing": preds}
+        if best is not None:
+            out[slug] = best
+    return out
+
+
+# Fidelity ranks for simulation evidence (higher = more mechanistically adequate).
+# Evidence may carry ``fidelity: <level>``; an absent/unknown level is rank 0.
+_FIDELITY_RANK = {
+    "heuristic": 1, "analytic": 1, "analytical": 1, "budget": 1, "geometric_feasibility": 1,
+    "reduced": 2, "coarse_spatial": 2, "spatial_dynamics": 2, "reproduction": 2, "population": 2,
+    "continuum": 3, "continuum_membrane_energetics": 3, "mechanistic": 3, "dynamical": 3,
+    "mesh": 4, "molecular": 4, "high_fidelity": 4,
+}
+
+
+def _fidelity_rank(level: Any) -> int:
+    if level is None:
+        return 0
+    return _FIDELITY_RANK.get(str(level).strip().lower(), 0)
+
+
+def _has_multiple_values(ev: dict) -> bool:
+    """Does the evidence record several values (e.g. ``by_topology``) rather than
+    one ``observed`` scalar — i.e. a result gated on an unresolved choice?"""
+    for k in ("by_topology", "by_arm", "by_scenario", "values"):
+        v = ev.get(k)
+        if isinstance(v, dict) and len(v) >= 2:
+            return True
+        if isinstance(v, list) and len(v) >= 2:
+            return True
+    return False
+
+
+def fidelity_flags(inv_spec: dict, study_specs: list[dict], *,
+                   min_support_rank: int = 2) -> list[dict]:
+    """Automatic model-fidelity caveats on the hypothesis evidence (spec stage 4
+    model-fidelity / stage 6 critique). The engine should not silently treat a
+    coarse or wrong-mechanism run as support; this surfaces three caveats:
+
+    - ``superseded_evidence``   a finding whose evidence carries a ``superseded``
+      marker (a higher-fidelity arm replaced it);
+    - ``gated_evidence``        evidence recording several values (``by_topology``
+      etc.) with no single ``observed`` — unresolved pending a decision;
+    - ``low_fidelity_support``  a finding that *does* support a hypothesis but whose
+      declared ``fidelity`` rank is below ``min_support_rank`` — re-evaluate higher.
+
+    Pure; AI-free; raises nothing. Returns ``{study, kind, measure, detail,
+    hypotheses?}`` dicts."""
+    inv_spec = inv_spec or {}
+    hyps = inv_spec.get("hypotheses")
+    hyps = hyps if isinstance(hyps, list) else []
+    # (study, observable) -> [(hyp_id, band)]
+    preds: dict[tuple, list] = {}
+    for h in hyps:
+        if not isinstance(h, dict) or str(h.get("status", "open")).strip().lower() in _RETIRED_STATUS:
+            continue
+        slug = h.get("study")
+        for p in _as_list(h.get("predictions")):
+            if isinstance(p, dict) and p.get("observable") and slug:
+                band = _expected_band(p.get("expected"))
+                if band:
+                    preds.setdefault((slug, p["observable"]), []).append((h.get("id"), band))
+    out: list[dict] = []
+    for study in study_specs or []:
+        if not isinstance(study, dict):
+            continue
+        sslug = _study_slug(study)
+        for f in _findings(study):
+            ev = f.get("evidence") if isinstance(f.get("evidence"), dict) else {}
+            measure, observed = _finding_measure_observed(f)
+            if ev.get("superseded"):
+                src = (ev["superseded"] or {}).get("source") if isinstance(ev["superseded"], dict) else None
+                out.append({"study": sslug, "kind": "superseded_evidence", "measure": measure,
+                            "detail": f"evidence superseded by a higher-fidelity arm"
+                                      + (f" (was: {src})" if src else "")})
+            if observed is None and _has_multiple_values(ev):
+                out.append({"study": sslug, "kind": "gated_evidence", "measure": measure,
+                            "detail": "evidence records several values with no resolved primary — "
+                                      "support is gated on an open decision"})
+            val = _to_float(observed)
+            if val is not None:
+                rank = _fidelity_rank(ev.get("fidelity"))
+                if 0 < rank < min_support_rank:
+                    supported = [hid for hid, band in preds.get((sslug, measure), [])
+                                 if _evaluate(val, band)]
+                    if supported:
+                        out.append({"study": sslug, "kind": "low_fidelity_support", "measure": measure,
+                                    "hypotheses": supported,
+                                    "detail": f"support rests on fidelity='{ev.get('fidelity')}' "
+                                              f"(rank {rank} < {min_support_rank}) — re-evaluate at higher fidelity"})
+    return out
+
+
+def anomalies(inv_spec: dict, study_specs: list[dict]) -> list[dict]:
+    """Observed values that satisfy NONE of the live competing hypotheses'
+    predicted bands for their observable — surprises the current hypothesis set
+    did not anticipate (e.g. a value in the gap between two opposed predictions).
+
+    Each is a seed for a new question (spec stage 7 FR-07.05 / stage 8 FR-08.03:
+    generate follow-ups from anomalies), returned as ``{study, observable,
+    observed, note, proposed_question}``. Only fires where a study actually
+    measured the observable (findings' ``evidence.observed``) and >=2 live
+    hypotheses make a prediction on it. Pure; AI-free; raises nothing."""
+    inv_spec = inv_spec or {}
+    hyps = inv_spec.get("hypotheses")
+    if not isinstance(hyps, list):
+        return []
+    bands: dict[tuple[str, str], list[dict]] = {}
+    for h in hyps:
+        if not isinstance(h, dict):
+            continue
+        if str(h.get("status", "open")).strip().lower() in _RETIRED_STATUS:
+            continue
+        slug = h.get("study")
+        if not slug:
+            continue
+        for p in _as_list(h.get("predictions")):
+            if not isinstance(p, dict):
+                continue
+            band = _expected_band(p.get("expected"))
+            if p.get("observable") and band:
+                bands.setdefault((slug, p["observable"]), []).append(band)
+    out: list[dict] = []
+    for study in study_specs or []:
+        if not isinstance(study, dict):
+            continue
+        sslug = _study_slug(study)
+        for f in _findings(study):
+            measure, observed = _finding_measure_observed(f)
+            val = _to_float(observed)
+            if measure is None or val is None:
+                continue
+            live = bands.get((sslug, measure))
+            if not live or len(live) < 2:
+                continue
+            if any(_evaluate(val, b) for b in live):
+                continue
+            out.append({
+                "study": sslug,
+                "observable": measure,
+                "observed": val,
+                "note": "observed outside all competing predictions — a surprise the "
+                        "current hypotheses did not anticipate",
+                "proposed_question": f"What mechanism produces {measure} = {val} in "
+                                     f"{sslug}? It falls outside every competing hypothesis's "
+                                     "predicted band — a new hypothesis is needed.",
+            })
+    return out
