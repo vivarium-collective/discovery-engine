@@ -1148,6 +1148,32 @@ def _summarize_portfolio(portfolio: list) -> str:
     return "\n".join(lines)
 
 
+def _fmt_when(w):
+    return "+".join(f"{k}={v}" for k, v in (w or {}).items()) or "baseline"
+
+
+def _summarize_design(design: dict | None, study: str) -> str:
+    """Render a Cycle N+1 Phase C discriminating-study design."""
+    if not design:
+        return f"design: {study} has no discriminable competing hypotheses — nothing to design."
+    lines = [f"discriminating study design — {study}",
+             f"  contrast: {' vs '.join(design['hypothesis_contrast'])}",
+             f"  measures: {', '.join(design['measurements'])}"]
+    lines.append("  intervention arms:")
+    ctrl_ids = {(c['hypothesis'], tuple(sorted((c.get('when') or {}).items()))) for c in design['controls']}
+    for arm in design["interventions"]:
+        is_ctrl = (arm['hypothesis'], tuple(sorted((arm.get('when') or {}).items()))) in ctrl_ids
+        lines.append(f"    - {arm['hypothesis']}  @ {_fmt_when(arm.get('when'))}"
+                     + ("   [control]" if is_ctrl else ""))
+    lines.append("  registered predictions (pre-run):")
+    for p in design["predictions"]:
+        lines.append(f"    - {p['hypothesis_id']}: {p['observable']} {p['expected']} when {_fmt_when(p['intervention'])}")
+    lines.append(f"  decision rule (precommitted): {design['decision_criterion']['rule']}")
+    issues = design.get("control_issues") or []
+    lines.append("  controls: OK" if not issues else "  control issues: " + "; ".join(issues))
+    return "\n".join(lines)
+
+
 # ---------------------------------------------------------------------------
 
 def main(argv: list[str] | None = None) -> int:
@@ -1192,6 +1218,13 @@ def main(argv: list[str] | None = None) -> int:
     p_plan = sub.add_parser("plan",
                             help="Cycle N+1 Phase B: the classified CandidateAction portfolio (repair / resolve / extend), ranked and dependency-ordered")
     p_plan.add_argument("investigation", help="investigation slug")
+
+    p_design = sub.add_parser("design",
+                              help="Cycle N+1 Phase C: design a discriminating study for a member study's competing hypotheses (contrast, controls, registered predictions, committed decision rule)")
+    p_design.add_argument("investigation", help="investigation slug")
+    p_design.add_argument("study", help="member study slug")
+    p_design.add_argument("--require-control", action="append", default=[],
+                          help="a control the design must include (repeatable), e.g. --require-control no-exchange")
 
     p_comp = sub.add_parser("complete",
                             help="the completion map: gates to verify, decisions that gate the next studies, and the ordered next-step commands")
@@ -1365,6 +1398,13 @@ def main(argv: list[str] | None = None) -> int:
         result = run_cycle(inv_spec, studies)
         portfolio = _ca.select_portfolio(_ca.plan_candidate_actions(result, inv_spec, ev_state))
         print(_summarize_portfolio(portfolio))
+        return 0
+
+    if args.cmd == "design":
+        from . import experiment_design as _ed
+        _, inv_spec, _studies = load_cycle_inputs(ws, args.investigation)
+        design = _ed.design_discriminating_study(inv_spec, args.study, args.require_control or None)
+        print(_summarize_design(design, args.study))
         return 0
 
     if args.cmd == "complete":
