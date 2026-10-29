@@ -187,6 +187,8 @@ def _conditions_match(when: Any, finding_conditions: Any) -> bool:
     if not isinstance(when, dict) or not isinstance(finding_conditions, dict):
         return False
     for k, v in when.items():
+        if k not in finding_conditions:   # the finding never established this regime
+            return False
         if str(finding_conditions.get(k)).strip().lower() != str(v).strip().lower():
             return False
     return True

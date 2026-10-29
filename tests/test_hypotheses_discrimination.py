@@ -163,3 +163,13 @@ def test_conditional_prediction_is_not_matched_by_an_unconditioned_finding():
     hyp = _conditional_hyp()
     study = {"name": "s4", "findings": [{"evidence": {"measure": "survivors", "observed": 1.0}}]}
     assert H.score_support(hyp, [study]) == []  # no conditions -> cannot confirm the regime
+
+
+def test_conditional_prediction_missing_condition_key_does_not_match():
+    # a finding that never establishes the regime key must not match (regression:
+    # str(None) == 'none' spuriously matched when: {mechanism: none})
+    hyp = {"id": "null", "study": "s", "status": "open", "predictions": [
+        {"observable": "h", "when": {"mechanism": "none"}, "expected": {"op": "<=", "value": 0.1}}]}
+    other_regime = {"name": "s", "findings": [{"evidence": {
+        "measure": "h", "observed": 0.0, "conditions": {"fidelity": "low"}}}]}
+    assert H.score_support(hyp, [other_regime]) == []
