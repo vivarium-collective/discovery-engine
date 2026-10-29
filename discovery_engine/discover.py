@@ -1009,6 +1009,22 @@ def load_cycle_inputs(ws_root: Path | str, slug: str) -> tuple[Path, dict, dict[
     return inv_path, inv_spec, studies_by_slug
 
 
+def _load_runs_by_study(ws: Path, inv_slug: str, studies: dict) -> dict[str, list]:
+    """``{study_slug: [registered runs]}`` from each study's ``runs.db`` (flat path
+    first, then the nested investigation path). Shared by the Phase A/B/F commands."""
+    from . import run_registry as _rr
+    runs_by_study: dict[str, list] = {}
+    for slug in studies:
+        runs: list = []
+        for base in (studies_dir(ws), investigations_dir(ws) / inv_slug / "studies"):
+            db = base / slug / "runs.db"
+            if db.exists():
+                runs = _rr.list_runs(db)
+                break
+        runs_by_study[slug] = runs
+    return runs_by_study
+
+
 def _slugs_on_disk(*dirs: Path) -> list[str]:
     seen: list[str] = []
     for d in dirs:
@@ -1199,6 +1215,55 @@ def _mod_coupling_issues(routes, catalog):
     return validate_coupling(routes, catalog)
 
 
+def _summarize_evaluation(cmp: dict, dmap: list) -> str:
+    """Render a Cycle N+1 Phase F evaluation: per-study claim verdicts + disagreements."""
+    lines = ["claim evaluation (support gated by evidence integrity)"]
+    for slug in sorted(cmp):
+        c = cmp[slug]
+        head = f"  {slug}: {c['status']}"
+        if c.get("favored"):
+            head += f"  (favored: {c['favored']})"
+        if c.get("evidence_status"):
+            head += f"  [evidence: {c['evidence_status']}]"
+        lines.append(head)
+        if c.get("note"):
+            lines.append(f"      ⚑ {c['note']}")
+        for h in c["hypotheses"]:
+            lines.append(f"      - {h['id']}: net {h['support']['net']:+d} → {h['verdict']}")
+    disc = [d for d in dmap if d["disagreement"]]
+    lines.append("  model disagreements:" if disc else "  model disagreements: none")
+    for d in disc:
+        arms = ", ".join(f"{k}={v}" for k, v in d["arms"].items())
+        lines.append(f"    ⇄ {d['study']} / {d['observable']}: {arms}  (spread {d['spread']}) — do not average")
+    return "\n".join(lines)
+
+
+def _summarize_discovery_delta(delta: dict) -> str:
+    """Render the per-cycle DiscoveryDelta."""
+    lines = [f"DiscoveryDelta  (fingerprint {delta['fingerprint']})"]
+    lines.append("  claims added / qualified this cycle:" if delta["added_or_qualified"]
+                 else "  claims added / qualified this cycle: none")
+    for a in delta["added_or_qualified"]:
+        lines.append(f"    + {a['study']}: {a['claim']}  [{a['strength']}]")
+    if delta["gated"]:
+        lines.append("  gated (model-fidelity):")
+        for g in delta["gated"]:
+            lines.append(f"    · {g['study']}: {g.get('reason')}")
+    if delta["model_disagreements"]:
+        lines.append("  model disagreements to resolve:")
+        for d in delta["model_disagreements"]:
+            lines.append(f"    ⇄ {d['study']} / {d['observable']}  (spread {d['spread']})")
+    if delta["anomalies"]:
+        lines.append("  anomalies (outside every predicted band):")
+        for a in delta["anomalies"]:
+            lines.append(f"    ! {a['study']} / {a['observable']} = {a['observed']}")
+    if delta["regressions"]:
+        lines.append("  recorded regressions (progress, kept visible):")
+        for r in delta["regressions"]:
+            lines.append(f"    ↺ {r['study']}: {r['note']}")
+    return "\n".join(lines)
+
+
 # ---------------------------------------------------------------------------
 
 def main(argv: list[str] | None = None) -> int:
@@ -1258,6 +1323,14 @@ def main(argv: list[str] | None = None) -> int:
                          help="a required mechanism (repeatable), e.g. --mechanism exchange --mechanism adhesion")
     p_build.add_argument("--observable", action="append", default=[], help="a required observable (repeatable)")
     p_build.add_argument("--question", default="Q", help="question id for the ModelBuildRequest")
+
+    p_eval = sub.add_parser("evaluate",
+                            help="Cycle N+1 Phase F: promote or reject claims — per-study hypothesis comparison with claim verdicts gated by evidence integrity, plus the model-disagreement map")
+    p_eval.add_argument("investigation", help="investigation slug")
+
+    p_delta = sub.add_parser("delta",
+                             help="Cycle N+1 Phase F: the DiscoveryDelta — what this cycle established / qualified / gated, with model disagreements, anomalies and recorded regressions")
+    p_delta.add_argument("investigation", help="investigation slug")
 
     p_comp = sub.add_parser("complete",
                             help="the completion map: gates to verify, decisions that gate the next studies, and the ordered next-step commands")
@@ -1400,37 +1473,39 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     if args.cmd == "reconcile-evidence":
-        from . import evidence_integrity as _ei, run_registry as _rr
+        from . import evidence_integrity as _ei
         _, inv_spec, studies = load_cycle_inputs(ws, args.investigation)
-        runs_by_study = {}
-        for slug in studies:
-            runs = []
-            for base in (studies_dir(ws), investigations_dir(ws) / args.investigation / "studies"):
-                db = base / slug / "runs.db"
-                if db.exists():
-                    runs = _rr.list_runs(db)
-                    break
-            runs_by_study[slug] = runs
+        runs_by_study = _load_runs_by_study(ws, args.investigation, studies)
         print(_summarize_evidence_reconciliation(
             _ei.reconcile_evidence_state(inv_spec, studies, runs_by_study)))
         return 0
 
     if args.cmd == "plan":
-        from . import evidence_integrity as _ei, candidate_action as _ca, run_registry as _rr
+        from . import evidence_integrity as _ei, candidate_action as _ca
         _, inv_spec, studies = load_cycle_inputs(ws, args.investigation)
-        runs_by_study = {}
-        for slug in studies:
-            runs = []
-            for base in (studies_dir(ws), investigations_dir(ws) / args.investigation / "studies"):
-                db = base / slug / "runs.db"
-                if db.exists():
-                    runs = _rr.list_runs(db)
-                    break
-            runs_by_study[slug] = runs
+        runs_by_study = _load_runs_by_study(ws, args.investigation, studies)
         ev_state = _ei.reconcile_evidence_state(inv_spec, studies, runs_by_study)
         result = run_cycle(inv_spec, studies)
         portfolio = _ca.select_portfolio(_ca.plan_candidate_actions(result, inv_spec, ev_state))
         print(_summarize_portfolio(portfolio))
+        return 0
+
+    if args.cmd == "evaluate":
+        from . import evaluation as _ev, evidence_integrity as _ei
+        _, inv_spec, studies = load_cycle_inputs(ws, args.investigation)
+        runs_by_study = _load_runs_by_study(ws, args.investigation, studies)
+        ev_state = _ei.reconcile_evidence_state(inv_spec, studies, runs_by_study)
+        cmp = _ev.compare_hypotheses(inv_spec, studies, ev_state)
+        dmap = _ev.model_disagreement_map(inv_spec, studies)
+        print(_summarize_evaluation(cmp, dmap))
+        return 0
+
+    if args.cmd == "delta":
+        from . import evaluation as _ev, evidence_integrity as _ei
+        _, inv_spec, studies = load_cycle_inputs(ws, args.investigation)
+        runs_by_study = _load_runs_by_study(ws, args.investigation, studies)
+        ev_state = _ei.reconcile_evidence_state(inv_spec, studies, runs_by_study)
+        print(_summarize_discovery_delta(_ev.discovery_delta(inv_spec, studies, ev_state)))
         return 0
 
     if args.cmd == "design":
