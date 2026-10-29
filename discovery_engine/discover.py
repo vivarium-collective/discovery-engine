@@ -1264,6 +1264,33 @@ def _summarize_discovery_delta(delta: dict) -> str:
     return "\n".join(lines)
 
 
+_OUTCOME_GLYPH = {"stable-endosymbiosis": "██ stable", "collapse": "░░ collapse",
+                  "transient-association": "▒▒ transient", "no-transition": "·· none"}
+
+
+def _summarize_transition(report: dict) -> str:
+    """Render the Cycle N+2 composed model + the conditional transition phase diagram."""
+    mv = report["model_version"]
+    lines = [f"Proto-Endosymbiosis Composite — {mv['id']}",
+             f"  built on Cycle N+1 versions: {mv['parent_ids'] or '(none pinned)'}",
+             f"  mechanisms: {', '.join(mv['components'])}"]
+    if mv.get("coupling_issues"):
+        for i in mv["coupling_issues"]:
+            lines.append(f"    ⚑ {i}")
+    lines.append("")
+    lines.append("conditional transition phase diagram (proximity × pump × heredity):")
+    for cell in report["surface"]:
+        p = cell["point"]
+        coords = f"proximity={p['proximity']:<9} pump={p['pump']:<9} heredity={p['heredity']:<4}"
+        lines.append(f"    {coords} → {_OUTCOME_GLYPH.get(cell['outcome'], cell['outcome'])}")
+    lines.append("  tally: " + ", ".join(f"{k}×{v}" for k, v in sorted(report["tally"].items())))
+    if report["caveats"]:
+        lines.append("  conditional on (unresolved upstream):")
+        for c in report["caveats"]:
+            lines.append(f"    ⚑ {c}")
+    return "\n".join(lines)
+
+
 # ---------------------------------------------------------------------------
 
 def main(argv: list[str] | None = None) -> int:
@@ -1331,6 +1358,10 @@ def main(argv: list[str] | None = None) -> int:
     p_delta = sub.add_parser("delta",
                              help="Cycle N+1 Phase F: the DiscoveryDelta — what this cycle established / qualified / gated, with model disagreements, anomalies and recorded regressions")
     p_delta.add_argument("investigation", help="investigation slug")
+
+    p_trans = sub.add_parser("transition",
+                             help="Cycle N+2: compose the Proto-Endosymbiosis Composite and estimate the conditional transition phase diagram over proximity × pump × heredity")
+    p_trans.add_argument("investigation", help="investigation slug")
 
     p_comp = sub.add_parser("complete",
                             help="the completion map: gates to verify, decisions that gate the next studies, and the ordered next-step commands")
@@ -1506,6 +1537,12 @@ def main(argv: list[str] | None = None) -> int:
         runs_by_study = _load_runs_by_study(ws, args.investigation, studies)
         ev_state = _ei.reconcile_evidence_state(inv_spec, studies, runs_by_study)
         print(_summarize_discovery_delta(_ev.discovery_delta(inv_spec, studies, ev_state)))
+        return 0
+
+    if args.cmd == "transition":
+        from . import transition_model as _tm
+        _, inv_spec, studies = load_cycle_inputs(ws, args.investigation)
+        print(_summarize_transition(_tm.transition_phase_report(inv_spec, studies)))
         return 0
 
     if args.cmd == "design":
