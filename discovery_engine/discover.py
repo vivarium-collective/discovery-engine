@@ -1102,6 +1102,33 @@ def _summarize_hypotheses(inv_spec: dict, study_specs: list) -> str:
 
 # ---------------------------------------------------------------------------
 # CLI
+def _summarize_evidence_reconciliation(result: dict) -> str:
+    """Render the Cycle N+1 Phase A evidence ledger — which findings can be trusted."""
+    from .evidence_integrity import VERIFIED, PROVISIONAL, CONTRADICTED, UNSUPPORTED
+    mark = {VERIFIED: "✓ verified", PROVISIONAL: "~ provisional",
+            CONTRADICTED: "✗ contradicted", UNSUPPORTED: "· unsupported"}
+    s = result.get("summary", {})
+    lines = [f"evidence reconciliation: {s.get(VERIFIED,0)} verified · {s.get(PROVISIONAL,0)} provisional"
+             f" · {s.get(CONTRADICTED,0)} contradicted · {s.get(UNSUPPORTED,0)} unsupported"]
+    by = result.get("by_study", {})
+    for slug in by:
+        b = by[slug]
+        st = b.get("status")
+        lines.append(f"\n{slug}  [{mark.get(st, st or 'no numeric evidence')}]  "
+                     f"({b.get('registered_runs',0)} registered run(s))")
+        for row in result.get("ledger", []):
+            if row.get("study") != slug:
+                continue
+            lines.append(f"  {mark.get(row['status'], row['status']):<16} "
+                         f"{row.get('measure') or row.get('finding')}"
+                         + (f" = {row['observed']}" if row.get('observed') is not None else "")
+                         + f"  — {row['reason']}")
+    if s.get(PROVISIONAL, 0) or s.get(UNSUPPORTED, 0):
+        lines.append("\n→ repair action (R0): numeric findings without a resolvable registered run must be "
+                     "re-run through the gated execution pipeline before they count as biological support.")
+    return "\n".join(lines)
+
+
 # ---------------------------------------------------------------------------
 
 def main(argv: list[str] | None = None) -> int:
@@ -1138,6 +1165,10 @@ def main(argv: list[str] | None = None) -> int:
     p_hyp = sub.add_parser("hypotheses",
                            help="the competing-hypotheses contest: each hypothesis, its predicted observable, and the support its studies' runs give it")
     p_hyp.add_argument("investigation", help="investigation slug")
+
+    p_recon = sub.add_parser("reconcile-evidence",
+                             help="Cycle N+1 Phase A: classify each finding's evidence as verified / provisional / contradicted / unsupported against the registered runs")
+    p_recon.add_argument("investigation", help="investigation slug")
 
     p_comp = sub.add_parser("complete",
                             help="the completion map: gates to verify, decisions that gate the next studies, and the ordered next-step commands")
@@ -1277,6 +1308,22 @@ def main(argv: list[str] | None = None) -> int:
         _, inv_spec, studies = load_cycle_inputs(ws, args.investigation)
         specs = list(studies.values()) if isinstance(studies, dict) else list(studies or [])
         print(_summarize_hypotheses(inv_spec, specs))
+        return 0
+
+    if args.cmd == "reconcile-evidence":
+        from . import evidence_integrity as _ei, run_registry as _rr
+        _, inv_spec, studies = load_cycle_inputs(ws, args.investigation)
+        runs_by_study = {}
+        for slug in studies:
+            runs = []
+            for base in (studies_dir(ws), investigations_dir(ws) / args.investigation / "studies"):
+                db = base / slug / "runs.db"
+                if db.exists():
+                    runs = _rr.list_runs(db)
+                    break
+            runs_by_study[slug] = runs
+        print(_summarize_evidence_reconciliation(
+            _ei.reconcile_evidence_state(inv_spec, studies, runs_by_study)))
         return 0
 
     if args.cmd == "complete":
