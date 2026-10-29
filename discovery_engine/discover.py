@@ -1174,6 +1174,31 @@ def _summarize_design(design: dict | None, study: str) -> str:
     return "\n".join(lines)
 
 
+def _summarize_model_build(request: dict, catalog: list, routes: dict, mv: dict) -> str:
+    """Render a Cycle N+1 Phase D model-acquisition decision."""
+    tag = {"reuse": "REUSE", "wrap": "WRAP ", "build": "BUILD"}
+    lines = [f"model build — question {request['question_id']}  "
+             f"(catalog: {len(catalog)} component(s) from the campaign)",
+             f"  required mechanisms: {', '.join(request['required_mechanisms'])}"]
+    lines.append("  acquisition routes:")
+    for mech, r in routes.items():
+        comp = (r["component"].split(".")[-1] if r.get("component") else "—")
+        lines.append(f"    [{tag.get(r['route'], r['route'])}] {mech:<22} {comp}")
+        lines.append(f"            {r['rationale']}")
+    issues = _mod_coupling_issues(routes, catalog)
+    lines.append("  coupling validation: OK" if not issues else "  coupling checks:")
+    for i in issues:
+        lines.append(f"    ⚑ {i}")
+    lines.append(f"  model version: {mv['id']}  (executable_digest {mv['executable_digest']}, "
+                 f"validation {mv['validation']['status']} — {', '.join(mv['validation']['required'])})")
+    return "\n".join(lines)
+
+
+def _mod_coupling_issues(routes, catalog):
+    from .model_architect import validate_coupling
+    return validate_coupling(routes, catalog)
+
+
 # ---------------------------------------------------------------------------
 
 def main(argv: list[str] | None = None) -> int:
@@ -1225,6 +1250,14 @@ def main(argv: list[str] | None = None) -> int:
     p_design.add_argument("study", help="member study slug")
     p_design.add_argument("--require-control", action="append", default=[],
                           help="a control the design must include (repeatable), e.g. --require-control no-exchange")
+
+    p_build = sub.add_parser("build-model",
+                             help="Cycle N+1 Phase D: capability-driven model acquisition (reuse / wrap / build) for required mechanisms, against the campaign's composite catalog")
+    p_build.add_argument("investigation", help="investigation slug")
+    p_build.add_argument("--mechanism", action="append", default=[], required=True,
+                         help="a required mechanism (repeatable), e.g. --mechanism exchange --mechanism adhesion")
+    p_build.add_argument("--observable", action="append", default=[], help="a required observable (repeatable)")
+    p_build.add_argument("--question", default="Q", help="question id for the ModelBuildRequest")
 
     p_comp = sub.add_parser("complete",
                             help="the completion map: gates to verify, decisions that gate the next studies, and the ordered next-step commands")
@@ -1405,6 +1438,17 @@ def main(argv: list[str] | None = None) -> int:
         _, inv_spec, _studies = load_cycle_inputs(ws, args.investigation)
         design = _ed.design_discriminating_study(inv_spec, args.study, args.require_control or None)
         print(_summarize_design(design, args.study))
+        return 0
+
+    if args.cmd == "build-model":
+        from . import model_architect as _ma
+        _, inv_spec, studies = load_cycle_inputs(ws, args.investigation)
+        catalog = _ma.build_catalog(studies)
+        req = _ma.ModelBuildRequest(question_id=args.question, required_mechanisms=args.mechanism,
+                                    required_observables=args.observable or None)
+        routes = _ma.choose_acquisition_route(req, catalog)
+        mv = _ma.model_version(req, routes)
+        print(_summarize_model_build(req, catalog, routes, mv))
         return 0
 
     if args.cmd == "complete":
