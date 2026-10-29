@@ -88,3 +88,46 @@ def test_single_hypothesis_observable_is_not_checked_for_anomaly():
            "predictions": [{"observable": "flux", "expected": {"op": ">=", "value": 1.0e-22}}]}]}
     study = {"name": "s2", "findings": [{"evidence": {"measure": "flux", "observed": 0.0}}]}
     assert H.anomalies(inv, [study]) == []
+
+
+# --- fidelity_flags: automatic model-fidelity caveats (stage 4/6) ---
+
+def _inv_s3():
+    return {"hypotheses": [
+        {"id": "reach", "study": "s3", "status": "open",
+         "predictions": [{"observable": "p", "expected": {"op": ">=", "value": 0.5}}]},
+        {"id": "noreach", "study": "s3", "status": "open",
+         "predictions": [{"observable": "p", "expected": {"op": "<=", "value": 0.5}}]},
+    ]}
+
+
+def test_superseded_evidence_is_flagged():
+    study = {"name": "s3", "findings": [{"evidence": {
+        "measure": "p", "superseded": {"source": "cpm (2D passive)", "observed": 1.0}}}]}
+    flags = H.fidelity_flags(_inv_s3(), [study])
+    assert any(f["kind"] == "superseded_evidence" for f in flags)
+
+
+def test_gated_multi_value_evidence_is_flagged():
+    study = {"name": "s3", "findings": [{"evidence": {
+        "measure": "p", "by_topology": {"classical": 0.27, "inside_out": 0.83}}}]}
+    flags = H.fidelity_flags(_inv_s3(), [study])
+    assert any(f["kind"] == "gated_evidence" for f in flags)
+
+
+def test_low_fidelity_support_is_flagged_with_the_hypothesis():
+    study = {"name": "s3", "findings": [{"evidence": {
+        "measure": "p", "observed": 0.9, "fidelity": "geometric_feasibility"}}]}  # rank 1
+    flags = H.fidelity_flags(_inv_s3(), [study], min_support_rank=2)
+    low = [f for f in flags if f["kind"] == "low_fidelity_support"]
+    assert low and "reach" in low[0]["hypotheses"]
+
+
+def test_high_fidelity_support_is_not_flagged():
+    study = {"name": "s3", "findings": [{"evidence": {
+        "measure": "p", "observed": 0.9, "fidelity": "continuum_membrane_energetics"}}]}  # rank 3
+    assert [f for f in H.fidelity_flags(_inv_s3(), [study]) if f["kind"] == "low_fidelity_support"] == []
+
+
+def test_no_evidence_no_flags():
+    assert H.fidelity_flags(_inv_s3(), [{"name": "s3", "findings": []}]) == []

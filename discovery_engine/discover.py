@@ -1063,13 +1063,15 @@ def _summarize_hypotheses(inv_spec: dict, study_specs: list) -> str:
         return "hypotheses: none authored (add a `hypotheses:` block to investigation.yaml)"
     disc = _hyp.discriminating_hypotheses(inv_spec or {})
     anoms = _hyp.anomalies(inv_spec or {}, study_specs or [])
+    flags = _hyp.fidelity_flags(inv_spec or {}, study_specs or [])
     n_disc = sum(1 for d in disc.values() if d.get("discriminable"))
     by_study: dict[str, list] = {}
     for h in hyps:
         by_study.setdefault(h.get("study") or "(unassigned)", []).append(h)
     lines = [f"hypotheses: {len(hyps)} competing across {len(by_study)} study(ies) — "
              f"{n_disc} discriminable (a single run separates the alternatives)"
-             + (f", {len(anoms)} anomaly(ies)" if anoms else "")]
+             + (f", {len(anoms)} anomaly(ies)" if anoms else "")
+             + (f", {len(flags)} fidelity caveat(s)" if flags else "")]
     for slug in sorted(by_study):
         d = disc.get(slug) or {}
         mark = (f"  ⇄ discriminable on {d['observable']}" if d.get("discriminable")
@@ -1087,6 +1089,13 @@ def _summarize_hypotheses(inv_spec: dict, study_specs: list) -> str:
         for a in anoms:
             lines.append(f"  ⚠ {a['study']}: {a['observable']} = {a['observed']}")
             lines.append(f"      → {a['proposed_question']}")
+    if flags:
+        lines.append("\nfidelity caveats — support must not rest on a coarse/wrong-mechanism model (stage 4/6):")
+        for fl in flags:
+            tag = {"superseded_evidence": "superseded", "gated_evidence": "gated",
+                   "low_fidelity_support": "low-fidelity"}.get(fl["kind"], fl["kind"])
+            hyp = (" [" + ", ".join(fl["hypotheses"]) + "]") if fl.get("hypotheses") else ""
+            lines.append(f"  ⚑ {fl['study']} ({tag}): {fl['detail']}{hyp}")
     lines.append("\n(support tallies populate from each study's findings once it runs)")
     return "\n".join(lines)
 

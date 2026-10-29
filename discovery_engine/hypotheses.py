@@ -434,6 +434,94 @@ def discriminating_hypotheses(inv_spec: dict) -> dict:
     return out
 
 
+# Fidelity ranks for simulation evidence (higher = more mechanistically adequate).
+# Evidence may carry ``fidelity: <level>``; an absent/unknown level is rank 0.
+_FIDELITY_RANK = {
+    "heuristic": 1, "analytic": 1, "analytical": 1, "budget": 1, "geometric_feasibility": 1,
+    "reduced": 2, "coarse_spatial": 2, "spatial_dynamics": 2,
+    "continuum": 3, "continuum_membrane_energetics": 3, "mechanistic": 3, "dynamical": 3,
+    "mesh": 4, "molecular": 4, "high_fidelity": 4,
+}
+
+
+def _fidelity_rank(level: Any) -> int:
+    if level is None:
+        return 0
+    return _FIDELITY_RANK.get(str(level).strip().lower(), 0)
+
+
+def _has_multiple_values(ev: dict) -> bool:
+    """Does the evidence record several values (e.g. ``by_topology``) rather than
+    one ``observed`` scalar — i.e. a result gated on an unresolved choice?"""
+    for k in ("by_topology", "by_arm", "by_scenario", "values"):
+        v = ev.get(k)
+        if isinstance(v, dict) and len(v) >= 2:
+            return True
+        if isinstance(v, list) and len(v) >= 2:
+            return True
+    return False
+
+
+def fidelity_flags(inv_spec: dict, study_specs: list[dict], *,
+                   min_support_rank: int = 2) -> list[dict]:
+    """Automatic model-fidelity caveats on the hypothesis evidence (spec stage 4
+    model-fidelity / stage 6 critique). The engine should not silently treat a
+    coarse or wrong-mechanism run as support; this surfaces three caveats:
+
+    - ``superseded_evidence``   a finding whose evidence carries a ``superseded``
+      marker (a higher-fidelity arm replaced it);
+    - ``gated_evidence``        evidence recording several values (``by_topology``
+      etc.) with no single ``observed`` — unresolved pending a decision;
+    - ``low_fidelity_support``  a finding that *does* support a hypothesis but whose
+      declared ``fidelity`` rank is below ``min_support_rank`` — re-evaluate higher.
+
+    Pure; AI-free; raises nothing. Returns ``{study, kind, measure, detail,
+    hypotheses?}`` dicts."""
+    inv_spec = inv_spec or {}
+    hyps = inv_spec.get("hypotheses")
+    hyps = hyps if isinstance(hyps, list) else []
+    # (study, observable) -> [(hyp_id, band)]
+    preds: dict[tuple, list] = {}
+    for h in hyps:
+        if not isinstance(h, dict) or str(h.get("status", "open")).strip().lower() in _RETIRED_STATUS:
+            continue
+        slug = h.get("study")
+        for p in _as_list(h.get("predictions")):
+            if isinstance(p, dict) and p.get("observable") and slug:
+                band = _expected_band(p.get("expected"))
+                if band:
+                    preds.setdefault((slug, p["observable"]), []).append((h.get("id"), band))
+    out: list[dict] = []
+    for study in study_specs or []:
+        if not isinstance(study, dict):
+            continue
+        sslug = _study_slug(study)
+        for f in _findings(study):
+            ev = f.get("evidence") if isinstance(f.get("evidence"), dict) else {}
+            measure, observed = _finding_measure_observed(f)
+            if ev.get("superseded"):
+                src = (ev["superseded"] or {}).get("source") if isinstance(ev["superseded"], dict) else None
+                out.append({"study": sslug, "kind": "superseded_evidence", "measure": measure,
+                            "detail": f"evidence superseded by a higher-fidelity arm"
+                                      + (f" (was: {src})" if src else "")})
+            if observed is None and _has_multiple_values(ev):
+                out.append({"study": sslug, "kind": "gated_evidence", "measure": measure,
+                            "detail": "evidence records several values with no resolved primary — "
+                                      "support is gated on an open decision"})
+            val = _to_float(observed)
+            if val is not None:
+                rank = _fidelity_rank(ev.get("fidelity"))
+                if 0 < rank < min_support_rank:
+                    supported = [hid for hid, band in preds.get((sslug, measure), [])
+                                 if _evaluate(val, band)]
+                    if supported:
+                        out.append({"study": sslug, "kind": "low_fidelity_support", "measure": measure,
+                                    "hypotheses": supported,
+                                    "detail": f"support rests on fidelity='{ev.get('fidelity')}' "
+                                              f"(rank {rank} < {min_support_rank}) — re-evaluate at higher fidelity"})
+    return out
+
+
 def anomalies(inv_spec: dict, study_specs: list[dict]) -> list[dict]:
     """Observed values that satisfy NONE of the live competing hypotheses'
     predicted bands for their observable — surprises the current hypothesis set
