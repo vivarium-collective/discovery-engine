@@ -1129,6 +1129,25 @@ def _summarize_evidence_reconciliation(result: dict) -> str:
     return "\n".join(lines)
 
 
+def _summarize_portfolio(portfolio: list) -> str:
+    """Render the Cycle N+1 Phase B CandidateAction portfolio."""
+    from .candidate_action import REPAIR, RESOLVE, EXTEND
+    tag = {REPAIR: "REPAIR ", RESOLVE: "RESOLVE", EXTEND: "EXTEND "}
+    by_kind = {k: sum(1 for a in portfolio if a["kind"] == k) for k in (REPAIR, RESOLVE, EXTEND)}
+    lines = [f"portfolio: {len(portfolio)} candidate action(s) — "
+             f"{by_kind[REPAIR]} repair · {by_kind[RESOLVE]} resolve · {by_kind[EXTEND]} extend "
+             "(execution order; repairs are prerequisites)"]
+    for i, a in enumerate(portfolio, 1):
+        dep = f"  ⟸ needs {', '.join(a['depends_on'])}" if a.get("depends_on") else ""
+        disc = f"  disc={a['discrimination']}" if a.get("discrimination") else ""
+        lines.append(f"  {i:>2}. [{tag.get(a['kind'], a['kind'])}] {a.get('target')}"
+                     f"  value={a.get('value')}{disc}{dep}")
+        lines.append(f"       {a.get('rationale', '')}")
+        if a.get("discriminates"):
+            lines.append(f"       ⇄ separates: {', '.join(str(h) for h in a['discriminates'])}")
+    return "\n".join(lines)
+
+
 # ---------------------------------------------------------------------------
 
 def main(argv: list[str] | None = None) -> int:
@@ -1169,6 +1188,10 @@ def main(argv: list[str] | None = None) -> int:
     p_recon = sub.add_parser("reconcile-evidence",
                              help="Cycle N+1 Phase A: classify each finding's evidence as verified / provisional / contradicted / unsupported against the registered runs")
     p_recon.add_argument("investigation", help="investigation slug")
+
+    p_plan = sub.add_parser("plan",
+                            help="Cycle N+1 Phase B: the classified CandidateAction portfolio (repair / resolve / extend), ranked and dependency-ordered")
+    p_plan.add_argument("investigation", help="investigation slug")
 
     p_comp = sub.add_parser("complete",
                             help="the completion map: gates to verify, decisions that gate the next studies, and the ordered next-step commands")
@@ -1324,6 +1347,24 @@ def main(argv: list[str] | None = None) -> int:
             runs_by_study[slug] = runs
         print(_summarize_evidence_reconciliation(
             _ei.reconcile_evidence_state(inv_spec, studies, runs_by_study)))
+        return 0
+
+    if args.cmd == "plan":
+        from . import evidence_integrity as _ei, candidate_action as _ca, run_registry as _rr
+        _, inv_spec, studies = load_cycle_inputs(ws, args.investigation)
+        runs_by_study = {}
+        for slug in studies:
+            runs = []
+            for base in (studies_dir(ws), investigations_dir(ws) / args.investigation / "studies"):
+                db = base / slug / "runs.db"
+                if db.exists():
+                    runs = _rr.list_runs(db)
+                    break
+            runs_by_study[slug] = runs
+        ev_state = _ei.reconcile_evidence_state(inv_spec, studies, runs_by_study)
+        result = run_cycle(inv_spec, studies)
+        portfolio = _ca.select_portfolio(_ca.plan_candidate_actions(result, inv_spec, ev_state))
+        print(_summarize_portfolio(portfolio))
         return 0
 
     if args.cmd == "complete":
