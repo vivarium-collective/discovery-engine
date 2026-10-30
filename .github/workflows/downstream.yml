@@ -1,0 +1,67 @@
+name: downstream
+
+# The "in sync" guard: before a change to the engine lands (or releases), prove it
+# still satisfies its primary consumer's contract. viva-superpowers is a facade of
+# back-compat shims over discovery_engine — its tests/test_discovery_engine_facade.py
+# asserts viva_superpowers.<m> IS discovery_engine.<m> across the whole shim set. We
+# install viva-superpowers against THIS discovery-engine (not the pinned one) and run
+# that contract, so a breaking change here is caught before it propagates downstream.
+#
+# Cross-repo checkout needs a token with read access to viva-superpowers. Set a repo
+# secret DOWNSTREAM_TOKEN (a PAT or a fine-grained token scoped to the consumer repos);
+# until it is set, this job skips cleanly (stays green) rather than failing.
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+concurrency:
+  group: downstream-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  facade:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Is the downstream token configured?
+        id: tok
+        run: echo "has=${{ secrets.DOWNSTREAM_TOKEN != '' }}" >> "$GITHUB_OUTPUT"
+
+      - name: Checkout discovery-engine (this ref)
+        if: steps.tok.outputs.has == 'true'
+        uses: actions/checkout@v4
+        with:
+          path: discovery-engine
+
+      - name: Checkout viva-superpowers (main)
+        if: steps.tok.outputs.has == 'true'
+        uses: actions/checkout@v4
+        with:
+          repository: vivarium-collective/viva-superpowers
+          ref: main
+          token: ${{ secrets.DOWNSTREAM_TOKEN }}
+          path: viva-superpowers
+
+      - name: Install uv
+        if: steps.tok.outputs.has == 'true'
+        uses: astral-sh/setup-uv@v5
+
+      - name: Set up Python
+        if: steps.tok.outputs.has == 'true'
+        run: uv python install 3.12
+
+      - name: Install viva-superpowers, then override discovery-engine with THIS ref
+        if: steps.tok.outputs.has == 'true'
+        run: |
+          uv venv
+          uv pip install -e ./viva-superpowers pytest
+          # editable local engine shadows the git-pinned one (same dist name)
+          uv pip install -e ./discovery-engine
+
+      - name: Run the shim-facade contract against this discovery-engine
+        if: steps.tok.outputs.has == 'true'
+        run: uv run python -m pytest -q viva-superpowers/tests/test_discovery_engine_facade.py
+
+      - name: Note when skipped
+        if: steps.tok.outputs.has != 'true'
+        run: echo "DOWNSTREAM_TOKEN not set — skipping the downstream facade check. Add the secret to enable it."
