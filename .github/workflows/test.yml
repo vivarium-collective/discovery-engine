@@ -26,5 +26,8 @@ jobs:
           uv venv
           uv pip install -e '.[dev]'
 
+      - name: Check import contracts (no back-edge to consumers)
+        run: uv run lint-imports
+
       - name: Run the test suite
         run: uv run python -m pytest -q

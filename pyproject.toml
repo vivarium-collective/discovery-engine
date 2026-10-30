@@ -34,7 +34,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-dev = ["pytest>=7"]
+dev = ["pytest>=7", "import-linter>=2.0"]
 
 [project.scripts]
 # the investigation discovery-cycle CLI (was `viva-discover`)
@@ -53,6 +53,21 @@ packages = ["discovery_engine"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 norecursedirs = ["tests/fixtures", "tests/_fixtures", ".*", "build", "dist"]
+
+# Lock the seam: discovery-engine is the single source of truth and must never
+# import its own consumers. This makes the "decoupled" direction a CI-enforced
+# invariant (no circular edge back to the skills facade or the UI) rather than a
+# property that merely happens to hold today. Run with `lint-imports`.
+[tool.importlinter]
+root_package = "discovery_engine"
+# the consumers below are external packages (not subpackages of discovery_engine)
+include_external_packages = true
+
+[[tool.importlinter.contracts]]
+name = "discovery-engine never imports its consumers"
+type = "forbidden"
+source_modules = ["discovery_engine"]
+forbidden_modules = ["viva_superpowers", "vivarium_workbench"]
 
 [tool.hatch.build.targets.wheel.force-include]
 # scaffold/report resource templates (resource_dir("templates") -> _templates in the wheel)
