@@ -17,8 +17,8 @@ from __future__ import annotations
 from typing import Any
 
 from .hypotheses import (
-    _as_list, _RETIRED_STATUS, _to_float, anomalies, discriminating_hypotheses,
-    fidelity_flags, rollup_support, support_summary,
+    _as_list, _RETIRED_STATUS, _to_float, _finding_measure_observed, anomalies,
+    discriminating_hypotheses, fidelity_flags, rollup_support, support_summary,
 )
 from .evidence_integrity import VERIFIED
 
@@ -98,9 +98,21 @@ def _arm_values(finding: dict) -> dict:
                 if f is not None:
                     arms[str(name)] = f
     sup = ev.get("superseded")
-    if isinstance(sup, dict) and _to_float(sup.get("observed")) is not None:
+    # An adjudicated supersession is resolved history — not a live competing arm.
+    if (isinstance(sup, dict) and _to_float(sup.get("observed")) is not None
+            and not (sup.get("adjudicated_by") or sup.get("adjudicated"))):
         arms[f"superseded:{sup.get('source', 'prior')}"[:40]] = _to_float(sup["observed"])
     return arms
+
+
+def _finding_resolved(finding: dict) -> bool:
+    """A finding is resolved — no longer a live disagreement — when it has a numeric
+    observed AND any supersession has been adjudicated by a higher-fidelity run."""
+    ev = finding.get("evidence") if isinstance(finding.get("evidence"), dict) else {}
+    _, observed = _finding_measure_observed(finding)
+    sup = ev.get("superseded")
+    sup_open = bool(sup) and not (isinstance(sup, dict) and (sup.get("adjudicated_by") or sup.get("adjudicated")))
+    return observed is not None and not sup_open
 
 
 def model_disagreement_map(inv_spec: dict, studies: dict) -> list[dict]:
@@ -122,12 +134,15 @@ def model_disagreement_map(inv_spec: dict, studies: dict) -> list[dict]:
             vals = list(arms.values())
             spread = max(vals) - min(vals)
             ev = f.get("evidence") or {}
+            # A resolved finding (numeric observed + any supersession adjudicated) is
+            # no longer a live disagreement, even if its regime arms span a range.
+            live = spread >= 0.2 and not _finding_resolved(f)
             out.append({
                 "study": slug, "observable": ev.get("measure") or ev.get("observable"),
                 "arms": arms, "spread": round(spread, 4),
-                "disagreement": spread >= 0.2,
+                "disagreement": live,
                 "note": ("arms disagree — investigate the model disagreement, do not average"
-                         if spread >= 0.2 else "arms broadly agree"),
+                         if live else "resolved — regime-dependence recorded, no live model conflict"),
             })
     return out
 

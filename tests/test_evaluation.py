@@ -66,6 +66,24 @@ def test_invalidate_dependents_marks_downstream_review_required():
     assert arts.get("narrative") == "STALE"
 
 
+def test_adjudicated_supersession_is_not_a_live_disagreement():
+    """A supersession a higher-fidelity run has adjudicated (``adjudicated_by``), on a
+    finding with a resolved numeric observed, is resolved history — not gated, not a
+    live model disagreement."""
+    inv = {"studies": ["s3"], "hypotheses": [
+        {"id": "h-s3-reach", "study": "s3",
+         "predictions": [{"observable": "enclosure", "expected": {"op": ">=", "value": 0.5}}]}]}
+    studies = {"s3": {"name": "s3", "findings": [
+        {"id": "f-s3", "evidence": {"measure": "enclosure", "observed": 0.61,
+                                    "by_topology": {"classical": 0.27, "inside_out": 0.83},
+                                    "superseded": {"source": "CPM", "observed": 1.0,
+                                                   "adjudicated_by": "run:membrane-arbiter"}}}]}}
+    dmap = E.model_disagreement_map(inv, studies)
+    assert all(not d["disagreement"] for d in dmap)          # no live disagreement
+    cmp = E.compare_hypotheses(inv, studies)
+    assert cmp["s3"]["status"] != E.GATED                     # gate lifted
+
+
 def test_discovery_delta_records_disagreements_and_fingerprint():
     inv, studies = _inv_and_studies()
     delta = E.discovery_delta(inv, studies)

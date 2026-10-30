@@ -34,9 +34,15 @@ def test_composed_model_versions_from_cycle_n1_parents():
 
 
 def test_diagram_is_conditional_on_enclosure_disagreement():
+    # A LIVE disagreement: unresolved (no single observed) with arms spanning a range.
     inv = {"studies": ["s3"], "hypotheses": [{"id": "h", "study": "s3", "predictions": []}]}
     studies = {"s3": {"name": "s3", "findings": [
-        {"id": "f", "evidence": {"measure": "enclosure", "observed": 0.6,
+        {"id": "f", "evidence": {"measure": "enclosure",
                                  "by_topology": {"classical": 0.27, "inside_out": 0.83}}}]}}
     caveats = T.conditioning_caveats(inv, studies)
     assert any("s3" in c and "enclosure" in c for c in caveats)
+    # once adjudicated + resolved, the caveat lifts
+    studies["s3"]["findings"][0]["evidence"]["observed"] = 0.61
+    studies["s3"]["findings"][0]["evidence"]["superseded"] = {"source": "CPM", "observed": 1.0,
+                                                              "adjudicated_by": "run:arbiter"}
+    assert not T.conditioning_caveats(inv, studies)
