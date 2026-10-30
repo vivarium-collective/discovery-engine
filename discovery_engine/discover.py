@@ -1268,6 +1268,53 @@ _OUTCOME_GLYPH = {"stable-endosymbiosis": "██ stable", "collapse": "░░ c
                   "transient-association": "▒▒ transient", "no-transition": "·· none"}
 
 
+def _coerce_scalar(v: str):
+    """Coerce a ``--param key=value`` string value to int/float when it parses."""
+    s = str(v).strip()
+    for cast in (int, float):
+        try:
+            return cast(s)
+        except ValueError:
+            pass
+    return s
+
+
+def _summarize_seeded_study(study: dict, gaps: list, autonomy: str) -> str:
+    base = next((a for a in (study.get("baseline") or []) if isinstance(a, dict)), {})
+    tests = study.get("behavior_tests") or study.get("tests") or []
+    lines = [f"seeded study — {study.get('name')}  (autonomy: {autonomy})",
+             f"  title: {study.get('title')}",
+             f"  seeded from: {study.get('seeded_from')}",
+             f"  baseline: {str(base.get('composite','')).split('.')[-1]}  params={base.get('params')}",
+             f"  observables: {study.get('observables')}",
+             f"  behavior tests: {[t.get('name') for t in tests if isinstance(t, dict)]}"]
+    if study.get("purpose"):
+        lines.append(f"  purpose.question: {(study['purpose'] or {}).get('question')}")
+    lines.append("  run-ready: YES" if not gaps else "  run-ready gaps: " + "; ".join(gaps))
+    return "\n".join(lines)
+
+
+def _write_seeded_study(ws: Path, inv_slug: str, slug: str, study: dict) -> Path:
+    """I/O: write studies/<slug>/study.yaml (comment-preserving) and register the slug
+    in the investigation's ``studies`` list. Pure authoring lives in study_seeding."""
+    y = _ruamel()
+    sdir = studies_dir(ws) / slug
+    sdir.mkdir(parents=True, exist_ok=True)
+    sp = sdir / "study.yaml"
+    with sp.open("w", encoding="utf-8") as fh:
+        y.dump(study, fh)
+    inv_path = investigations_dir(ws) / inv_slug / "investigation.yaml"
+    if inv_path.exists():
+        with inv_path.open(encoding="utf-8") as fh:
+            inv = y.load(fh)
+        members = inv.get("studies")
+        if isinstance(members, list) and slug not in members:
+            members.append(slug)
+            with inv_path.open("w", encoding="utf-8") as fh:
+                y.dump(inv, fh)
+    return sp
+
+
 def _summarize_transition(report: dict) -> str:
     """Render the Cycle N+2 composed model + the conditional transition phase diagram."""
     mv = report["model_version"]
@@ -1362,6 +1409,19 @@ def main(argv: list[str] | None = None) -> int:
     p_trans = sub.add_parser("transition",
                              help="Cycle N+2: compose the Proto-Endosymbiosis Composite and estimate the conditional transition phase diagram over proximity × pump × heredity")
     p_trans.add_argument("investigation", help="investigation slug")
+
+    p_seed = sub.add_parser("seed-study",
+                            help="author a complete, run-ready study.yaml for a proposed/follow-up study (closes propose→seed→run); --autonomy gates selection")
+    p_seed.add_argument("investigation", help="investigation slug")
+    p_seed.add_argument("parent", help="parent study slug")
+    p_seed.add_argument("--slug", required=True, help="new study slug")
+    p_seed.add_argument("--from-finding", default=None, help="parent finding id to seed purpose/assumptions from")
+    p_seed.add_argument("--title", default=None)
+    p_seed.add_argument("--param", action="append", default=[],
+                        help="model_change param key=value (repeatable) — the variation under test")
+    p_seed.add_argument("--autonomy", choices=["human_in_the_loop", "autonomous"], default="human_in_the_loop")
+    p_seed.add_argument("--write", action="store_true",
+                        help="write studies/<slug>/study.yaml + register it in the investigation (else just print)")
 
     p_comp = sub.add_parser("complete",
                             help="the completion map: gates to verify, decisions that gate the next studies, and the ordered next-step commands")
@@ -1561,6 +1621,27 @@ def main(argv: list[str] | None = None) -> int:
         routes = _ma.choose_acquisition_route(req, catalog)
         mv = _ma.model_version(req, routes)
         print(_summarize_model_build(req, catalog, routes, mv))
+        return 0
+
+    if args.cmd == "seed-study":
+        from . import study_seeding as _ss
+        _, inv_spec, studies = load_cycle_inputs(ws, args.investigation)
+        parent = studies.get(args.parent)
+        if not isinstance(parent, dict):
+            print(f"seed-study: parent study {args.parent!r} not found")
+            return 1
+        mc = {"params": {k: _coerce_scalar(v) for k, v in (kv.split("=", 1) for kv in args.param)}} if args.param else None
+        study = _ss.build_seeded_study(parent, inv_spec, new_slug=args.slug,
+                                       finding_id=args.from_finding, model_change=mc, title=args.title)
+        gaps = _ss.is_run_ready(study)
+        print(_summarize_seeded_study(study, gaps, args.autonomy))
+        if args.write:
+            if gaps:
+                print("  NOT written — resolve run-readiness gaps first.")
+                return 1
+            path = _write_seeded_study(ws, args.investigation, args.slug, study)
+            print(f"  wrote {path}")
+            print(f"  run it: discover advance {args.investigation}  (or vivarium-workbench run study {args.slug})")
         return 0
 
     if args.cmd == "complete":
