@@ -17,7 +17,6 @@ investigation spec; it registers predictions and a decision rule but runs nothin
 """
 from __future__ import annotations
 
-from typing import Any
 
 from .hypotheses import _as_list, discriminating_hypotheses, _RETIRED_STATUS
 

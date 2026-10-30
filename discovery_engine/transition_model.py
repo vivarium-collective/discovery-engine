@@ -13,10 +13,8 @@ phase diagram is a pure sweep of a declared, inspectable decision rule over the 
 from __future__ import annotations
 
 import itertools
-from typing import Any
 
 from . import model_architect as _ma
-from .hypotheses import _as_list
 
 # Transition outcomes.
 NO_TRANSITION = "no-transition"

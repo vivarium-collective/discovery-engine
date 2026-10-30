@@ -19,7 +19,6 @@ the investigation spec, and the Phase-A evidence state. It performs no I/O.
 """
 from __future__ import annotations
 
-from typing import Any
 
 from .discovery_engine import opportunities
 from .hypotheses import discriminating_hypotheses

@@ -14,7 +14,6 @@ the study specs, and (optionally) the Phase-A evidence state.
 """
 from __future__ import annotations
 
-from typing import Any
 
 from .hypotheses import (
     _as_list, _RETIRED_STATUS, _to_float, _finding_measure_observed, anomalies,

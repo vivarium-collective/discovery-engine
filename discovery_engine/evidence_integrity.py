@@ -22,11 +22,10 @@ Classes (the Cycle N+1 Phase A vocabulary):
 """
 from __future__ import annotations
 
-from typing import Any
 
 from .hypotheses import (
     _as_list, _evaluate, _expected_band, _finding_measure_observed, _findings,
-    _study_slug, _to_float,
+    _to_float,
 )
 
 VERIFIED = "verified"

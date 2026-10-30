@@ -13,7 +13,6 @@ policy as seeding (``study_seeding.select_for_launch``).
 """
 from __future__ import annotations
 
-from typing import Any
 
 from .hypotheses import _as_list, fidelity_flags
 from .rigor import _replicate_count
