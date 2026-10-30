@@ -120,6 +120,17 @@ def study_with_store_and_db(tmp_path: Path):
 # ===========================================================================
 
 
+def test_mechanical_record_tags_variant_from_label():
+    """A variant run (label != baseline) is tagged with `variant`, so canonical-run
+    selection excludes it from the baseline gate; a baseline run is not tagged."""
+    var = so._mechanical_record({"run_id": "r1", "status": "complete", "label": "sweep-k-0.5"})
+    assert var.get("variant") == "sweep-k-0.5"
+    base = so._mechanical_record({"run_id": "r2", "status": "complete", "label": "baseline"})
+    assert "variant" not in base
+    none = so._mechanical_record({"run_id": "r3", "status": "complete"})
+    assert "variant" not in none
+
+
 def test_sync_returns_record_runs_keys_and_computed(study_with_store_and_db):
     """sync returns added/updated from record_runs PLUS a computed key with summary."""
     study_dir, _store = study_with_store_and_db

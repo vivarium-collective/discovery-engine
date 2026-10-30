@@ -7,7 +7,6 @@ dashboard). The aggregation, sort, and per-row shape are documented on
 that function.
 """
 from __future__ import annotations
-import json
 import shutil
 from collections import defaultdict
 from datetime import date
@@ -286,26 +285,5 @@ def render_workspace_findings_index(
         planned_findings=planned_findings,
         by_status=dict(by_status),
         by_kind=dict(by_kind),
-    ))
-    return out
-
-
-def render_model_report(
-    ws_root: Path, model_name: str,
-    registry: dict, pbg_doc: dict | None = None,
-    *, today: str | None = None,
-) -> Path:
-    """Build models/<model>/reports/index.html from workspace.yaml entry + registry + doc."""
-    today = today or date.today().isoformat()
-    env = _env(resource_dir("templates") / "model" / "reports")
-    tpl = env.get_template("index.html.j2")
-    out = ws_root / "models" / model_name / "reports" / "index.html"
-    out.parent.mkdir(parents=True, exist_ok=True)
-    _copy_assets(ws_root / "models" / model_name / "reports" / "assets")
-    out.write_text(tpl.render(
-        model_name=model_name,
-        generated_at=today,
-        registry=registry,
-        pbg_doc_json=json.dumps(pbg_doc or {}, indent=2),
     ))
     return out

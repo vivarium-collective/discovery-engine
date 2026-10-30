@@ -1009,6 +1009,22 @@ def load_cycle_inputs(ws_root: Path | str, slug: str) -> tuple[Path, dict, dict[
     return inv_path, inv_spec, studies_by_slug
 
 
+def _load_runs_by_study(ws: Path, inv_slug: str, studies: dict) -> dict[str, list]:
+    """``{study_slug: [registered runs]}`` from each study's ``runs.db`` (flat path
+    first, then the nested investigation path). Shared by the Phase A/B/F commands."""
+    from . import run_registry as _rr
+    runs_by_study: dict[str, list] = {}
+    for slug in studies:
+        runs: list = []
+        for base in (studies_dir(ws), investigations_dir(ws) / inv_slug / "studies"):
+            db = base / slug / "runs.db"
+            if db.exists():
+                runs = _rr.list_runs(db)
+                break
+        runs_by_study[slug] = runs
+    return runs_by_study
+
+
 def _slugs_on_disk(*dirs: Path) -> list[str]:
     seen: list[str] = []
     for d in dirs:
@@ -1102,6 +1118,256 @@ def _summarize_hypotheses(inv_spec: dict, study_specs: list) -> str:
 
 # ---------------------------------------------------------------------------
 # CLI
+def _summarize_evidence_reconciliation(result: dict) -> str:
+    """Render the Cycle N+1 Phase A evidence ledger — which findings can be trusted."""
+    from .evidence_integrity import VERIFIED, PROVISIONAL, CONTRADICTED, UNSUPPORTED
+    mark = {VERIFIED: "✓ verified", PROVISIONAL: "~ provisional",
+            CONTRADICTED: "✗ contradicted", UNSUPPORTED: "· unsupported"}
+    s = result.get("summary", {})
+    lines = [f"evidence reconciliation: {s.get(VERIFIED,0)} verified · {s.get(PROVISIONAL,0)} provisional"
+             f" · {s.get(CONTRADICTED,0)} contradicted · {s.get(UNSUPPORTED,0)} unsupported"]
+    by = result.get("by_study", {})
+    for slug in by:
+        b = by[slug]
+        st = b.get("status")
+        lines.append(f"\n{slug}  [{mark.get(st, st or 'no numeric evidence')}]  "
+                     f"({b.get('registered_runs',0)} registered run(s))")
+        for row in result.get("ledger", []):
+            if row.get("study") != slug:
+                continue
+            lines.append(f"  {mark.get(row['status'], row['status']):<16} "
+                         f"{row.get('measure') or row.get('finding')}"
+                         + (f" = {row['observed']}" if row.get('observed') is not None else "")
+                         + f"  — {row['reason']}")
+    if s.get(PROVISIONAL, 0) or s.get(UNSUPPORTED, 0):
+        lines.append("\n→ repair action (R0): numeric findings without a resolvable registered run must be "
+                     "re-run through the gated execution pipeline before they count as biological support.")
+    return "\n".join(lines)
+
+
+def _summarize_portfolio(portfolio: list) -> str:
+    """Render the Cycle N+1 Phase B CandidateAction portfolio."""
+    from .candidate_action import REPAIR, RESOLVE, EXTEND
+    tag = {REPAIR: "REPAIR ", RESOLVE: "RESOLVE", EXTEND: "EXTEND "}
+    by_kind = {k: sum(1 for a in portfolio if a["kind"] == k) for k in (REPAIR, RESOLVE, EXTEND)}
+    lines = [f"portfolio: {len(portfolio)} candidate action(s) — "
+             f"{by_kind[REPAIR]} repair · {by_kind[RESOLVE]} resolve · {by_kind[EXTEND]} extend "
+             "(execution order; repairs are prerequisites)"]
+    for i, a in enumerate(portfolio, 1):
+        dep = f"  ⟸ needs {', '.join(a['depends_on'])}" if a.get("depends_on") else ""
+        disc = f"  disc={a['discrimination']}" if a.get("discrimination") else ""
+        lines.append(f"  {i:>2}. [{tag.get(a['kind'], a['kind'])}] {a.get('target')}"
+                     f"  value={a.get('value')}{disc}{dep}")
+        lines.append(f"       {a.get('rationale', '')}")
+        if a.get("discriminates"):
+            lines.append(f"       ⇄ separates: {', '.join(str(h) for h in a['discriminates'])}")
+    return "\n".join(lines)
+
+
+def _fmt_when(w):
+    return "+".join(f"{k}={v}" for k, v in (w or {}).items()) or "baseline"
+
+
+def _summarize_design(design: dict | None, study: str) -> str:
+    """Render a Cycle N+1 Phase C discriminating-study design."""
+    if not design:
+        return f"design: {study} has no discriminable competing hypotheses — nothing to design."
+    lines = [f"discriminating study design — {study}",
+             f"  contrast: {' vs '.join(design['hypothesis_contrast'])}",
+             f"  measures: {', '.join(design['measurements'])}"]
+    lines.append("  intervention arms:")
+    ctrl_ids = {(c['hypothesis'], tuple(sorted((c.get('when') or {}).items()))) for c in design['controls']}
+    for arm in design["interventions"]:
+        is_ctrl = (arm['hypothesis'], tuple(sorted((arm.get('when') or {}).items()))) in ctrl_ids
+        lines.append(f"    - {arm['hypothesis']}  @ {_fmt_when(arm.get('when'))}"
+                     + ("   [control]" if is_ctrl else ""))
+    lines.append("  registered predictions (pre-run):")
+    for p in design["predictions"]:
+        lines.append(f"    - {p['hypothesis_id']}: {p['observable']} {p['expected']} when {_fmt_when(p['intervention'])}")
+    lines.append(f"  decision rule (precommitted): {design['decision_criterion']['rule']}")
+    issues = design.get("control_issues") or []
+    lines.append("  controls: OK" if not issues else "  control issues: " + "; ".join(issues))
+    return "\n".join(lines)
+
+
+def _summarize_model_build(request: dict, catalog: list, routes: dict, mv: dict) -> str:
+    """Render a Cycle N+1 Phase D model-acquisition decision."""
+    tag = {"reuse": "REUSE", "wrap": "WRAP ", "build": "BUILD"}
+    lines = [f"model build — question {request['question_id']}  "
+             f"(catalog: {len(catalog)} component(s) from the campaign)",
+             f"  required mechanisms: {', '.join(request['required_mechanisms'])}"]
+    lines.append("  acquisition routes:")
+    for mech, r in routes.items():
+        comp = (r["component"].split(".")[-1] if r.get("component") else "—")
+        lines.append(f"    [{tag.get(r['route'], r['route'])}] {mech:<22} {comp}")
+        lines.append(f"            {r['rationale']}")
+    issues = _mod_coupling_issues(routes, catalog)
+    lines.append("  coupling validation: OK" if not issues else "  coupling checks:")
+    for i in issues:
+        lines.append(f"    ⚑ {i}")
+    lines.append(f"  model version: {mv['id']}  (executable_digest {mv['executable_digest']}, "
+                 f"validation {mv['validation']['status']} — {', '.join(mv['validation']['required'])})")
+    return "\n".join(lines)
+
+
+def _mod_coupling_issues(routes, catalog):
+    from .model_architect import validate_coupling
+    return validate_coupling(routes, catalog)
+
+
+def _summarize_evaluation(cmp: dict, dmap: list) -> str:
+    """Render a Cycle N+1 Phase F evaluation: per-study claim verdicts + disagreements."""
+    lines = ["claim evaluation (support gated by evidence integrity)"]
+    for slug in sorted(cmp):
+        c = cmp[slug]
+        head = f"  {slug}: {c['status']}"
+        if c.get("favored"):
+            head += f"  (favored: {c['favored']})"
+        if c.get("evidence_status"):
+            head += f"  [evidence: {c['evidence_status']}]"
+        lines.append(head)
+        if c.get("note"):
+            lines.append(f"      ⚑ {c['note']}")
+        for h in c["hypotheses"]:
+            lines.append(f"      - {h['id']}: net {h['support']['net']:+d} → {h['verdict']}")
+    disc = [d for d in dmap if d["disagreement"]]
+    lines.append("  model disagreements:" if disc else "  model disagreements: none")
+    for d in disc:
+        arms = ", ".join(f"{k}={v}" for k, v in d["arms"].items())
+        lines.append(f"    ⇄ {d['study']} / {d['observable']}: {arms}  (spread {d['spread']}) — do not average")
+    return "\n".join(lines)
+
+
+def _summarize_discovery_delta(delta: dict) -> str:
+    """Render the per-cycle DiscoveryDelta."""
+    lines = [f"DiscoveryDelta  (fingerprint {delta['fingerprint']})"]
+    lines.append("  claims added / qualified this cycle:" if delta["added_or_qualified"]
+                 else "  claims added / qualified this cycle: none")
+    for a in delta["added_or_qualified"]:
+        lines.append(f"    + {a['study']}: {a['claim']}  [{a['strength']}]")
+    if delta["gated"]:
+        lines.append("  gated (model-fidelity):")
+        for g in delta["gated"]:
+            lines.append(f"    · {g['study']}: {g.get('reason')}")
+    if delta["model_disagreements"]:
+        lines.append("  model disagreements to resolve:")
+        for d in delta["model_disagreements"]:
+            lines.append(f"    ⇄ {d['study']} / {d['observable']}  (spread {d['spread']})")
+    if delta["anomalies"]:
+        lines.append("  anomalies (outside every predicted band):")
+        for a in delta["anomalies"]:
+            lines.append(f"    ! {a['study']} / {a['observable']} = {a['observed']}")
+    if delta["regressions"]:
+        lines.append("  recorded regressions (progress, kept visible):")
+        for r in delta["regressions"]:
+            lines.append(f"    ↺ {r['study']}: {r['note']}")
+    return "\n".join(lines)
+
+
+_OUTCOME_GLYPH = {"stable-endosymbiosis": "██ stable", "collapse": "░░ collapse",
+                  "transient-association": "▒▒ transient", "no-transition": "·· none"}
+
+
+def _coerce_scalar(v: str):
+    """Coerce a ``--param key=value`` string value to int/float when it parses."""
+    s = str(v).strip()
+    for cast in (int, float):
+        try:
+            return cast(s)
+        except ValueError:
+            pass
+    return s
+
+
+def _summarize_refinement(slug: str, needs: list, changes: list, autonomy: str) -> str:
+    lines = [f"refine study — {slug}  (autonomy: {autonomy})"]
+    lines.append("  needs: " + ("; ".join(f"{n['kind']} ({n['reason']})" for n in needs) if needs
+                                else "none — adequately rigorous"))
+    if changes:
+        lines.append("  refinements:")
+        for c in changes:
+            lines.append(f"    - [{c['kind']}] {c['detail']}")
+    return "\n".join(lines)
+
+
+def _apply_refinement(ws: Path, inv_slug: str, slug: str, refined: dict) -> Path:
+    """I/O: merge the refinement fields (robustness / variants / baseline / refined_from)
+    into the existing study.yaml, comment-preserving. Pure transform lives in
+    study_refinement.refine_study."""
+    y = _ruamel()
+    for base in (studies_dir(ws), investigations_dir(ws) / inv_slug / "studies"):
+        sp = base / slug / "study.yaml"
+        if sp.exists():
+            with sp.open(encoding="utf-8") as fh:
+                doc = y.load(fh)
+            for key in ("robustness", "variants", "baseline", "refined_from"):
+                if key in refined:
+                    doc[key] = refined[key]
+            with sp.open("w", encoding="utf-8") as fh:
+                y.dump(doc, fh)
+            return sp
+    raise FileNotFoundError(f"study.yaml for {slug} not found")
+
+
+def _summarize_seeded_study(study: dict, gaps: list, autonomy: str) -> str:
+    base = next((a for a in (study.get("baseline") or []) if isinstance(a, dict)), {})
+    tests = study.get("behavior_tests") or study.get("tests") or []
+    lines = [f"seeded study — {study.get('name')}  (autonomy: {autonomy})",
+             f"  title: {study.get('title')}",
+             f"  seeded from: {study.get('seeded_from')}",
+             f"  baseline: {str(base.get('composite','')).split('.')[-1]}  params={base.get('params')}",
+             f"  observables: {study.get('observables')}",
+             f"  behavior tests: {[t.get('name') for t in tests if isinstance(t, dict)]}"]
+    if study.get("purpose"):
+        lines.append(f"  purpose.question: {(study['purpose'] or {}).get('question')}")
+    lines.append("  run-ready: YES" if not gaps else "  run-ready gaps: " + "; ".join(gaps))
+    return "\n".join(lines)
+
+
+def _write_seeded_study(ws: Path, inv_slug: str, slug: str, study: dict) -> Path:
+    """I/O: write studies/<slug>/study.yaml (comment-preserving) and register the slug
+    in the investigation's ``studies`` list. Pure authoring lives in study_seeding."""
+    y = _ruamel()
+    sdir = studies_dir(ws) / slug
+    sdir.mkdir(parents=True, exist_ok=True)
+    sp = sdir / "study.yaml"
+    with sp.open("w", encoding="utf-8") as fh:
+        y.dump(study, fh)
+    inv_path = investigations_dir(ws) / inv_slug / "investigation.yaml"
+    if inv_path.exists():
+        with inv_path.open(encoding="utf-8") as fh:
+            inv = y.load(fh)
+        members = inv.get("studies")
+        if isinstance(members, list) and slug not in members:
+            members.append(slug)
+            with inv_path.open("w", encoding="utf-8") as fh:
+                y.dump(inv, fh)
+    return sp
+
+
+def _summarize_transition(report: dict) -> str:
+    """Render the Cycle N+2 composed model + the conditional transition phase diagram."""
+    mv = report["model_version"]
+    lines = [f"Proto-Endosymbiosis Composite — {mv['id']}",
+             f"  built on Cycle N+1 versions: {mv['parent_ids'] or '(none pinned)'}",
+             f"  mechanisms: {', '.join(mv['components'])}"]
+    if mv.get("coupling_issues"):
+        for i in mv["coupling_issues"]:
+            lines.append(f"    ⚑ {i}")
+    lines.append("")
+    lines.append("conditional transition phase diagram (proximity × pump × heredity):")
+    for cell in report["surface"]:
+        p = cell["point"]
+        coords = f"proximity={p['proximity']:<9} pump={p['pump']:<9} heredity={p['heredity']:<4}"
+        lines.append(f"    {coords} → {_OUTCOME_GLYPH.get(cell['outcome'], cell['outcome'])}")
+    lines.append("  tally: " + ", ".join(f"{k}×{v}" for k, v in sorted(report["tally"].items())))
+    if report["caveats"]:
+        lines.append("  conditional on (unresolved upstream):")
+        for c in report["caveats"]:
+            lines.append(f"    ⚑ {c}")
+    return "\n".join(lines)
+
+
 # ---------------------------------------------------------------------------
 
 def main(argv: list[str] | None = None) -> int:
@@ -1138,6 +1404,62 @@ def main(argv: list[str] | None = None) -> int:
     p_hyp = sub.add_parser("hypotheses",
                            help="the competing-hypotheses contest: each hypothesis, its predicted observable, and the support its studies' runs give it")
     p_hyp.add_argument("investigation", help="investigation slug")
+
+    p_recon = sub.add_parser("reconcile-evidence",
+                             help="Cycle N+1 Phase A: classify each finding's evidence as verified / provisional / contradicted / unsupported against the registered runs")
+    p_recon.add_argument("investigation", help="investigation slug")
+
+    p_plan = sub.add_parser("plan",
+                            help="Cycle N+1 Phase B: the classified CandidateAction portfolio (repair / resolve / extend), ranked and dependency-ordered")
+    p_plan.add_argument("investigation", help="investigation slug")
+
+    p_design = sub.add_parser("design",
+                              help="Cycle N+1 Phase C: design a discriminating study for a member study's competing hypotheses (contrast, controls, registered predictions, committed decision rule)")
+    p_design.add_argument("investigation", help="investigation slug")
+    p_design.add_argument("study", help="member study slug")
+    p_design.add_argument("--require-control", action="append", default=[],
+                          help="a control the design must include (repeatable), e.g. --require-control no-exchange")
+
+    p_build = sub.add_parser("build-model",
+                             help="Cycle N+1 Phase D: capability-driven model acquisition (reuse / wrap / build) for required mechanisms, against the campaign's composite catalog")
+    p_build.add_argument("investigation", help="investigation slug")
+    p_build.add_argument("--mechanism", action="append", default=[], required=True,
+                         help="a required mechanism (repeatable), e.g. --mechanism exchange --mechanism adhesion")
+    p_build.add_argument("--observable", action="append", default=[], help="a required observable (repeatable)")
+    p_build.add_argument("--question", default="Q", help="question id for the ModelBuildRequest")
+
+    p_eval = sub.add_parser("evaluate",
+                            help="Cycle N+1 Phase F: promote or reject claims — per-study hypothesis comparison with claim verdicts gated by evidence integrity, plus the model-disagreement map")
+    p_eval.add_argument("investigation", help="investigation slug")
+
+    p_delta = sub.add_parser("delta",
+                             help="Cycle N+1 Phase F: the DiscoveryDelta — what this cycle established / qualified / gated, with model disagreements, anomalies and recorded regressions")
+    p_delta.add_argument("investigation", help="investigation slug")
+
+    p_trans = sub.add_parser("transition",
+                             help="Cycle N+2: compose the Proto-Endosymbiosis Composite and estimate the conditional transition phase diagram over proximity × pump × heredity")
+    p_trans.add_argument("investigation", help="investigation slug")
+
+    p_seed = sub.add_parser("seed-study",
+                            help="author a complete, run-ready study.yaml for a proposed/follow-up study (closes propose→seed→run); --autonomy gates selection")
+    p_seed.add_argument("investigation", help="investigation slug")
+    p_seed.add_argument("parent", help="parent study slug")
+    p_seed.add_argument("--slug", required=True, help="new study slug")
+    p_seed.add_argument("--from-finding", default=None, help="parent finding id to seed purpose/assumptions from")
+    p_seed.add_argument("--title", default=None)
+    p_seed.add_argument("--param", action="append", default=[],
+                        help="model_change param key=value (repeatable) — the variation under test")
+    p_seed.add_argument("--autonomy", choices=["human_in_the_loop", "autonomous"], default="human_in_the_loop")
+    p_seed.add_argument("--write", action="store_true",
+                        help="write studies/<slug>/study.yaml + register it in the investigation (else just print)")
+
+    p_refine = sub.add_parser("refine-study",
+                              help="improve an existing study in place (replicate seeds / sweep variants / raise fidelity), from the engine's rigor + fidelity flags")
+    p_refine.add_argument("investigation", help="investigation slug")
+    p_refine.add_argument("study", help="study slug to refine")
+    p_refine.add_argument("--composite", default=None, help="higher-fidelity composite to raise the baseline to")
+    p_refine.add_argument("--autonomy", choices=["human_in_the_loop", "autonomous"], default="human_in_the_loop")
+    p_refine.add_argument("--write", action="store_true", help="apply the refinement to the study.yaml (else just print)")
 
     p_comp = sub.add_parser("complete",
                             help="the completion map: gates to verify, decisions that gate the next studies, and the ordered next-step commands")
@@ -1277,6 +1599,107 @@ def main(argv: list[str] | None = None) -> int:
         _, inv_spec, studies = load_cycle_inputs(ws, args.investigation)
         specs = list(studies.values()) if isinstance(studies, dict) else list(studies or [])
         print(_summarize_hypotheses(inv_spec, specs))
+        return 0
+
+    if args.cmd == "reconcile-evidence":
+        from . import evidence_integrity as _ei
+        _, inv_spec, studies = load_cycle_inputs(ws, args.investigation)
+        runs_by_study = _load_runs_by_study(ws, args.investigation, studies)
+        print(_summarize_evidence_reconciliation(
+            _ei.reconcile_evidence_state(inv_spec, studies, runs_by_study)))
+        return 0
+
+    if args.cmd == "plan":
+        from . import evidence_integrity as _ei, candidate_action as _ca
+        _, inv_spec, studies = load_cycle_inputs(ws, args.investigation)
+        runs_by_study = _load_runs_by_study(ws, args.investigation, studies)
+        ev_state = _ei.reconcile_evidence_state(inv_spec, studies, runs_by_study)
+        result = run_cycle(inv_spec, studies)
+        portfolio = _ca.select_portfolio(_ca.plan_candidate_actions(result, inv_spec, ev_state))
+        print(_summarize_portfolio(portfolio))
+        return 0
+
+    if args.cmd == "evaluate":
+        from . import evaluation as _ev, evidence_integrity as _ei
+        _, inv_spec, studies = load_cycle_inputs(ws, args.investigation)
+        runs_by_study = _load_runs_by_study(ws, args.investigation, studies)
+        ev_state = _ei.reconcile_evidence_state(inv_spec, studies, runs_by_study)
+        cmp = _ev.compare_hypotheses(inv_spec, studies, ev_state)
+        dmap = _ev.model_disagreement_map(inv_spec, studies)
+        print(_summarize_evaluation(cmp, dmap))
+        return 0
+
+    if args.cmd == "delta":
+        from . import evaluation as _ev, evidence_integrity as _ei
+        _, inv_spec, studies = load_cycle_inputs(ws, args.investigation)
+        runs_by_study = _load_runs_by_study(ws, args.investigation, studies)
+        ev_state = _ei.reconcile_evidence_state(inv_spec, studies, runs_by_study)
+        print(_summarize_discovery_delta(_ev.discovery_delta(inv_spec, studies, ev_state)))
+        return 0
+
+    if args.cmd == "transition":
+        from . import transition_model as _tm
+        _, inv_spec, studies = load_cycle_inputs(ws, args.investigation)
+        print(_summarize_transition(_tm.transition_phase_report(inv_spec, studies)))
+        return 0
+
+    if args.cmd == "design":
+        from . import experiment_design as _ed
+        _, inv_spec, _studies = load_cycle_inputs(ws, args.investigation)
+        design = _ed.design_discriminating_study(inv_spec, args.study, args.require_control or None)
+        print(_summarize_design(design, args.study))
+        return 0
+
+    if args.cmd == "build-model":
+        from . import model_architect as _ma
+        _, inv_spec, studies = load_cycle_inputs(ws, args.investigation)
+        catalog = _ma.build_catalog(studies)
+        req = _ma.ModelBuildRequest(question_id=args.question, required_mechanisms=args.mechanism,
+                                    required_observables=args.observable or None)
+        routes = _ma.choose_acquisition_route(req, catalog)
+        mv = _ma.model_version(req, routes)
+        print(_summarize_model_build(req, catalog, routes, mv))
+        return 0
+
+    if args.cmd == "seed-study":
+        from . import study_seeding as _ss
+        _, inv_spec, studies = load_cycle_inputs(ws, args.investigation)
+        parent = studies.get(args.parent)
+        if not isinstance(parent, dict):
+            print(f"seed-study: parent study {args.parent!r} not found")
+            return 1
+        mc = {"params": {k: _coerce_scalar(v) for k, v in (kv.split("=", 1) for kv in args.param)}} if args.param else None
+        study = _ss.build_seeded_study(parent, inv_spec, new_slug=args.slug,
+                                       finding_id=args.from_finding, model_change=mc, title=args.title)
+        gaps = _ss.is_run_ready(study)
+        print(_summarize_seeded_study(study, gaps, args.autonomy))
+        if args.write:
+            if gaps:
+                print("  NOT written — resolve run-readiness gaps first.")
+                return 1
+            path = _write_seeded_study(ws, args.investigation, args.slug, study)
+            print(f"  wrote {path}")
+            print(f"  run it: discover advance {args.investigation}  (or vivarium-workbench run study {args.slug})")
+        return 0
+
+    if args.cmd == "refine-study":
+        from . import study_refinement as _sr
+        _, inv_spec, studies = load_cycle_inputs(ws, args.investigation)
+        study = studies.get(args.study)
+        if not isinstance(study, dict):
+            print(f"refine-study: study {args.study!r} not found")
+            return 1
+        needs = _sr.refinement_needs(inv_spec, study)
+        refined, changes = _sr.refine_study(study, needs=needs or None,
+                                            higher_fidelity_composite=args.composite)
+        print(_summarize_refinement(args.study, needs, changes, args.autonomy))
+        if args.write:
+            if not changes:
+                print("  nothing to write — study already adequately rigorous.")
+                return 0
+            path = _apply_refinement(ws, args.investigation, args.study, refined)
+            print(f"  applied to {path}")
+            print(f"  re-run it: discover advance {args.investigation}")
         return 0
 
     if args.cmd == "complete":

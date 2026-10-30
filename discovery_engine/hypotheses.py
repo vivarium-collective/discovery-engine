@@ -521,8 +521,12 @@ def fidelity_flags(inv_spec: dict, study_specs: list[dict], *,
         for f in _findings(study):
             ev = f.get("evidence") if isinstance(f.get("evidence"), dict) else {}
             measure, observed = _finding_measure_observed(f)
-            if ev.get("superseded"):
-                src = (ev["superseded"] or {}).get("source") if isinstance(ev["superseded"], dict) else None
+            sup = ev.get("superseded")
+            # An ADJUDICATED supersession — a higher-fidelity arm was run and
+            # confirmed the replacement (``adjudicated_by`` names that run) — is
+            # resolved history, not a live caveat. Only an open supersession gates.
+            if sup and not (isinstance(sup, dict) and (sup.get("adjudicated_by") or sup.get("adjudicated"))):
+                src = sup.get("source") if isinstance(sup, dict) else None
                 out.append({"study": sslug, "kind": "superseded_evidence", "measure": measure,
                             "detail": f"evidence superseded by a higher-fidelity arm"
                                       + (f" (was: {src})" if src else "")})
