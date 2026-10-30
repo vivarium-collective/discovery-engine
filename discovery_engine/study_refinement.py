@@ -50,18 +50,52 @@ def _baseline(study_spec: dict) -> dict:
     return next((a for a in _as_list(study_spec.get("baseline")) if isinstance(a, dict)), {})
 
 
-def _default_sweep(study_spec: dict) -> tuple[str | None, list]:
+# Parameters bounded to the unit interval [0, 1] by their meaning — a 2x sweep of a
+# value near 1 would otherwise produce an invalid (>1) arm that fails to run.
+_UNIT_INTERVAL_TOKENS = ("fidelity", "probability", "_prob", "prob_", "fraction",
+                         "_frac", "frac_", "_rate", "ratio")
+
+
+def _param_bounds(name: str, explicit: dict | None) -> tuple[float | None, float | None]:
+    """Bounds for a sweep parameter: an explicit ``{param: (lo, hi)}`` wins (e.g. from
+    the composite's declared schema); else a unit-interval heuristic from the name."""
+    if explicit and name in explicit:
+        lo, hi = explicit[name]
+        return lo, hi
+    if any(tok in name.lower() for tok in _UNIT_INTERVAL_TOKENS):
+        return 0.0, 1.0
+    return None, None
+
+
+def _clamp(v: float, lo: float | None, hi: float | None) -> float:
+    if lo is not None:
+        v = max(v, lo)
+    if hi is not None:
+        v = min(v, hi)
+    return v
+
+
+def _default_sweep(study_spec: dict, param_bounds: dict | None = None) -> tuple[str | None, list]:
     """Pick a sweep parameter + values: the baseline's first numeric param, swept at
-    0.5x / 2x around its value (a coarse first characterisation)."""
+    0.5x / 2x around its value — clamped to the parameter's valid range so a value
+    near a bound (e.g. a fidelity near 1) does not produce an out-of-range arm.
+    Distinct, in-range values only."""
     params = _baseline(study_spec).get("params") or {}
     for k, v in params.items():
         if isinstance(v, (int, float)) and not isinstance(v, bool) and v:
-            return k, [round(v * 0.5, 12), round(v * 2.0, 12)]
+            lo, hi = _param_bounds(k, param_bounds)
+            vals = []
+            for raw in (v * 0.5, v * 2.0):
+                cv = round(_clamp(raw, lo, hi), 12)
+                if cv != v and cv not in vals:
+                    vals.append(cv)
+            return k, vals
     return None, []
 
 
 def refine_study(study_spec: dict, *, needs: list[dict] | None = None, n_replicates: int = 3,
                  sweep_param: str | None = None, sweep_values: list | None = None,
+                 param_bounds: dict | None = None,
                  higher_fidelity_composite: str | None = None) -> tuple[dict, list[dict]]:
     """Return a refined copy of ``study_spec`` + the list of changes applied. Applies
     only the refinements in ``needs`` (default: all of them). Pure — never writes."""
@@ -80,7 +114,7 @@ def refine_study(study_spec: dict, *, needs: list[dict] | None = None, n_replica
         param = sweep_param
         values = sweep_values
         if param is None:
-            param, values = _default_sweep(study_spec)
+            param, values = _default_sweep(study_spec, param_bounds)
         if param and values:
             base = _baseline(study_spec)
             variants = list(_as_list(out.get("variants")))

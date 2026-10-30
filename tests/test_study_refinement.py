@@ -42,6 +42,25 @@ def test_refine_adds_sweep_variants_around_baseline_param():
     assert vals == [0.5, 2.0]
 
 
+def test_sweep_clamps_unit_interval_param_in_range():
+    """A fidelity/probability param near 1 must not sweep to an out-of-range (>1) arm."""
+    study = {"name": "s5", "baseline": [{"name": "baseline", "composite": "pkg.c.c",
+                                         "params": {"per_site_fidelity": 0.99}}]}
+    out, _ = R.refine_study(study, needs=[{"kind": R.SWEEP}])
+    vals = [v["params"]["per_site_fidelity"] for v in out["variants"]]
+    assert all(0.0 <= x <= 1.0 for x in vals)       # none exceed 1.0
+    assert 1.98 not in vals                           # the old un-clamped value is gone
+    assert any(x < 0.99 for x in vals)                # still sweeps downward
+
+
+def test_explicit_param_bounds_win():
+    study = {"name": "s", "baseline": [{"name": "baseline", "composite": "pkg.c.c",
+                                        "params": {"k": 10.0}}]}
+    out, _ = R.refine_study(study, needs=[{"kind": R.SWEEP}], param_bounds={"k": (0.0, 12.0)})
+    vals = [v["params"]["k"] for v in out["variants"]]
+    assert all(x <= 12.0 for x in vals)               # high arm clamped to 12, not 20
+
+
 def test_raise_fidelity_swaps_composite_when_given_else_notes_gap():
     out, changes = R.refine_study(_thin_study(), needs=[{"kind": R.RAISE_FIDELITY}],
                                   higher_fidelity_composite="pkg.composites.hi_fi.hi_fi")
