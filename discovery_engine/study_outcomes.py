@@ -28,7 +28,7 @@ from viva_workspace.outcomes import canonical_outcomes, canonical_run  # noqa: F
 # Best-effort/nullable: an older DB missing the columns simply omits the keys.
 _MECHANICAL = ("status", "kind", "emitter", "seeds", "params", "timestamp", "commit",
                "generations", "sim_minutes", "n_readouts",
-               "provenance_status", "env_id")
+               "provenance_status", "env_id", "variant")
 
 
 def _emitter_kind(emitter_path: str | None) -> str:
@@ -59,6 +59,13 @@ def _mechanical_record(db_row: dict) -> dict:
         "provenance_status": db_row.get("provenance_status"),
         "env_id": db_row.get("env_id"),
     }
+    # Tag the run with its variant (the recorded ``label``), so canonical-run
+    # selection excludes a variant/sweep arm from the baseline claim's gate: an
+    # untagged sweep arm is indistinguishable from the baseline and its FAIL
+    # leaks into the verdict. "baseline"/empty is the baseline, not a variant.
+    label = db_row.get("label")
+    if label and str(label).strip().lower() != "baseline":
+        rec["variant"] = label
     # Canonical run summary — every recorded simulation carries its quantitative
     # shape (generations, simulated time, readouts collected) read from its store
     # via RunReader, so all simulations render uniformly. Best-effort.
