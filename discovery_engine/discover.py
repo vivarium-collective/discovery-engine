@@ -1279,6 +1279,36 @@ def _coerce_scalar(v: str):
     return s
 
 
+def _summarize_refinement(slug: str, needs: list, changes: list, autonomy: str) -> str:
+    lines = [f"refine study — {slug}  (autonomy: {autonomy})"]
+    lines.append("  needs: " + ("; ".join(f"{n['kind']} ({n['reason']})" for n in needs) if needs
+                                else "none — adequately rigorous"))
+    if changes:
+        lines.append("  refinements:")
+        for c in changes:
+            lines.append(f"    - [{c['kind']}] {c['detail']}")
+    return "\n".join(lines)
+
+
+def _apply_refinement(ws: Path, inv_slug: str, slug: str, refined: dict) -> Path:
+    """I/O: merge the refinement fields (robustness / variants / baseline / refined_from)
+    into the existing study.yaml, comment-preserving. Pure transform lives in
+    study_refinement.refine_study."""
+    y = _ruamel()
+    for base in (studies_dir(ws), investigations_dir(ws) / inv_slug / "studies"):
+        sp = base / slug / "study.yaml"
+        if sp.exists():
+            with sp.open(encoding="utf-8") as fh:
+                doc = y.load(fh)
+            for key in ("robustness", "variants", "baseline", "refined_from"):
+                if key in refined:
+                    doc[key] = refined[key]
+            with sp.open("w", encoding="utf-8") as fh:
+                y.dump(doc, fh)
+            return sp
+    raise FileNotFoundError(f"study.yaml for {slug} not found")
+
+
 def _summarize_seeded_study(study: dict, gaps: list, autonomy: str) -> str:
     base = next((a for a in (study.get("baseline") or []) if isinstance(a, dict)), {})
     tests = study.get("behavior_tests") or study.get("tests") or []
@@ -1422,6 +1452,14 @@ def main(argv: list[str] | None = None) -> int:
     p_seed.add_argument("--autonomy", choices=["human_in_the_loop", "autonomous"], default="human_in_the_loop")
     p_seed.add_argument("--write", action="store_true",
                         help="write studies/<slug>/study.yaml + register it in the investigation (else just print)")
+
+    p_refine = sub.add_parser("refine-study",
+                              help="improve an existing study in place (replicate seeds / sweep variants / raise fidelity), from the engine's rigor + fidelity flags")
+    p_refine.add_argument("investigation", help="investigation slug")
+    p_refine.add_argument("study", help="study slug to refine")
+    p_refine.add_argument("--composite", default=None, help="higher-fidelity composite to raise the baseline to")
+    p_refine.add_argument("--autonomy", choices=["human_in_the_loop", "autonomous"], default="human_in_the_loop")
+    p_refine.add_argument("--write", action="store_true", help="apply the refinement to the study.yaml (else just print)")
 
     p_comp = sub.add_parser("complete",
                             help="the completion map: gates to verify, decisions that gate the next studies, and the ordered next-step commands")
@@ -1642,6 +1680,26 @@ def main(argv: list[str] | None = None) -> int:
             path = _write_seeded_study(ws, args.investigation, args.slug, study)
             print(f"  wrote {path}")
             print(f"  run it: discover advance {args.investigation}  (or vivarium-workbench run study {args.slug})")
+        return 0
+
+    if args.cmd == "refine-study":
+        from . import study_refinement as _sr
+        _, inv_spec, studies = load_cycle_inputs(ws, args.investigation)
+        study = studies.get(args.study)
+        if not isinstance(study, dict):
+            print(f"refine-study: study {args.study!r} not found")
+            return 1
+        needs = _sr.refinement_needs(inv_spec, study)
+        refined, changes = _sr.refine_study(study, needs=needs or None,
+                                            higher_fidelity_composite=args.composite)
+        print(_summarize_refinement(args.study, needs, changes, args.autonomy))
+        if args.write:
+            if not changes:
+                print("  nothing to write — study already adequately rigorous.")
+                return 0
+            path = _apply_refinement(ws, args.investigation, args.study, refined)
+            print(f"  applied to {path}")
+            print(f"  re-run it: discover advance {args.investigation}")
         return 0
 
     if args.cmd == "complete":
