@@ -6,6 +6,8 @@ formalisms. ModelVersion is immutable and content-addressed.
 """
 from __future__ import annotations
 
+import pytest
+
 from discovery_engine import model_architect as M
 
 
@@ -55,9 +57,10 @@ def test_changing_diffusion_changes_mv():
             != M.model_version("pkg.comp", {"diffusion": 2.0})["id"])
 
 
-def test_seed_does_not_change_mv():
+@pytest.mark.parametrize("key", ["seed", "seeds", "emitter", "out_dir", "n_steps"])
+def test_denylisted_param_does_not_change_mv(key):
     base = M.model_version("pkg.comp", {"diffusion": 1.0})
-    assert M.model_version("pkg.comp", {"diffusion": 1.0, "seed": 7, "n_steps": 5})["id"] == base["id"]
+    assert M.model_version("pkg.comp", {"diffusion": 1.0, key: 7})["id"] == base["id"]
 
 
 def test_parent_ids_and_origin_round_trip():
@@ -66,13 +69,12 @@ def test_parent_ids_and_origin_round_trip():
     assert "validation" not in mv
 
 
-def test_same_model_under_two_questions_same_id():
-    r1 = M.ModelBuildRequest(question_id="A", required_mechanisms=["exchange"])
-    r2 = M.ModelBuildRequest(question_id="B", required_mechanisms=["exchange"])
-    cat = M.build_catalog(_studies())
-    m1 = M.model_version(M.routes_composite(M.choose_acquisition_route(r1, cat)), {})
-    m2 = M.model_version(M.routes_composite(M.choose_acquisition_route(r2, cat)), {})
-    assert m1["id"] == m2["id"]
+def test_id_depends_only_on_composite_and_canonical_params():
+    a = M.model_version("pkg.comp", {"d": 1}, parent_ids=("mv:x",), origin={"q": "A"})
+    b = M.model_version("pkg.comp", {"d": 1}, parent_ids=("mv:y", "mv:z"), origin={"q": "B"})
+    c = M.model_version("pkg.comp", {"d": 1})
+    assert a["id"] == b["id"] == c["id"]
+    assert M.model_version("pkg.other", {"d": 1})["id"] != a["id"]
 
 
 def test_search_ranks_providers():
