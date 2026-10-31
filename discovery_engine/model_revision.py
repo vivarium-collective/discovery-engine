@@ -17,7 +17,7 @@ import json
 from datetime import datetime, timezone
 from typing import Any
 
-from .evaluation import _arm_values, model_disagreement_map
+from .evaluation import _arm_values, _keyed_specs, model_disagreement_map
 from .hypotheses import _fidelity_rank, _finding_measure_observed, anomalies
 from .study_refinement import _default_sweep
 
@@ -155,7 +155,6 @@ def propose_model_revisions(inv_spec: dict, studies: dict, evaluation: dict,
     evaluation = evaluation or {}
     now = now or datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     bad = _contradicted_studies(evidence_state, evaluation)
-    spec_list = [s for s in studies.values() if isinstance(s, dict)]
     out: list[dict] = []
 
     def _find(study, pred):
@@ -180,7 +179,7 @@ def propose_model_revisions(inv_spec: dict, studies: dict, evaluation: dict,
               "rationale": "if the arm gap is a formalism artefact, raising fidelity collapses the spread"}],
             spec, now))
 
-    for a in anomalies(inv_spec, spec_list):
+    for a in anomalies(inv_spec, _keyed_specs(studies)):
         study, obs = a["study"], a["observable"]
         spec = studies.get(study) or {}
         f = _find(study, lambda f: _finding_measure_observed(f)[0] == obs

@@ -343,13 +343,14 @@ def apply_revision(ws_root: Path | str, inv_slug: str, proposal_id: str,
 # ---------------------------------------------------------------------------
 
 def run_cycle(inv_spec: dict, studies_by_slug: dict[str, dict], *,
-              evidence_state: dict | None = None) -> dict:
+              evidence_state: dict | None = None, catalog: list | None = None) -> dict:
     """Project one full discovery cycle over an investigation + its studies.
 
     Pure: no disk I/O. Each derived projection is merged over its authored block
     (``inv_spec['knowledge']`` / ``inv_spec['argument']``) with the
     authored-wins / empty-never-clobbers rule, then narrate/audit/synthesize read
-    the merged argument graph.
+    the merged argument graph. ``catalog`` (optional) is a pre-resolved capability
+    catalog passed in as data by an impure caller; absent, it is derived unresolved.
     """
     knowledge = merge_knowledge(inv_spec.get("knowledge"),
                                 derive_knowledge(inv_spec, studies_by_slug))
@@ -395,7 +396,8 @@ def run_cycle(inv_spec: dict, studies_by_slug: dict[str, dict], *,
                       if a.get("study") not in bad],
     }
     bundle["revision_proposals"] = propose_model_revisions(
-        inv_spec, studies_by_slug, evaluation, evidence_state, mvs, build_catalog(studies_by_slug))
+        inv_spec, studies_by_slug, evaluation, evidence_state, mvs,
+        catalog if catalog is not None else build_catalog(studies_by_slug))
     return bundle
 
 
@@ -405,7 +407,9 @@ def _cycle_with_evidence(ws_root, inv_slug, inv_spec, studies) -> dict:
     from . import evidence_integrity as _ei
     ev = _ei.reconcile_evidence_state(
         inv_spec, studies, _load_runs_by_study(Path(ws_root), inv_slug, studies))
-    return run_cycle(inv_spec, studies, evidence_state=ev)
+    from .model_architect import build_catalog
+    return run_cycle(inv_spec, studies, evidence_state=ev,
+                     catalog=build_catalog(studies, ws_root))  # resolved: enables composite swaps
 
 
 # ---------------------------------------------------------------------------
@@ -1145,7 +1149,9 @@ def run_readiness(study_spec: dict, ws_root: Path | str | None = None) -> dict:
             "has_tests": has_tests, "has_contracts": has_contracts}
 
 
-_ADVANCE_OPS = ("test", "branch", "revise_model")
+# An applied revision's child runs as a `test` op (applied proposals are off the frontier);
+# `revise_model` is review-consequence, never dispatched.
+_ADVANCE_OPS = ("test", "branch")
 
 
 def _advance_study_for(source, studies: dict) -> str | None:
@@ -2136,7 +2142,9 @@ def main(argv: list[str] | None = None) -> int:
         _, inv_spec, studies = load_cycle_inputs(ws, args.investigation)
         runs_by_study = _load_runs_by_study(ws, args.investigation, studies)
         ev_state = _ei.reconcile_evidence_state(inv_spec, studies, runs_by_study)
-        result = run_cycle(inv_spec, studies, evidence_state=ev_state)
+        from .model_architect import build_catalog
+        result = run_cycle(inv_spec, studies, evidence_state=ev_state,
+                           catalog=build_catalog(studies, ws))
         portfolio = _ca.select_portfolio(_ca.plan_candidate_actions(result, inv_spec, ev_state))
         print(_summarize_portfolio(portfolio))
         return 0
