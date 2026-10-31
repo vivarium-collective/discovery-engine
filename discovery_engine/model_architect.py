@@ -145,6 +145,13 @@ def _provides(component: dict, mechanism: str) -> int:
     return sum(1 for s in syns if any(s in c or c in s for c in cap))
 
 
+def provides(component: dict, mechanism: str) -> bool:
+    """Public routing predicate: does ``component`` provide ``mechanism`` at all (fuzzy,
+    synonym-aware; the same signal ``choose_acquisition_route`` ranks on)? NOT an exact
+    presence check - gap closing uses ``capability_gaps.process_present``."""
+    return _provides(component, mechanism) > 0
+
+
 def search_components(request: dict, catalog: list[dict]) -> dict:
     """For each required mechanism, the catalog components that provide it, ranked
     by capability match then fidelity presence. Returns ``{mechanism: [components]}``."""
