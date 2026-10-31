@@ -50,6 +50,8 @@ _PRIORITY = {
     "revision_proposed": 58,       # a ModelRevisionProposal awaiting review
     "model_disagreement": 48,      # arms disagree on an observable (no proposal yet)
     "anomaly": 48,                 # an observation outside every live hypothesis band
+    # Visualization loop (NON-blocking): a declared figure that is broken/missing/stale.
+    "viz_broken": 47, "viz_missing": 46, "viz_proposed": 44, "viz_stale": 38,
 }
 # Recommended operation per item kind (the RFC-0005 op that resolves it).
 _OP = {
@@ -65,6 +67,8 @@ _OP = {
     "revision_proposed": "revise_model",  # review/apply the proposed model revision
     "model_disagreement": "revise_model",
     "anomaly": "revise_model",
+    "viz_broken": "refine_viz", "viz_missing": "build_viz",
+    "viz_proposed": "build_viz", "viz_stale": "refine_viz",
 }
 # open_calls kinds map straight onto frontier kinds.
 _CALL_KIND = {"narrative_gap": "narrative_gap", "decision": "open_decision",
@@ -193,6 +197,10 @@ def frontier(cycle_result: dict, inv_spec: dict) -> list[dict]:
             continue
         if rec.get("type") == "narrative":
             continue
+        # visual records are projected per figure as typed viz_* items in step 7
+        # (build/refine ops), not as one generic validation_finding with op `revise`.
+        if rec.get("type") == "visual":
+            continue
         findings = rec.get("findings") or []
         add("validation_finding", rec.get("target"),
             f"[{rec.get('type')}/{rec.get('scope')}] "
@@ -235,6 +243,20 @@ def frontier(cycle_result: dict, inv_spec: dict) -> list[dict]:
             continue
         add("anomaly", f"{a.get('study')}:{a.get('observable')}",
             a.get("proposed_question") or f"{a.get('observable')} outside every live hypothesis band")
+
+    # 7. visualization loop (non-blocking): one typed item per non-fresh declared figure.
+    #    fresh emits nothing (derivation discharge).
+    _viz_kind = {"broken_stub": "viz_broken", "unrendered": "viz_missing", "stale": "viz_stale"}
+    for rec in cycle_result.get("validations") or []:
+        if not isinstance(rec, dict) or rec.get("type") != "visual" or rec.get("scope") != "figure":
+            continue
+        crit = (rec.get("criteria") or [None])[0]
+        kind = _viz_kind.get(crit)
+        if kind is None:
+            continue
+        text = "; ".join(str(f) for f in rec.get("findings") or [])
+        fix = "; ".join(str(f) for f in rec.get("recommendations") or [] if f)
+        add(kind, rec.get("target"), text + (f" — {fix}" if fix else ""))
 
     items.sort(key=lambda x: (-x["priority"], str(x["kind"]), str(x["target"])))
     return items
@@ -460,10 +482,12 @@ _CLOSURE_BLOCKING = ("unaddressed_criterion", "narrative_gap", "open_challenge")
 # Information potential by action: evidence-generating acts (run a test, open a study)
 # can teach something new; reconciling/adjudicating resolves bookkeeping.
 _OPP_INFO = {"test": 1.0, "branch": 1.0, "steer": 0.5, "synthesize": 0.3,
-             "reconcile": 0.3, "revise": 0.3, "revalidate": 0.3, "revise_model": 0.6}
+             "reconcile": 0.3, "revise": 0.3, "revalidate": 0.3, "revise_model": 0.6,
+             "build_viz": 0.4, "refine_viz": 0.2}
 # Cost by action: a new study + simulation is dear; a reconcile is cheap.
 _OPP_COST = {"branch": 1.0, "test": 0.6, "steer": 0.3, "synthesize": 0.2,
-             "reconcile": 0.2, "revise": 0.2, "revalidate": 0.2, "revise_model": 0.4}
+             "reconcile": 0.2, "revise": 0.2, "revalidate": 0.2, "revise_model": 0.4,
+             "build_viz": 0.3, "refine_viz": 0.2}
 
 
 def _opp_impact(target: str, edges: list) -> float:

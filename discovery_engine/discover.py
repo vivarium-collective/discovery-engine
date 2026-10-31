@@ -120,7 +120,8 @@ EPISTEMIC_RELATIONS = ("builds-on", "tests", "refutes", "alternative-to", "motiv
 RESOLUTION_KINDS = ("unaddressed_criterion", "open_challenge", "narrative_gap",
                     "open_decision", "divergence", "open_question",
                     "validation_finding", "stale_validation", "pending_gate",
-                    "revision_proposed", "model_disagreement", "anomaly")
+                    "revision_proposed", "model_disagreement", "anomaly",
+                    "viz_broken", "viz_missing", "viz_proposed", "viz_stale")
 
 
 def add_resolution(inv_spec: dict, kind: str, target: str, rationale: str,
@@ -567,6 +568,17 @@ def build_cycle_state(result: dict, inv_spec: dict, *, model_versions: list | No
         "drift": {"divergences": sum(1 for i in frontier if i["kind"] == "divergence"),
                   "stale_validations": len(stale_records(recs, inv_spec.get("validation_snapshot")))},
     }
+    vrecs = [r for r in recs if r.get("type") == "visual" and r.get("scope") == "figure"]
+    if vrecs:
+        crit = lambda r: (r.get("criteria") or [None])[0]  # noqa: E731
+        state["viz_census"] = {
+            "fresh": sum(1 for r in vrecs if crit(r) == "fresh"),
+            "stale": sum(1 for r in vrecs if crit(r) == "stale"),
+            "unrendered": sum(1 for r in vrecs if crit(r) == "unrendered"),
+            "broken": sum(1 for r in vrecs if crit(r) == "broken_stub"),
+            "untracked_files": sum(1 for r in vrecs if crit(r) == "untracked"),
+        }
+        state["drift"]["stale_viz"] = state["viz_census"]["stale"]
     if model_versions is not None:
         state["model_versions"] = [m["id"] for m in model_versions]
     if studies is not None:
