@@ -120,20 +120,21 @@ def test_per_mv_skip_and_no_loop(tmp_path):
 
 
 def test_unapplied_proposal_is_gated(tmp_path):
+    # an approved-but-unapplied proposal (child not on disk) next to a runnable never-run study:
+    # advance runs only the study, nothing attributable to the proposal.
     prop = {"id": "rp:s3:mv:old:ab", "status": "approved", "approval": "review",
             "source": {"kind": "model_disagreement", "study": "s3"},
-            "history": [{"event": "approved"}]}
-    _ws(tmp_path, {"s3": _study("s3", runs=[{"name": "r0", "params": dict(PARAMS)}])}, [prop])
+            "history": [{"event": "approved", "child_study": "s3-rev-ab"}]}
+    _ws(tmp_path, {"fresh": _study("fresh")}, [prop])
     runner = FakeRunner()
     res = _advance(tmp_path, runner)
-    assert runner.calls == [] and res["runs"] == []
-    inv = load_yaml(tmp_path / "investigations/og/investigation.yaml")
-    assert discover._advance_study_for("rp:s3:mv:old:ab", inv, {"s3": {}}) is None
+    assert runner.calls == ["fresh"]
+    assert all("rp:" not in r["target"] and "rev" not in r["target"] for r in res["runs"])
+    assert not (tmp_path / "studies" / "s3-rev-ab").exists()
 
 
-def test_applied_proposal_resolves_to_child():
-    inv = {"revision_proposals": [{"id": "rp:x", "status": "applied",
-                                   "history": [{"event": "applied", "child_study": "kid"}]}]}
-    assert discover._advance_study_for("rp:x", inv, {"kid": {}}) == "kid"
-    assert discover._advance_study_for("rp:x", inv, {}) is None            # not on disk
-    assert discover._advance_study_for("claim:kid", inv, {"kid": {}}) == "kid"
+def test_resolver_only_names_on_disk_studies():
+    assert discover._advance_study_for("claim:kid", {"kid": {}}) == "kid"
+    assert discover._advance_study_for("kid", {"kid": {}}) == "kid"
+    assert discover._advance_study_for("rp:x", {"kid": {}}) is None
+    assert discover._advance_study_for("claim:nope", {"kid": {}}) is None

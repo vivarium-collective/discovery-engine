@@ -1077,18 +1077,12 @@ def run_readiness(study_spec: dict, ws_root: Path | str | None = None) -> dict:
 _ADVANCE_OPS = ("test", "branch", "revise_model")
 
 
-def _advance_study_for(source, inv_spec: dict, studies: dict) -> str | None:
-    """The on-disk study an advance op would run, or None (gated). ``rp:`` targets resolve
-    only via an APPLIED proposal's recorded child study; others name a study directly."""
+def _advance_study_for(source, studies: dict) -> str | None:
+    """The on-disk study an advance op would run, or None (gated). The applied child of a
+    revision runs as a plain ``test`` op on ``claim:<child>`` -- applied proposals are off the
+    frontier, so there is deliberately no ``rp:`` resolution here: an unapplied proposal
+    resolves to nothing and is never run."""
     src = str(source)
-    if src.startswith("rp:"):
-        prop = next((p for p in inv_spec.get("revision_proposals") or []
-                     if isinstance(p, dict) and p.get("id") == src), None)
-        if not prop or prop.get("status") != "applied":
-            return None
-        child = next((h.get("child_study") for h in reversed(prop.get("history") or [])
-                      if isinstance(h, dict) and h.get("event") == "applied" and h.get("child_study")), None)
-        return child if child in studies else None
     slug = src.split(":", 1)[1] if src.startswith("claim:") else src
     return slug if slug in studies else None
 
@@ -1194,6 +1188,7 @@ def advance_cycle(ws_root: Path | str, inv_slug: str, *, autonomous: bool = Fals
     ran: list[dict] = []
     needs_build: list[dict] = []
     seen: set = set()
+    seen_slugs: set = set()
     _, inv0, st0 = load_cycle_inputs(ws_root, inv_slug)
     before = de.closure(_cycle_with_evidence(ws_root, inv_slug, inv0, st0), inv0)["open_items"]
     for _ in range(max_runs):
@@ -1204,10 +1199,15 @@ def advance_cycle(ws_root: Path | str, inv_slug: str, *, autonomous: bool = Fals
         for p in plan:
             if p["action_type"] not in _ADVANCE_OPS or p["source"] in seen:
                 continue
+            if p["consequence"] not in ("simulation", "simulation+study"):
+                continue                            # review-tier (e.g. revise_model) stays gated
             # test ops name a study; branch / revise_model run ONLY when they resolve to an
             # on-disk study (the proposal was already APPLIED). An unapplied / review-tier
             # proposal resolves to nothing and stays gated.
-            slug = _advance_study_for(p["source"], inv, studies)
+            slug = _advance_study_for(p["source"], studies)
+            if slug in seen_slugs:
+                seen.add(p["source"])
+                continue
             spec = studies.get(slug) if slug else None
             if not isinstance(spec, dict):
                 continue
@@ -1227,17 +1227,13 @@ def advance_cycle(ws_root: Path | str, inv_slug: str, *, autonomous: bool = Fals
         if target is None:
             break                                   # no runnable test op left
         seen.add(target)
+        seen_slugs.add(target_slug)
         if not autonomous:
             ran.append({"target": target, "status": "would-run (pass --autonomous to execute)"})
             break
         sdir = _study_dir_on_disk(ws_root, inv_slug, target_slug)
         before_runs = _run_names(sdir)
-        if any(p["source"] == target and p["action_type"] == "test" for p in plan):
-            rec = execute_action(ws_root, inv_slug, autonomous=True, runner=runner, target=target)
-        else:
-            command = f"vivarium-workbench run study {target_slug} --workspace {ws_root}"
-            out = (runner or _default_runner)(command, ws_root)
-            rec = {"status": "executed" if out.get("ok") else "failed", "outcome": out}
+        rec = execute_action(ws_root, inv_slug, autonomous=True, runner=runner, target=target)
         if rec["status"] == "executed":
             _post_run_sync(sdir, before_runs)
         ran.append({"target": target, "status": rec["status"],
