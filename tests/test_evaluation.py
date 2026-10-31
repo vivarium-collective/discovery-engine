@@ -137,3 +137,60 @@ def test_slug_join_matches_inv_studies():
     dmap = E.model_disagreement_map(inv, {"s2": {"name": "other", "findings": [
         {"evidence": {"measure": "m", "by_arm": {"a": 0.1, "b": 0.9}}}]}})
     assert dmap[0]["study"] == "s2"
+
+
+# ---- Task 7: snapshot + delta memory ----
+
+def test_delta_prev_none_back_compat():
+    inv, studies = _inv_and_studies()
+    d = E.discovery_delta(inv, studies)
+    assert d["prev_fingerprint"] is None and d["changed"] == [] and d["new_model_versions"] == []
+    assert d["unchanged"] is False
+    assert set(d["proposals"]) == {"opened", "applied", "evaluated"}
+
+
+def test_identical_snapshots_unchanged():
+    inv, studies = _inv_and_studies()
+    cmp = E.compare_hypotheses(inv, studies)
+    snap = E.snapshot_evaluation(cmp, None, [], n_anomalies=0)
+    d = E.discovery_delta(inv, studies, None, prev=snap)
+    assert d["unchanged"] is True and d["changed"] == [] and d["new_model_versions"] == []
+    assert d["prev_fingerprint"] == snap["fingerprint"] == d["fingerprint"]
+
+
+def test_flip_with_new_model_version_is_one_changed_row(monkeypatch):
+    inv, studies = _inv_and_studies()
+    real = E.compare_hypotheses
+
+    def fake(i, s, e=None):
+        out = real(i, s, e)
+        out["s2"] = {**out["s2"], "status": E.SUPPORTED, "favored": "h-s2-spatial",
+                     "model_version": "mv:new"}
+        return out
+    prev = E.snapshot_evaluation(real(inv, studies), None, [])
+    prev["by_study"]["s2"]["status"] = "unassessed"
+    monkeypatch.setattr(E, "compare_hypotheses", fake)
+    d = E.discovery_delta(inv, studies, None, prev=prev)
+    rows = [c for c in d["changed"] if c["study"] == "s2"]
+    assert len(rows) == 1 and rows[0]["from"] == "unassessed" and rows[0]["to"] == E.SUPPORTED
+    assert rows[0]["model_version_to"] == "mv:new"
+    assert "mv:new" in d["new_model_versions"] and d["unchanged"] is False
+
+
+def test_snapshot_shape_and_pure():
+    inv, studies = _inv_and_studies()
+    cmp = E.compare_hypotheses(inv, studies)
+    snap = E.snapshot_evaluation(cmp, {"by_study": {"s2": {"status": VERIFIED}}}, [{"id": "mv:a"}])
+    assert set(snap) == {"fingerprint", "by_study", "model_versions", "proposals"}
+    assert snap["by_study"]["s2"]["evidence"] == VERIFIED
+    assert set(snap["by_study"]["s2"]) == {"status", "favored", "evidence", "model_version"}
+    assert snap["model_versions"] == ["mv:a"]
+
+
+def test_compare_wires_favored_model_version():
+    inv, studies = _quant_case()
+    studies["s2"]["findings"][0]["provenance"] = {"model_version": "mv:abc"}
+    cmp = E.compare_hypotheses(inv, studies, _verified())
+    assert cmp["s2"]["favored"] == "h-q"
+    assert cmp["s2"]["model_version"] == "mv:abc"
+    assert cmp["s2"]["hypotheses"][0]["model_version"] == "mv:abc"

@@ -70,6 +70,27 @@ def evaluate_claim_support(summary: dict, evidence_status: str | None, *,
     return UNRESOLVED
 
 
+def _favored_model_version(inv_spec: dict, specs: list, slug: str, hyp_id) -> str | None:
+    """The model version of the finding backing the favored hypothesis: a finding of
+    the study measuring one of the hypothesis's predicted observables, read from
+    ``provenance.model_version``. ``None`` when none is resolvable. Pure."""
+    hyp = next((h for h in _as_list((inv_spec or {}).get("hypotheses"))
+                if isinstance(h, dict) and h.get("id") == hyp_id), None)
+    obs = {p.get("observable") for p in _as_list((hyp or {}).get("predictions"))
+           if isinstance(p, dict)}
+    spec = next((s for s in specs if isinstance(s, dict)
+                 and (s.get("name") or s.get("slug")) == slug), None)
+    for f in _as_list((spec or {}).get("findings")):
+        if not isinstance(f, dict):
+            continue
+        ev = f.get("evidence") if isinstance(f.get("evidence"), dict) else {}
+        prov = f.get("provenance") if isinstance(f.get("provenance"), dict) else {}
+        mv = prov.get("model_version")
+        if mv and (not obs or (ev.get("measure") or ev.get("observable")) in obs):
+            return mv
+    return None
+
+
 def compare_hypotheses(inv_spec: dict, studies: dict, evidence_state: dict | None = None) -> dict:
     """Per study, the competing hypotheses with their support tally and claim verdict,
     plus the study's favored hypothesis (or that it is gated/unresolved). Reuses the
@@ -97,6 +118,9 @@ def compare_hypotheses(inv_spec: dict, studies: dict, evidence_state: dict | Non
                          "model_version": None})
         favored = max((h for h in hyps if h["support"]["net"] > 0),
                       key=lambda h: h["support"]["net"], default=None)
+        mv = _favored_model_version(inv_spec, specs, slug, favored["id"]) if favored else None
+        if favored:
+            favored["model_version"] = mv
         note = None
         if slug in gated:
             note = "model-fidelity gated — a superseded or multi-arm result; see fidelity caveats"
@@ -105,6 +129,7 @@ def compare_hypotheses(inv_spec: dict, studies: dict, evidence_state: dict | Non
             "hypotheses": hyps,
             "favored": favored["id"] if favored else None,
             "status": GATED if slug in gated else (favored["verdict"] if favored else UNRESOLVED),
+            "model_version": mv,
             "note": note, "evidence_status": ev_status,
         }
     return out
@@ -195,7 +220,8 @@ def invalidate_dependents(changed: dict, inv_spec: dict, studies: dict) -> list[
     return affected
 
 
-def discovery_delta(inv_spec: dict, studies: dict, evidence_state: dict | None = None) -> dict:
+def discovery_delta(inv_spec: dict, studies: dict, evidence_state: dict | None = None,
+                    prev: dict | None = None) -> dict:
     """The per-cycle DiscoveryDelta: what this cycle established, qualified, gated, or
     left anomalous, relative to a start-of-cycle state in which nothing was registered.
     Records added/weakened claims, model disagreements, anomalies and scientific
@@ -221,11 +247,23 @@ def discovery_delta(inv_spec: dict, studies: dict, evidence_state: dict | None =
                                 "note": "a prior over-claim was superseded by a higher-fidelity arm — "
                                         "recorded as progress, not hidden: " + f["detail"]})
 
-    import hashlib
-    import json
-    fp = hashlib.sha256(json.dumps(
-        {k: cmp[k]["status"] for k in sorted(cmp)} | {"anoms": len(anoms)}, sort_keys=True
-    ).encode()).hexdigest()[:16]
+    fp = _fingerprint(cmp, len(anoms))
+    prev = prev if isinstance(prev, dict) else None
+    changed: list[dict] = []
+    new_mvs: list[str] = []
+    if prev is not None:
+        pby = prev.get("by_study") or {}
+        for slug in sorted(cmp):
+            p = pby.get(slug) or {}
+            frm = p.get("status") or "unassessed"
+            to, mv_to = cmp[slug]["status"], cmp[slug].get("model_version")
+            mv_from = p.get("model_version")
+            if frm != to or mv_from != mv_to:
+                changed.append({"study": slug, "from": frm, "to": to,
+                                "model_version_from": mv_from, "model_version_to": mv_to})
+        known = set(prev.get("model_versions") or [])
+        cur = [c.get("model_version") for c in cmp.values() if c.get("model_version")]
+        new_mvs = sorted({m for m in cur if m not in known})
     return {
         "added_or_qualified": added,
         "gated": gated_claims,
@@ -235,4 +273,33 @@ def discovery_delta(inv_spec: dict, studies: dict, evidence_state: dict | None =
                       for a in anoms],
         "regressions": regressions,
         "fingerprint": fp,
+        "prev_fingerprint": prev.get("fingerprint") if prev else None,
+        "changed": changed,
+        "new_model_versions": new_mvs,
+        "proposals": {"opened": [], "applied": [], "evaluated": []},
+        "unchanged": bool(prev is not None and prev.get("fingerprint") == fp
+                          and not changed and not new_mvs),
     }
+
+
+def _fingerprint(cmp: dict, n_anoms: int) -> str:
+    import hashlib
+    import json
+    return hashlib.sha256(json.dumps(
+        {k: cmp[k]["status"] for k in sorted(cmp)} | {"anoms": n_anoms}, sort_keys=True
+    ).encode()).hexdigest()[:16]
+
+
+def snapshot_evaluation(cmp: dict, evidence_state: dict | None, model_versions,
+                        *, n_anomalies: int = 0) -> dict:
+    """The §3.5 ScientificState snapshot persisted in ``cycle_state.evaluation_snapshot``:
+    just what the next cycle needs to compute a change. Pure."""
+    ev_by = (evidence_state or {}).get("by_study", {})
+    by_study = {slug: {"status": c.get("status"), "favored": c.get("favored"),
+                       "evidence": (ev_by.get(slug) or {}).get("status"),
+                       "model_version": c.get("model_version")}
+                for slug, c in sorted((cmp or {}).items())}
+    ids = [m["id"] if isinstance(m, dict) else m for m in (model_versions or [])]
+    return {"fingerprint": _fingerprint(cmp or {}, n_anomalies),
+            "by_study": by_study, "model_versions": ids,
+            "proposals": {"open": [], "applied": []}}

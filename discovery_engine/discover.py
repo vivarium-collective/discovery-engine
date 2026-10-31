@@ -305,7 +305,8 @@ def _study_path(ws_root: Path | str, slug: str, study: str) -> Path:
 # persist_cycle — regenerable cache, authored blocks untouched
 # ---------------------------------------------------------------------------
 
-def build_cycle_state(result: dict, inv_spec: dict, *, model_versions: list | None = None) -> dict:
+def build_cycle_state(result: dict, inv_spec: dict, *, model_versions: list | None = None,
+                      studies: dict | None = None, evidence_state: dict | None = None) -> dict:
     """Project a **slim, actionable** summary of the cycle — the few dozen lines a
     human, the dashboard, or the next cycle actually needs, instead of the full
     regenerable projection. Carries the cycle's *outputs* that previously never fed
@@ -349,10 +350,19 @@ def build_cycle_state(result: dict, inv_spec: dict, *, model_versions: list | No
     }
     if model_versions is not None:
         state["model_versions"] = [m["id"] for m in model_versions]
+    if studies is not None:
+        # ScientificState snapshot (decision §3.5): what the next cycle diffs against.
+        from . import evaluation as _ev
+        from .hypotheses import anomalies as _anoms
+        cmp = _ev.compare_hypotheses(inv_spec, studies, evidence_state)
+        n_anoms = len(_anoms(inv_spec or {}, _ev._keyed_specs(studies)))
+        state["evaluation_snapshot"] = _ev.snapshot_evaluation(
+            cmp, evidence_state, model_versions or [], n_anomalies=n_anoms)
     return state
 
 
-def persist_cycle(inv_path: Path | str, inv_spec: dict, result: dict, *, studies: dict | None = None) -> dict:
+def persist_cycle(inv_path: Path | str, inv_spec: dict, result: dict, *, studies: dict | None = None,
+                  evidence_state: dict | None = None) -> dict:
     """Write the slim ``cycle_state`` summary into investigation.yaml.
 
     Re-reads the on-disk spec (so concurrent authored edits are never clobbered),
@@ -371,7 +381,8 @@ def persist_cycle(inv_path: Path | str, inv_spec: dict, result: dict, *, studies
     if mvs is not None:
         _validate_extensions({"model_versions": mvs})
         on_disk["model_versions"] = mvs
-    on_disk["cycle_state"] = build_cycle_state(result, inv_spec, model_versions=mvs)
+    on_disk["cycle_state"] = build_cycle_state(result, inv_spec, model_versions=mvs, studies=studies,
+                                               evidence_state=evidence_state)
     save_yaml_atomic(path, on_disk)
     return on_disk["cycle_state"]
 
@@ -1552,7 +1563,10 @@ def main(argv: list[str] | None = None) -> int:
         result = run_cycle(inv_spec, studies)
         print(summarize(result))
         if args.cmd == "cycle" and not args.no_write:
-            persist_cycle(inv_path, inv_spec, result, studies=studies)
+            from . import evidence_integrity as _ei
+            ev_state = _ei.reconcile_evidence_state(
+                inv_spec, studies, _load_runs_by_study(ws, args.investigation, studies))
+            persist_cycle(inv_path, inv_spec, result, studies=studies, evidence_state=ev_state)
             print(f"persisted cycle_state -> {inv_path}")
         return 0
 
@@ -1673,7 +1687,9 @@ def main(argv: list[str] | None = None) -> int:
         _, inv_spec, studies = load_cycle_inputs(ws, args.investigation)
         runs_by_study = _load_runs_by_study(ws, args.investigation, studies)
         ev_state = _ei.reconcile_evidence_state(inv_spec, studies, runs_by_study)
-        print(_summarize_discovery_delta(_ev.discovery_delta(inv_spec, studies, ev_state)))
+        print(_summarize_discovery_delta(_ev.discovery_delta(
+            inv_spec, studies, ev_state,
+            prev=(inv_spec.get("cycle_state") or {}).get("evaluation_snapshot"))))
         return 0
 
     if args.cmd == "transition":
