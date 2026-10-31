@@ -135,8 +135,9 @@ def test_close_ignores_catalog_without_mechanism_negative():
 
 def test_close_only_accepted_and_no_fuzzy_substring():
     fresh = TOOL_CATALOG + [{"id": "D", "composite": "pkg.Detector", "capability": ["detector"]}]
-    proposed = P()[0]  # not accepted -> never closed
-    assert close_built_capability_gaps([proposed], fresh, {}) == [] and proposed["status"] == "proposed"
+    has_it = fresh + [{"id": "NRD", "composite": "pkg.NRD", "capability": ["non", "recoverability", "detector"]}]
+    proposed = P()[0]  # catalog DOES provide it; only the accepted-gate keeps it open
+    assert close_built_capability_gaps([proposed], has_it, {}) == [] and proposed["status"] == "proposed"
     g = _accepted()  # 'detector' alone must not close non-recoverability-detector
     assert close_built_capability_gaps([g], fresh, {}) == [] and g["status"] == "accepted"
 
@@ -241,3 +242,18 @@ def test_public_provides():
     from discovery_engine.model_architect import provides
     assert provides(TOOL_CATALOG[0], "rate-law-fitter") is True
     assert provides(TOOL_CATALOG[0], "zzz") is False
+
+
+def test_non_dict_gap_refused_cleanly():
+    for bad in (None, "cg:x:1"):
+        with pytest.raises(ValueError):
+            accept_capability_gap(bad, rationale="r")
+        with pytest.raises(ValueError):
+            reject_capability_gap(bad, rationale="r")
+
+
+def test_build_with_empty_catalog_fails():
+    g = _accepted()
+    build_capability_gap(g, lambda gap, ws=None: {"status": "reuse", "process": "pkg.NRD", "gap_id": gap["id"]},
+                         catalog=[])
+    assert g["status"] == "failed"
