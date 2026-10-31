@@ -204,6 +204,122 @@ def declare_viz(ws_root: Path | str, inv_slug: str, target: str, declare: dict,
     return record_resolution(inv_path, "viz_broken", target, rationale, by=by)
 
 
+def _viz_prop(spec: dict, vp: str) -> dict:
+    prop = next((p for p in spec.get("viz_proposals") or [] if isinstance(p, dict) and p.get("id") == vp), None)
+    if prop is None:
+        raise ValueError(f"unknown viz proposal {vp!r} — run `discover cycle` to persist proposals first")
+    if prop.get("status", "proposed") != "proposed":
+        raise ValueError(f"viz proposal {vp!r} is already {prop.get('status')!r}; only a 'proposed' "
+                         "proposal can be accepted or rejected")
+    return prop
+
+
+def _now() -> str:
+    return _dt.datetime.now(_dt.timezone.utc).isoformat(timespec="seconds")
+
+
+def accept_viz_proposal(ws_root: Path | str, inv_slug: str, vp: str, *, address: str | None = None,
+                        rationale: str, by: str = "human") -> dict:
+    """Author-gated accept: in one call, append a ``visualizations[]`` entry to the proposal's
+    study (``origin: {kind: viz_proposal, ref: vp}``, ``covers: [observable]``) and mark the
+    proposal ``accepted`` with a history event. Requires a rationale and an ``address`` (the
+    suggested catalog address when omitted; a ``needs_author`` proposal has none, so the
+    author must supply it). The entry is declared but unrendered -> the frontier item becomes
+    ``viz_missing``. Never dispatched by ``advance``. Returns the updated proposal."""
+    from .viz_proposals import slugify
+    if not (rationale or "").strip():
+        raise ValueError("a rationale is required — accepting a proposal edits an authored list")
+    inv_path = investigations_dir(Path(ws_root)) / inv_slug / "investigation.yaml"
+    spec = load_yaml_mapping(inv_path)
+    prop = _viz_prop(spec, vp)
+    sug = prop.get("suggested") or {}
+    address = address or sug.get("address")
+    if not address:
+        raise ValueError(f"{vp} is needs_author — supply address=… (a class or figure the author owns)")
+    obs = (prop.get("source") or {}).get("observable")
+    sdir = _study_dir_on_disk(ws_root, inv_slug, prop.get("study"))
+    if sdir is None:
+        raise ValueError(f"no study.yaml for {prop.get('study')!r}")
+    y = _ruamel()
+    sp = sdir / "study.yaml"
+    doc = y.load(sp.read_text(encoding="utf-8"))
+    vis = doc.get("visualizations")
+    if vis is None:
+        doc["visualizations"] = vis = []
+    name = slugify(sug.get("title") or obs)
+    taken = {e.get("name") for e in vis if isinstance(e, dict)}
+    if name in taken:
+        name = f"{name}-{str(vp).rsplit(':', 1)[-1]}"
+    entry: dict = {"name": name, "address": address}
+    if sug.get("inputs_map"):
+        entry["config"] = {"inputs_map": dict(sug["inputs_map"])}
+    entry["covers"] = [obs] if obs else []
+    entry["origin"] = {"kind": "viz_proposal", "ref": vp}
+    vis.append(entry)
+    from io import StringIO
+    buf = StringIO()
+    y.dump(doc, buf)
+    sp.write_text(buf.getvalue(), encoding="utf-8")
+    prop["status"] = "accepted"
+    prop["history"] = [*(prop.get("history") or []),
+                       {"at": _now(), "event": "accepted", "by": by, "rationale": rationale,
+                        "address": address, "entry": name}]
+    save_yaml_atomic(inv_path, spec)
+    return prop
+
+
+def reject_viz_proposal(ws_root: Path | str, inv_slug: str, vp: str, *, rationale: str,
+                        by: str = "human") -> dict:
+    """Terminal reject (rationale required): the content-addressed id means it never re-emits."""
+    if not (rationale or "").strip():
+        raise ValueError("a rationale is required — a decision on a proposal documents why")
+    inv_path = investigations_dir(Path(ws_root)) / inv_slug / "investigation.yaml"
+    spec = load_yaml_mapping(inv_path)
+    prop = _viz_prop(spec, vp)
+    prop["status"] = "rejected"
+    prop["history"] = [*(prop.get("history") or []),
+                       {"at": _now(), "event": "rejected", "by": by, "rationale": rationale}]
+    save_yaml_atomic(inv_path, spec)
+    return prop
+
+
+def _close_built_viz_proposals(on_disk: dict, viz_state: dict, studies: dict) -> list[str]:
+    """§2E: flip an ``accepted`` proposal to ``built`` once its materialized entry (matched by
+    ``origin.ref``) classifies ``fresh`` (rendered AND current). Mutates ``on_disk``;
+    ``rejected``/``built`` are terminal and untouched. Returns the closed ids."""
+    from .viz_freshness import FRESH, classify_viz, normalize_entry
+    from . import model_architect as _ma
+    try:
+        bound = _ma.bind_model_versions(studies or {})
+    except Exception:  # noqa: BLE001
+        bound = {}
+    done: list[str] = []
+    for p in on_disk.get("viz_proposals") or []:
+        if not isinstance(p, dict) or p.get("status") != "accepted":
+            continue
+        study = p.get("study")
+        entry = next((e for e in (studies.get(study) or {}).get("visualizations") or []
+                      if isinstance(e, dict) and (e.get("origin") or {}).get("ref") == p.get("id")), None)
+        st = (viz_state or {}).get(study)
+        if entry is None or st is None:
+            continue
+        vs = normalize_entry(entry)
+        row = st.get(vs["name"])
+        arms = bound.get(study) or {}
+        mv = next(iter(arms.values()))["id"] if arms else None
+        if not row or classify_viz(vs, row, st.get("_latest"), mv=mv) != FRESH:
+            continue
+        meta = row.get("meta") or {}
+        p["built"] = {"at": _now(), "chart": row.get("path"),
+                      "source_run_id": meta.get("source_run_id"), "content_hash": row.get("content_hash")}
+        p["status"] = "built"
+        p["history"] = [*(p.get("history") or []),
+                        {"at": p["built"]["at"], "event": "built", "by": "engine",
+                         "chart": row.get("path"), "source_run_id": meta.get("source_run_id")}]
+        done.append(p["id"])
+    return done
+
+
 def review_revision(inv_path: Path | str, proposal_id: str, event: str, rationale: str,
                     by: str = "human") -> dict:
     """Approve or reject a model-revision proposal: set its ``status`` and append a
@@ -447,6 +563,10 @@ def run_cycle(inv_spec: dict, studies_by_slug: dict[str, dict], *,
     bundle["revision_proposals"] = propose_model_revisions(
         inv_spec, studies_by_slug, evaluation, evidence_state, mvs,
         catalog if catalog is not None else build_catalog(studies_by_slug))
+    if viz_state:  # hermetic: no harvested viz state -> no viz proposals
+        from .viz_proposals import propose_visualizations
+        bundle["viz_proposals"] = propose_visualizations(
+            inv_spec, studies_by_slug, bundle, viz_state, viz_catalog)
     return bundle
 
 
@@ -623,6 +743,11 @@ def build_cycle_state(result: dict, inv_spec: dict, *, model_versions: list | No
             "broken": sum(1 for r in vrecs if crit(r) == "broken_stub"),
             "untracked_files": sum(1 for r in vrecs if crit(r) == "untracked"),
         }
+        vps = [p for p in inv_spec.get("viz_proposals") or [] if isinstance(p, dict)]
+        state["viz_census"]["proposals"] = {
+            "open": sum(1 for i in frontier if i["kind"] == "viz_proposed"),
+            "accepted": sum(1 for p in vps if p.get("status") == "accepted"),
+            "built": sum(1 for p in vps if p.get("status") == "built")}
         state["drift"]["stale_viz"] = state["viz_census"]["stale"]
     if model_versions is not None:
         state["model_versions"] = [m["id"] for m in model_versions]
@@ -638,7 +763,7 @@ def build_cycle_state(result: dict, inv_spec: dict, *, model_versions: list | No
 
 
 def persist_cycle(inv_path: Path | str, inv_spec: dict, result: dict, *, studies: dict | None = None,
-                  evidence_state: dict | None = None) -> dict:
+                  evidence_state: dict | None = None, viz_state: dict | None = None) -> dict:
     """Write the slim ``cycle_state`` summary into investigation.yaml.
 
     Re-reads the on-disk spec (so concurrent authored edits are never clobbered),
@@ -667,6 +792,18 @@ def persist_cycle(inv_path: Path | str, inv_spec: dict, result: dict, *, studies
                 ids.add(p.get("id"))
         _validate_extensions({"revision_proposals": have})
         on_disk["revision_proposals"] = have
+    newv = [p for p in result.get("viz_proposals") or [] if isinstance(p, dict)]
+    if newv:
+        havev = list(on_disk.get("viz_proposals") or [])
+        idsv = {r.get("id") for r in havev if isinstance(r, dict)}
+        for p in newv:
+            if p.get("id") not in idsv:  # content-addressed: existing rows keep status/history
+                havev.append(p)
+                idsv.add(p.get("id"))
+        _validate_extensions({"viz_proposals": havev})
+        on_disk["viz_proposals"] = havev
+    if studies is not None and viz_state:
+        _close_built_viz_proposals(on_disk, viz_state, studies)
     on_disk["cycle_state"] = build_cycle_state(result, inv_spec, model_versions=mvs, studies=studies,
                                                evidence_state=evidence_state)
     if studies is not None:
@@ -1103,6 +1240,39 @@ def execute_action(ws_root: Path | str, inv_slug: str, *, autonomous: bool = Fal
             review_revision(inv_path, top["source"], verb, f"[ai-driven] {why}", by="discovery-ai")
             rec["status"] = "executed"
             rec["outcome"] = {"ok": True, "detail": f"ai-{verb}: {top['source']}", "rationale": why}
+    elif top["action_type"] == "build_viz" and str(top["source"]).startswith("vp:"):
+        # A viz proposal is REVIEW tier: accept is author-gated. An AI decider may act only on
+        # a DERIVABLE proposal (catalog address present); a needs_author one, or any decision
+        # without a rationale, is handed back. advance never reaches here (not in its loop).
+        disk = next((p for p in load_yaml_mapping(inv_path).get("viz_proposals") or []
+                     if isinstance(p, dict) and p.get("id") == top["source"]), None)
+        sug = (disk or {}).get("suggested") or {}
+        if decider is None or not autonomous:
+            rec["status"] = "gated-human"
+            rec["outcome"] = {"ok": None, "detail": "review — needs a human accept/reject"}
+        elif disk is None or disk.get("status", "proposed") != "proposed":
+            rec["status"] = "gated-human"
+            rec["outcome"] = {"ok": None, "detail": "proposal not persisted/open — run `discover cycle` first"}
+        elif sug.get("needs_author") or not sug.get("address"):
+            rec["status"] = "gated-human"
+            rec["outcome"] = {"ok": None, "detail": "needs_author — a human must supply the address"}
+        else:
+            choice = decider(top["source"], top["source"])
+            choice = choice if isinstance(choice, dict) else {}
+            verb = str(choice.get("choice") or "").strip().lower()
+            why = (choice.get("rationale") or "").strip()
+            if verb not in ("approve", "accept", "reject") or not why:
+                rec["status"] = "gated-human"
+                rec["outcome"] = {"ok": None, "detail": "decider gave no usable choice with a rationale"}
+            else:
+                if verb == "reject":
+                    reject_viz_proposal(ws_root, inv_slug, top["source"], rationale=f"[ai-driven] {why}",
+                                        by="discovery-ai")
+                else:
+                    accept_viz_proposal(ws_root, inv_slug, top["source"], address=sug["address"],
+                                        rationale=f"[ai-driven] {why}", by="discovery-ai")
+                rec["status"] = "executed"
+                rec["outcome"] = {"ok": True, "detail": f"ai-{verb}: {top['source']}", "rationale": why}
     else:  # review / human-only with no decider
         rec["status"] = "gated-human"
         rec["outcome"] = {"ok": None, "detail": f"{top['consequence']} — needs a human decision"}
@@ -2232,9 +2402,15 @@ def main(argv: list[str] | None = None) -> int:
 
     p_viz = sub.add_parser("viz", help="review-tier edits of a declared figure (fig:<study>/<name>)")
     p_viz.add_argument("investigation", help="investigation slug")
-    p_viz.add_argument("target", help="the figure, fig:<study>/<name>")
-    p_viz.add_argument("--declare", nargs="+", metavar="KEY=VALUE", required=True,
+    p_viz.add_argument("target", nargs="?", default=None,
+                       help="the figure, fig:<study>/<name> (for --declare)")
+    p_viz.add_argument("--declare", nargs="+", metavar="KEY=VALUE", default=None,
                        help="set address=… [render=…] [requires=a,b] on the entry")
+    p_viz.add_argument("--propose", action="store_true",
+                       help="derive + persist viz proposals and list the open ones")
+    p_viz.add_argument("--accept", metavar="VP", default=None, help="accept proposal vp:… (needs --rationale)")
+    p_viz.add_argument("--address", default=None, help="address for --accept (default: the suggested one)")
+    p_viz.add_argument("--reject", metavar="VP", default=None, help="reject proposal vp:… (terminal; needs --rationale)")
     p_viz.add_argument("--rationale", default=None, help="why (required)")
 
     args = parser.parse_args(argv)
@@ -2248,7 +2424,8 @@ def main(argv: list[str] | None = None) -> int:
             from . import evidence_integrity as _ei
             ev_state = _ei.reconcile_evidence_state(
                 inv_spec, studies, _load_runs_by_study(ws, args.investigation, studies))
-            persist_cycle(inv_path, inv_spec, result, studies=studies, evidence_state=ev_state)
+            persist_cycle(inv_path, inv_spec, result, studies=studies, evidence_state=ev_state,
+                          viz_state=viz_inventory(ws, args.investigation, studies))
             print(f"persisted cycle_state -> {inv_path}")
         return 0
 
@@ -2295,7 +2472,34 @@ def main(argv: list[str] | None = None) -> int:
               + f"  — {rec['rationale']}")
         return 0
 
+    if args.cmd == "viz" and (args.propose or args.accept or args.reject):
+        try:
+            if args.reject:
+                reject_viz_proposal(ws, args.investigation, args.reject, rationale=args.rationale or "")
+                print(f"rejected {args.reject} (terminal)")
+            elif args.accept:
+                prop = accept_viz_proposal(ws, args.investigation, args.accept,
+                                           address=args.address, rationale=args.rationale or "")
+                print(f"accepted {args.accept} -> {prop['history'][-1]['entry']}; "
+                      f"render it: discover advance {args.investigation}")
+            else:
+                inv_path, inv_spec, studies = load_cycle_inputs(ws, args.investigation)
+                result = _cycle_with_evidence(ws, args.investigation, inv_spec, studies)
+                persist_cycle(inv_path, inv_spec, result, studies=studies,
+                              viz_state=viz_inventory(ws, args.investigation, studies))
+                for p in load_yaml_mapping(inv_path).get("viz_proposals") or []:
+                    if isinstance(p, dict) and p.get("status", "proposed") == "proposed":
+                        sg = p.get("suggested") or {}
+                        print(f"{p['id']}  {sg.get('form')}  {(p.get('source') or {}).get('observable')}  "
+                              f"[{'needs_author' if sg.get('needs_author') else 'derivable'}]")
+        except ValueError as e:
+            parser.error(str(e))
+            return 1
+        return 0
+
     if args.cmd == "viz":
+        if not args.declare or not args.target:
+            parser.error("viz needs <target> --declare …, or --propose / --accept VP / --reject VP")
         decl_kv: dict = {}
         for kv in args.declare:
             k, sep, v = kv.partition("=")

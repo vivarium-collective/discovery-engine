@@ -260,6 +260,20 @@ def frontier(cycle_result: dict, inv_spec: dict) -> list[dict]:
         fix = "; ".join(str(f) for f in rec.get("recommendations") or [] if f)
         add(kind, rec.get("target"), text + (f" — {fix}" if fix else ""))
 
+    # 8. open viz proposals (non-blocking, review tier). Disk status wins (like step 6); only a
+    #    `proposed` one is emitted, so accepted (-> its declared entry carries the item as
+    #    viz_missing), rejected and built are never re-raised.
+    vdisk = {p.get("id"): p for p in inv_spec.get("viz_proposals") or [] if isinstance(p, dict)}
+    for p in cycle_result.get("viz_proposals") or []:
+        if not isinstance(p, dict):
+            continue
+        if (vdisk.get(p.get("id")) or p).get("status", "proposed") != "proposed":
+            continue
+        sug, src = p.get("suggested") or {}, p.get("source") or {}
+        add("viz_proposed", p.get("id"),
+            f"propose {sug.get('form')} for {src.get('observable')} in {p.get('study')} "
+            f"({src.get('kind')}; {'needs_author' if sug.get('needs_author') else 'derivable'})")
+
     items.sort(key=lambda x: (-x["priority"], str(x["kind"]), str(x["target"])))
     return items
 

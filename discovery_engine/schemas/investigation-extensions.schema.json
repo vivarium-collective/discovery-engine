@@ -30,6 +30,25 @@
         }
       }
     },
+    "viz_proposals": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "status", "study"],
+        "properties": {
+          "id": {"type": "string", "pattern": "^vp:"},
+          "status": {"enum": ["proposed", "accepted", "rejected", "built"]},
+          "study": {"type": "string"},
+          "source": {"type": "object"},
+          "suggested": {"type": "object"},
+          "sharpens": {"type": "object"},
+          "approval": {"type": "string"},
+          "history": {"type": "array"},
+          "built": {"type": ["object", "null"]},
+          "derivable": {"type": "boolean"}
+        }
+      }
+    },
     "revision_proposals": {"type": "array", "items": {"type": "object"}},
     "cycle_state": {
       "type": "object",
