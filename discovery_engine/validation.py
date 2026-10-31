@@ -115,6 +115,8 @@ class ValidationContext:
     argument: dict = field(default_factory=dict)
     narrative: dict = field(default_factory=dict)
     audit: list = field(default_factory=list)
+    viz_state: dict = field(default_factory=dict)    # harvested viz_inventory (data)
+    viz_catalog: list = field(default_factory=list)  # workbench catalog (data)
 
 
 #: the default process-wide registry (adapters below register into it).
@@ -516,3 +518,86 @@ def _narrative_coherence(ctx: ValidationContext) -> list[dict]:
         findings=[g.get("reason", "unsupported transition") for g in gaps],
         recommendations=[(g.get("followup") or {}).get("title", "") for g in gaps],
         validator_id="narrative.narrative.coherence")]
+
+
+@validator(type="visual", scope="figure", id="visual.figure.freshness", surfaces="frontier")
+def _figure_freshness(ctx: ValidationContext) -> list[dict]:
+    """One record per declared ``visualizations[]`` entry (RFC-0007 viz loop, §2B),
+    plus a standing ``untracked`` record per undeclared ``viz/*.html``. Iterates the
+    declarations (not the inventory rows) so a ``broken_stub`` — which has no output
+    and so no row — still surfaces. Pure over ``ctx.viz_state``; absent state yields
+    nothing (hermetic)."""
+    from .viz_freshness import classify_viz, normalize_entry
+    from . import model_architect as _ma
+    vstate = getattr(ctx, "viz_state", None) or {}
+    if not vstate:
+        return []
+    try:
+        bound = _ma.bind_model_versions(ctx.studies or {})
+    except Exception:  # noqa: BLE001 — mv is an optimisation for requires:[] figures
+        bound = {}
+    out: list[dict] = []
+    for study, spec in (ctx.studies or {}).items():
+        fixed: set = set()
+        st = vstate.get(study)
+        if st is None:
+            continue
+        latest = st.get("_latest")
+        orphans = list(st.get("_orphans") or [])
+        arms = bound.get(study) or {}
+        mv = next(iter(arms.values()))["id"] if arms else None
+        for entry in (spec or {}).get("visualizations") or []:
+            if not isinstance(entry, dict):
+                continue
+            vs = normalize_entry(entry)
+            name = vs["name"]
+            if not name:
+                continue
+            row = st.get(name)
+            status = classify_viz(vs, row, latest, mv=mv)
+            row = row or {}
+            ev = {"path": row.get("path") or vs["output"], "exists": bool(row.get("exists")),
+                  "source_run_id": (row.get("meta") or {}).get("source_run_id"),
+                  "latest_run_id": (latest or {}).get("run_id"),
+                  "content_hash": row.get("content_hash")}
+            if status == "fresh":
+                finding, rec_ = f"{name} is fresh", ""
+            elif status == "stale":
+                finding = f"{name} was rendered before the study's latest run"
+                rec_ = f"re-render {name}"
+            elif status == "unrendered":
+                finding = f"declared {vs['address'] or vs['render'] or name} has no rendered {vs['output']}"
+                rec_ = f"render {name}"
+            else:
+                finding = ("declared with no address, chart or render — not renderable "
+                           "by any path (`rendered:` is read by nothing)")
+                rec_ = "set `address:` and a `render:` recipe so it can be refreshed"
+                match = next((o for o in orphans
+                              if o.rsplit("/", 1)[-1].rsplit(".", 1)[0] == name), None)
+                if match:
+                    scheme = match.rsplit(".", 1)[-1].lower()
+                    fix = {"address": f"{scheme}:{match}"}
+                    fixed.add(match); match_addr = fix["address"]
+                    ev.update(path=match, exists=True, derivable_fix=fix)
+                    rec_ = (f"set `address: {match_addr}` (a matching file exists) "
+                            "and a `render:` recipe so it can be refreshed")
+            out.append(validation_record(
+                type="visual", scope="figure", target=f"fig:{study}/{name}",
+                execution_status="passed" if status == "fresh" else "failed",
+                criteria=[status], findings=[finding],
+                recommendations=[rec_] if rec_ else [], evidence=[ev],
+                validator_id="visual.figure.freshness"))
+        for o in orphans:
+            if o in fixed:  # already offered as a broken_stub's derivable_fix
+                continue
+            out.append(validation_record(
+                type="visual", scope="figure", target=f"fig:{study}/{o}",
+                execution_status="inconclusive", criteria=["untracked"],
+                findings=[f"{o} is on disk but not declared in visualizations[]"],
+                recommendations=["declare it or remove it"],
+                evidence=[{"path": o, "exists": True}],
+                validator_id="visual.figure.freshness"))
+    for r in out:
+        if (r["result"]["execution_status"] == "inconclusive"):
+            r["surfaces"] = "standing"
+    return out

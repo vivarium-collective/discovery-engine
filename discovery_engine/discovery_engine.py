@@ -30,7 +30,7 @@ crank(cycle_result, inv_spec) -> dict          # one combined report
 """
 from __future__ import annotations
 
-from .run_command import run_command
+from .run_command import render_command, run_command
 from .validation import epistemic_separation_violations, stale_records
 
 
@@ -50,6 +50,8 @@ _PRIORITY = {
     "revision_proposed": 58,       # a ModelRevisionProposal awaiting review
     "model_disagreement": 48,      # arms disagree on an observable (no proposal yet)
     "anomaly": 48,                 # an observation outside every live hypothesis band
+    # Visualization loop (NON-blocking): a declared figure that is broken/missing/stale.
+    "viz_broken": 47, "viz_missing": 46, "viz_proposed": 44, "viz_stale": 38,
 }
 # Recommended operation per item kind (the RFC-0005 op that resolves it).
 _OP = {
@@ -65,6 +67,8 @@ _OP = {
     "revision_proposed": "revise_model",  # review/apply the proposed model revision
     "model_disagreement": "revise_model",
     "anomaly": "revise_model",
+    "viz_broken": "refine_viz", "viz_missing": "build_viz",
+    "viz_proposed": "build_viz", "viz_stale": "refine_viz",
 }
 # open_calls kinds map straight onto frontier kinds.
 _CALL_KIND = {"narrative_gap": "narrative_gap", "decision": "open_decision",
@@ -193,6 +197,12 @@ def frontier(cycle_result: dict, inv_spec: dict) -> list[dict]:
             continue
         if rec.get("type") == "narrative":
             continue
+        # visual records are projected per figure as typed viz_* items in step 7
+        # (build/refine ops), not as one generic validation_finding with op `revise`.
+        # A crashed visual validator (status `error`) is NOT skipped: it falls through
+        # to a validation_finding so a harvest bug is visible, not a silent empty frontier.
+        if rec.get("type") == "visual" and (rec.get("result") or {}).get("execution_status") != "error":
+            continue
         findings = rec.get("findings") or []
         add("validation_finding", rec.get("target"),
             f"[{rec.get('type')}/{rec.get('scope')}] "
@@ -235,6 +245,34 @@ def frontier(cycle_result: dict, inv_spec: dict) -> list[dict]:
             continue
         add("anomaly", f"{a.get('study')}:{a.get('observable')}",
             a.get("proposed_question") or f"{a.get('observable')} outside every live hypothesis band")
+
+    # 7. visualization loop (non-blocking): one typed item per non-fresh declared figure.
+    #    fresh emits nothing (derivation discharge).
+    _viz_kind = {"broken_stub": "viz_broken", "unrendered": "viz_missing", "stale": "viz_stale"}
+    for rec in cycle_result.get("validations") or []:
+        if not isinstance(rec, dict) or rec.get("type") != "visual" or rec.get("scope") != "figure":
+            continue
+        crit = (rec.get("criteria") or [None])[0]
+        kind = _viz_kind.get(crit)
+        if kind is None:
+            continue
+        text = "; ".join(str(f) for f in rec.get("findings") or [])
+        fix = "; ".join(str(f) for f in rec.get("recommendations") or [] if f)
+        add(kind, rec.get("target"), text + (f" — {fix}" if fix else ""))
+
+    # 8. open viz proposals (non-blocking, review tier). Disk status wins (like step 6); only a
+    #    `proposed` one is emitted, so accepted (-> its declared entry carries the item as
+    #    viz_missing), rejected and built are never re-raised.
+    vdisk = {p.get("id"): p for p in inv_spec.get("viz_proposals") or [] if isinstance(p, dict)}
+    for p in cycle_result.get("viz_proposals") or []:
+        if not isinstance(p, dict):
+            continue
+        if (vdisk.get(p.get("id")) or p).get("status", "proposed") != "proposed":
+            continue
+        sug, src = p.get("suggested") or {}, p.get("source") or {}
+        add("viz_proposed", p.get("id"),
+            f"propose {sug.get('form')} for {src.get('observable')} in {p.get('study')} "
+            f"({src.get('kind')}; {'needs_author' if sug.get('needs_author') else 'derivable'})")
 
     items.sort(key=lambda x: (-x["priority"], str(x["kind"]), str(x["target"])))
     return items
@@ -460,10 +498,12 @@ _CLOSURE_BLOCKING = ("unaddressed_criterion", "narrative_gap", "open_challenge")
 # Information potential by action: evidence-generating acts (run a test, open a study)
 # can teach something new; reconciling/adjudicating resolves bookkeeping.
 _OPP_INFO = {"test": 1.0, "branch": 1.0, "steer": 0.5, "synthesize": 0.3,
-             "reconcile": 0.3, "revise": 0.3, "revalidate": 0.3, "revise_model": 0.6}
+             "reconcile": 0.3, "revise": 0.3, "revalidate": 0.3, "revise_model": 0.6,
+             "build_viz": 0.4, "refine_viz": 0.2}
 # Cost by action: a new study + simulation is dear; a reconcile is cheap.
 _OPP_COST = {"branch": 1.0, "test": 0.6, "steer": 0.3, "synthesize": 0.2,
-             "reconcile": 0.2, "revise": 0.2, "revalidate": 0.2, "revise_model": 0.4}
+             "reconcile": 0.2, "revise": 0.2, "revalidate": 0.2, "revise_model": 0.4,
+             "build_viz": 0.3, "refine_viz": 0.2}
 
 
 def _opp_impact(target: str, edges: list) -> float:
@@ -550,7 +590,20 @@ def opportunities(cycle_result: dict, inv_spec: dict) -> list[dict]:
 # (re-snapshot) is auto_safe; running a simulation, seeding a study, or overwriting a
 # verdict is consequential and stays gated behind an explicit human/--autonomous step.
 
-def _executor_for(op: str, target: str) -> dict:
+def _executor_for(op: str, target: str, kind: str | None = None) -> dict:
+    if op in ("build_viz", "refine_viz"):
+        t = str(target)
+        if t.startswith("fig:") and "/" in t and kind != "viz_broken":
+            fstudy, _, fname = t[4:].partition("/")
+            return {"executor": "render-viz", "command": render_command(fstudy, fname),
+                    "consequence": "render", "auto_safe": False}
+        if t.startswith("fig:"):       # broken stub: declare an address/render, never auto
+            return {"executor": "discover viz",
+                    "command": f"discover viz <inv> {t} --declare address=… --rationale '…'",
+                    "consequence": "review", "auto_safe": False}
+        return {"executor": "discover viz",
+                "command": f"discover viz <inv> {t} --accept|--reject",
+                "consequence": "review", "auto_safe": False}
     study = str(target).split(":", 1)[1] if str(target).startswith("claim:") else str(target)
     if op == "revalidate":
         return {"executor": "snapshot-validations", "command": "discover snapshot-validations <inv>",
@@ -591,8 +644,8 @@ def execute_plan(cycle_result: dict, inv_spec: dict) -> list[dict]:
     its consequence class, it does not run anything (gated)."""
     out: list[dict] = []
     for o in opportunities(cycle_result, inv_spec):
-        ex = _executor_for(o["action_type"], o["source"])
-        out.append({"id": o["id"], "source": o["source"], "action_type": o["action_type"],
+        ex = _executor_for(o["action_type"], o["source"], o.get("kind"))
+        out.append({"id": o["id"], "kind": o.get("kind"), "source": o["source"], "action_type": o["action_type"],
                     "score": o["value"]["score"], "state": "proposed", **ex})
     return out
 
