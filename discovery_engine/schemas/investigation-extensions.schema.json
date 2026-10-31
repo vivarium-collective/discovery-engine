@@ -56,10 +56,12 @@
         "narrative_basis": {"type": "string"},
         "verdict_history": {"type": "array", "items": {"type": "object", "properties": {
           "from": {}, "to": {"type": "string"}, "rationale": {"type": "string", "minLength": 1},
-          "by": {"type": "string"}, "at": {"type": "string"}}}},
+          "by": {"type": "string"}, "at": {"type": "string"}},
+          "required": ["to", "rationale"]}},
         "narrative_history": {"type": "array", "items": {"type": "object", "properties": {
           "basis": {"type": "string"}, "rationale": {"type": "string", "minLength": 1},
-          "by": {"type": "string"}, "at": {"type": "string"}}}}
+          "by": {"type": "string"}, "at": {"type": "string"}},
+          "required": ["basis", "rationale"]}}
       }
     },
     "cycle_state": {

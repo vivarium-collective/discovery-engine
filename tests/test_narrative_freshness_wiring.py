@@ -81,3 +81,42 @@ def test_accept_verdict_accepts_computed_and_audits(tmp_path, monkeypatch):
     assert ex["verdict_status"] == "passing"
     assert ex["verdict_history"][-1]["rationale"] == "agree"
     assert _persist(tmp_path)["cycle_state"]["freshness"]["verdict"]["state"] == FRESH
+
+
+def test_narrative_expires_after_study_change_and_persist_does_not_restamp(tmp_path, monkeypatch):
+    p = _ws(tmp_path, monkeypatch)
+    D.refresh_narrative(tmp_path, "inv", rationale="re-read")
+    ex0 = _read(p)["executive"]
+    sp = studies_dir(tmp_path) / "s5" / "study.yaml"
+    sp.write_text(yaml.safe_dump({**STUDY, "claim": "changed", "findings": [{"id": "f2"}]}))
+    out = _persist(tmp_path)
+    assert out["cycle_state"]["freshness"]["narrative"]["state"] == EXPIRED
+    assert out["executive"]["narrative_basis"] == ex0["narrative_basis"]
+    assert len(out["executive"]["narrative_history"]) == len(ex0["narrative_history"])
+
+
+@pytest.mark.parametrize("bad", [
+    [{"basis": "b", "rationale": ""}], [{"basis": "b"}], ["not-an-object"]])
+def test_malformed_history_rejected_on_save(tmp_path, monkeypatch, bad):
+    p = _ws(tmp_path, monkeypatch)
+    spec = _read(p)
+    spec["executive"]["narrative_history"] = bad
+    p.write_text(yaml.safe_dump(spec))
+    before = p.read_text()
+    with pytest.raises(Exception):
+        D.refresh_narrative(tmp_path, "inv", rationale="ok")
+    assert p.read_text() == before
+    spec["executive"]["verdict_history"] = [{"to": "passing", "rationale": " "[:0]}]
+    spec["executive"]["narrative_history"] = []
+    p.write_text(yaml.safe_dump(spec))
+    with pytest.raises(Exception):
+        D.accept_verdict(tmp_path, "inv", rationale="ok")
+
+
+def test_accept_verdict_without_computed_status_raises(tmp_path, monkeypatch):
+    p = _ws(tmp_path, monkeypatch)
+    spec = _read(p)
+    del spec["executive"]["computed_verdict_status"]
+    p.write_text(yaml.safe_dump(spec))
+    with pytest.raises(ValueError):
+        D.accept_verdict(tmp_path, "inv", rationale="ok")
