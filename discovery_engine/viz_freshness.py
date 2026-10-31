@@ -130,7 +130,8 @@ def read_meta(chart: Path) -> dict | None:
         return None
 
 
-def chart_freshness(study_dir: Path, entry: dict, latest: dict | None) -> str:
+def chart_freshness(study_dir: Path, entry: dict, latest: dict | None,
+                    mv: str | None = None) -> str:
     """fresh | stale | unrendered (for a declared visualizations[] entry or a
     normalized spec). Absent meta falls back to mtime vs latest.completed_at."""
     spec = normalize_entry(entry)
@@ -140,7 +141,7 @@ def chart_freshness(study_dir: Path, entry: dict, latest: dict | None) -> str:
     if not chart.is_file():
         return UNRENDERED
     row = {"exists": True, "meta": read_meta(chart), "mtime": chart.stat().st_mtime}
-    return classify_viz(spec, row, latest)
+    return classify_viz(spec, row, latest, mv=mv)
 
 
 def manifest_diff(study_dir: Path, entries: list[dict]) -> dict:

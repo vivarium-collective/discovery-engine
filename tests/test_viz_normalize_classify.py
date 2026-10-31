@@ -103,3 +103,26 @@ def test_stamp_model_version(tmp_path):
     assert read_meta(c)["model_version"] == "mv:a"
     stamp_meta(c, source_run_id=None, generation_id=None, rendered_at=1.0, command="c")
     assert "model_version" not in read_meta(c)
+
+
+def test_mv_branch_before_no_latest_fallthrough():
+    m = {"source_run_id": None, "rendered_at": 1.0, "model_version": "mv:a"}
+    s = _spec(requires=[])
+    assert classify_viz(s, row(meta=m), None, mv="mv:a") == "fresh"
+    assert classify_viz(s, row(meta=m), None, mv=None) == "stale"
+
+
+def test_local_with_render_is_command():
+    s = normalize_entry({"name": "q", "address": "local:Foo", "render": "go {chart}"})
+    assert s["kind"] == "command" and s["output"] == "viz/q.html"
+
+
+def test_chart_freshness_forwards_mv(tmp_path):
+    from discovery_engine.viz_freshness import stamp_meta
+    (tmp_path / "viz").mkdir()
+    f = tmp_path / "viz" / "x.html"; f.write_text("h")
+    stamp_meta(f, source_run_id=None, generation_id=None, rendered_at=1.0,
+               command="c", model_version="mv:a")
+    e = {"address": "html:viz/x.html", "requires": []}
+    assert chart_freshness(tmp_path, e, None, mv="mv:a") == "fresh"
+    assert chart_freshness(tmp_path, e, None) == "stale"
