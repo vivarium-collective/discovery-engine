@@ -11,11 +11,11 @@ from discovery_engine.evidence_integrity import VERIFIED, PROVISIONAL
 
 
 def test_claim_support_gated_by_evidence_integrity():
-    assert E.evaluate_claim_support({"net": 2}, VERIFIED) == E.SUPPORTED
-    assert E.evaluate_claim_support({"net": 2}, PROVISIONAL) == E.PROVISIONAL_SUPPORT
-    assert E.evaluate_claim_support({"net": 2}, None) == E.PROVISIONAL_SUPPORT
-    assert E.evaluate_claim_support({"net": -1}, VERIFIED) == E.CONTESTED
-    assert E.evaluate_claim_support({"net": 0}, VERIFIED) == E.UNRESOLVED
+    assert E.evaluate_claim_support({"net": 2}, VERIFIED, has_quantitative=True) == E.SUPPORTED
+    assert E.evaluate_claim_support({"net": 2}, PROVISIONAL, has_quantitative=True) == E.PROVISIONAL_SUPPORT
+    assert E.evaluate_claim_support({"net": 2}, None, has_quantitative=True) == E.PROVISIONAL_SUPPORT
+    assert E.evaluate_claim_support({"net": -1}, VERIFIED, has_quantitative=True) == E.CONTESTED
+    assert E.evaluate_claim_support({"net": 0}, VERIFIED, has_quantitative=True) == E.UNRESOLVED
 
 
 def _inv_and_studies():
@@ -90,3 +90,50 @@ def test_discovery_delta_records_disagreements_and_fingerprint():
     assert any(d["study"] == "s3" for d in delta["model_disagreements"])
     assert any(r["study"] == "s3" for r in delta["regressions"])   # CPM superseded = recorded progress
     assert len(delta["fingerprint"]) == 16
+
+
+def _quant_case(spec_name="s2"):
+    inv = {"studies": ["s2"], "hypotheses": [
+        {"id": "h-q", "study": "s2", "status": "open",
+         "predictions": [{"observable": "flux", "expected": {"op": ">=", "value": 1e-22}}]}]}
+    studies = {"s2": {"name": spec_name, "findings": [
+        {"id": "f", "evidence": {"measure": "flux", "observed": 1e-22}}]}}
+    return inv, studies
+
+
+def _verified(slug="s2"):
+    return {"by_study": {slug: {"status": VERIFIED}}}
+
+
+def test_prose_only_caps_at_provisional():
+    inv = {"studies": ["s2"], "hypotheses": [{"id": "h-p", "study": "s2", "status": "open"}]}
+    studies = {"s2": {"name": "s2", "discovery_implications": {"alternate_hypotheses": [
+        {"hypothesis_id": "h-p", "claim": "c", "evidence_for": ["prose a", "prose b"]}]}}}
+    cmp = E.compare_hypotheses(inv, studies, _verified())
+    h = cmp["s2"]["hypotheses"][0]
+    assert h["support"]["net"] > 0
+    assert h["verdict"] == E.PROVISIONAL_SUPPORT
+    assert E.evaluate_claim_support({"net": 2}, VERIFIED, has_quantitative=False) == E.PROVISIONAL_SUPPORT
+
+
+def test_supported_needs_verified_and_quantitative():
+    inv, studies = _quant_case()
+    cmp = E.compare_hypotheses(inv, studies, _verified())
+    assert cmp["s2"]["hypotheses"][0]["verdict"] == E.SUPPORTED
+    assert cmp["s2"]["status"] == E.SUPPORTED
+    assert cmp["s2"]["hypotheses"][0]["model_version"] is None
+    # quantitative but unverified evidence still caps
+    cmp2 = E.compare_hypotheses(inv, studies, {"by_study": {"s2": {"status": PROVISIONAL}}})
+    assert cmp2["s2"]["hypotheses"][0]["verdict"] == E.PROVISIONAL_SUPPORT
+
+
+def test_slug_join_matches_inv_studies():
+    inv, studies = _quant_case(spec_name="s2-flux-full")   # spec name differs from slug
+    cmp = E.compare_hypotheses(inv, studies, _verified())
+    h = cmp["s2"]["hypotheses"][0]
+    assert h["support"]["supports"] == 1
+    assert h["verdict"] == E.SUPPORTED
+    # support-log entries are keyed by the inv-studies slug, not the spec name
+    dmap = E.model_disagreement_map(inv, {"s2": {"name": "other", "findings": [
+        {"evidence": {"measure": "m", "by_arm": {"a": 0.1, "b": 0.9}}}]}})
+    assert dmap[0]["study"] == "s2"

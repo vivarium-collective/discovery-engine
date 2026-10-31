@@ -35,13 +35,36 @@ def _study_hyps(inv_spec: dict, slug: str) -> list[dict]:
             and str(h.get("status", "open")).strip().lower() not in _RETIRED_STATUS]
 
 
-def evaluate_claim_support(summary: dict, evidence_status: str | None) -> str:
+def _keyed_specs(studies) -> list[dict]:
+    """Study specs with their identity resolved to the ``inv_spec["studies"]`` key.
+
+    ``hypothesis.study`` names the investigation's study slug (the key), which can
+    differ from the spec's own ``name``/``slug``. Copy each keyed spec with ``name``
+    set to its key so every downstream join (support log, fidelity flags, anomalies)
+    uses the slug. A plain list keeps each spec's ``name``/``slug`` (fallback). Pure."""
+    if isinstance(studies, dict):
+        return [({**spec, "name": key} if isinstance(spec, dict) else spec)
+                for key, spec in studies.items()]
+    return list(studies or [])
+
+
+def _has_quantitative_support(support_log: list[dict]) -> bool:
+    """True iff >=1 ``supports`` entry came from the quantitative ``score_support``
+    path (those carry ``discriminating``), not the prose ``alternate_hypotheses`` fold."""
+    return any((e or {}).get("delta") == "supports" and (e or {}).get("discriminating")
+               for e in support_log or [])
+
+
+def evaluate_claim_support(summary: dict, evidence_status: str | None, *,
+                           has_quantitative: bool) -> str:
     """Map a hypothesis's support tally + its study's evidence integrity to a claim
-    verdict. Net support needs VERIFIED evidence to be ``supported``; otherwise it is
+    verdict. ``supported`` needs net>0 AND VERIFIED evidence AND quantitative
+    (run-measured) support; prose-only or unverified net support is
     ``provisionally-supported``. Net-negative is ``contested``; zero is ``unresolved``."""
     net = (summary or {}).get("net", 0)
     if net > 0:
-        return SUPPORTED if evidence_status == VERIFIED else PROVISIONAL_SUPPORT
+        return (SUPPORTED if evidence_status == VERIFIED and has_quantitative
+                else PROVISIONAL_SUPPORT)
     if net < 0:
         return CONTESTED
     return UNRESOLVED
@@ -51,7 +74,7 @@ def compare_hypotheses(inv_spec: dict, studies: dict, evidence_state: dict | Non
     """Per study, the competing hypotheses with their support tally and claim verdict,
     plus the study's favored hypothesis (or that it is gated/unresolved). Reuses the
     rollup; folds in the Phase-A evidence status and the stage-4/6 fidelity caveats."""
-    specs = list(studies.values()) if isinstance(studies, dict) else list(studies or [])
+    specs = _keyed_specs(studies)
     rolled = rollup_support(inv_spec or {}, specs)
     disc = discriminating_hypotheses(inv_spec or {})
     flags = fidelity_flags(inv_spec or {}, specs)
@@ -68,8 +91,10 @@ def compare_hypotheses(inv_spec: dict, studies: dict, evidence_state: dict | Non
             if h.get("study") != slug:
                 continue
             s = support_summary(h.get("support_log") or [])
+            hq = _has_quantitative_support(h.get("support_log") or [])
             hyps.append({"id": h.get("id"), "support": s,
-                         "verdict": evaluate_claim_support(s, ev_status)})
+                         "verdict": evaluate_claim_support(s, ev_status, has_quantitative=hq),
+                         "model_version": None})
         favored = max((h for h in hyps if h["support"]["net"] > 0),
                       key=lambda h: h["support"]["net"], default=None)
         note = None
@@ -118,7 +143,7 @@ def model_disagreement_map(inv_spec: dict, studies: dict) -> list[dict]:
     """Where models/arms disagree on the same observable within a study — surfaced as
     a scientific question to investigate, not averaged. Returns one entry per study
     whose recorded arms span a non-trivial range."""
-    specs = studies.values() if isinstance(studies, dict) else (studies or [])
+    specs = _keyed_specs(studies)
     out: list[dict] = []
     for spec in specs:
         if not isinstance(spec, dict):
@@ -175,7 +200,7 @@ def discovery_delta(inv_spec: dict, studies: dict, evidence_state: dict | None =
     left anomalous, relative to a start-of-cycle state in which nothing was registered.
     Records added/weakened claims, model disagreements, anomalies and scientific
     regressions (a superseded over-claim is progress, recorded explicitly)."""
-    specs = list(studies.values()) if isinstance(studies, dict) else list(studies or [])
+    specs = _keyed_specs(studies)
     cmp = compare_hypotheses(inv_spec, studies, evidence_state)
     anoms = anomalies(inv_spec or {}, specs)
     flags = fidelity_flags(inv_spec or {}, specs)
