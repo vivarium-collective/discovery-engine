@@ -226,6 +226,8 @@ def build_capability_gap(gap: dict, build_hook: Callable[[dict, Any], dict], *,
         res = {"status": "failed", "detail": "build_hook returned a non-mapping"}
     st = res.get("status")
     process = res.get("process")
+    if callable(catalog):  # lazy: re-catalog AFTER the hook ran, so a freshly built process is seen
+        catalog = catalog()
     if st in ("reuse", "built"):
         if res.get("gap_id") not in (None, gap.get("id")):
             st, res = "failed", {"detail": f"hook answered for {res.get('gap_id')!r}, not {gap.get('id')!r}"}

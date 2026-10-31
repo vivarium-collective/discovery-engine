@@ -1374,7 +1374,12 @@ def execute_action(ws_root: Path | str, inv_slug: str, *, autonomous: bool = Fal
                 from .capability_gaps import build_capability_gap
                 from .model_architect import build_catalog
                 inv_path_, spec_, gap_ = _cap_gap_load(ws_root, inv_slug, top["source"])
-                build_capability_gap(gap_, hook, ws_root=ws_root, catalog=build_catalog(studies, ws_root))
+                build_capability_gap(gap_, hook, ws_root=ws_root,
+                                     catalog=lambda: build_catalog(load_cycle_inputs(ws_root, inv_slug)[2], ws_root))
+                # Re-read: the hook may have edited the investigation (e.g. registered the new study).
+                inv_path_, spec_, fresh_ = _cap_gap_load(ws_root, inv_slug, top["source"])
+                fresh_.clear()
+                fresh_.update(gap_)
                 save_yaml_atomic(inv_path_, spec_)
                 rec["status"] = "executed" if gap_["status"] == "built" else "failed"
                 rec["outcome"] = {"ok": gap_["status"] == "built", "detail": f"{gap_['status']}: {top['source']}",
