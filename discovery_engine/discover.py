@@ -118,7 +118,8 @@ EPISTEMIC_RELATIONS = ("builds-on", "tests", "refutes", "alternative-to", "motiv
 # The frontier-item kinds a resolution can discharge (mirror discovery_engine priorities).
 RESOLUTION_KINDS = ("unaddressed_criterion", "open_challenge", "narrative_gap",
                     "open_decision", "divergence", "open_question",
-                    "validation_finding", "stale_validation", "pending_gate")
+                    "validation_finding", "stale_validation", "pending_gate",
+                    "revision_proposed", "model_disagreement", "anomaly")
 
 
 def add_resolution(inv_spec: dict, kind: str, target: str, rationale: str,
@@ -156,17 +157,200 @@ def record_resolution(inv_path: Path | str, kind: str, target: str, rationale: s
     return spec["resolutions"][-1]
 
 
+def review_revision(inv_path: Path | str, proposal_id: str, event: str, rationale: str,
+                    by: str = "human") -> dict:
+    """Approve or reject a model-revision proposal: set its ``status`` and append a
+    ``{at, event, by, rationale}`` event to its ``history``. That is the ONLY mutation (no
+    verdict / evidence / finding change). A rationale is required; an unknown id errors."""
+    if event not in ("approved", "rejected"):
+        raise ValueError(f"event must be 'approved' or 'rejected', got {event!r}")
+    if not (rationale or "").strip():
+        raise ValueError("a rationale is required — a decision on a revision documents why")
+    path = Path(inv_path)
+    spec = load_yaml_mapping(path)
+    props = spec.get("revision_proposals") or []
+    prop = next((p for p in props if isinstance(p, dict) and p.get("id") == proposal_id), None)
+    if prop is None:
+        raise ValueError(f"unknown revision proposal {proposal_id!r} in {path}")
+    if prop.get("status", "proposed") != "proposed":
+        raise ValueError(f"proposal {proposal_id!r} is already {prop.get('status')!r}; "
+                         "only a 'proposed' proposal can be approved or rejected")
+    prop["status"] = event
+    hist = list(prop.get("history") or [])
+    hist.append({"at": _dt.datetime.now(_dt.timezone.utc).isoformat(timespec="seconds"),
+                 "event": event, "by": by, "rationale": rationale})
+    prop["history"] = hist
+    save_yaml_atomic(path, spec)
+    return prop
+
+
+def _complement_band(band) -> dict | None:
+    """The band disjoint from a numeric ``{low, high}`` pass band, or None when it can't be derived."""
+    if not isinstance(band, dict):
+        return None
+    lo, hi = band.get("low"), band.get("high")
+    num = lambda v: isinstance(v, (int, float)) and not isinstance(v, bool)  # noqa: E731
+    if num(lo) and lo > 0:
+        return {"op": "<", "value": lo}
+    if num(hi):
+        return {"op": ">", "value": hi}
+    return None
+
+
+def _pick_candidate(prop: dict, change_index: int | None) -> dict | None:
+    cands = [c for c in (prop.get("candidate_changes") or []) if isinstance(c, dict)]
+
+    def derived(c):
+        if c.get("kind") == "composite":
+            return bool(c.get("replace_with"))
+        if c.get("kind") == "param":
+            return bool(c.get("name")) and bool(c.get("to"))
+        return False
+    if change_index is not None:
+        c = cands[change_index] if 0 <= change_index < len(cands) else None
+        return c if c is not None and derived(c) else None
+    return next((c for c in cands if derived(c)), None)
+
+
+def apply_revision(ws_root: Path | str, inv_slug: str, proposal_id: str,
+                   change_index: int | None = None) -> dict:
+    """Turn an APPROVED model-revision proposal into a child study + model version +
+    discriminable hypotheses (decision §4 "Apply"). Never edits the parent study.
+
+    Refuses (writes nothing; ``status: needs_build`` + ``mechanism``) unless the candidate
+    composite resolves and the child is run-ready. Engine-written hypotheses / finding stubs
+    carry ``origin`` and ``statement: null`` — the engine never writes prose."""
+    from . import evaluation as _ev
+    from . import study_refinement as _sr
+    from . import study_seeding as _ss
+    from .model_architect import model_version, resolve_composite
+
+    ws = Path(ws_root)
+    inv_path, inv_spec, studies = load_cycle_inputs(ws, inv_slug)
+    prop = next((p for p in inv_spec.get("revision_proposals") or []
+                 if isinstance(p, dict) and p.get("id") == proposal_id), None)
+    if prop is None:
+        raise ValueError(f"unknown revision proposal {proposal_id!r} in {inv_path}")
+    if prop.get("status", "proposed") != "approved":
+        raise ValueError(f"proposal {proposal_id!r} is {prop.get('status', 'proposed')!r}; "
+                         "only an 'approved' proposal can be applied")
+    src = prop.get("source") or {}
+    parent_slug = src.get("study")
+    parent = studies.get(parent_slug)
+    if not isinstance(parent, dict):
+        raise ValueError(f"proposal source study {parent_slug!r} not found")
+    cand = _pick_candidate(prop, change_index)
+    if cand is None:
+        return {"status": "needs_build", "study_path": None, "model_version": None,
+                "mechanism": "no fully-derived candidate change — a human must author the mechanism "
+                             "(/viva-expert) before this proposal can be applied"}
+
+    base = next((a for a in parent.get("baseline") or [] if isinstance(a, dict)), {})
+    new_slug = f"{parent_slug}-rev-{str(proposal_id).rsplit(':', 1)[-1]}"
+    mc: dict = {"ref": proposal_id, "note": f"revision {proposal_id}"}
+    if cand["kind"] == "composite":
+        mc["composite"] = cand["replace_with"]
+        composite = cand["replace_with"]
+    elif cand["kind"] == "param":
+        mc["params"] = {cand["name"]: cand["to"][0]}
+        composite = base.get("composite")
+    else:
+        return {"status": "needs_build", "study_path": None, "model_version": None,
+                "mechanism": f"candidate kind {cand['kind']!r} is not derivable; needs an author"}
+
+    if not resolve_composite(composite, ws)["resolves"]:
+        return {"status": "needs_build", "study_path": None, "model_version": None,
+                "mechanism": f"composite {composite!r} does not resolve in this environment — "
+                             "BUILD route: wrap/build it (/viva-expert), then re-apply"}
+
+    child = _ss.build_seeded_study(parent, inv_spec, new_slug=new_slug, finding_id=src.get("finding"),
+                                   model_change=mc)
+    child["model_change"] = {**(child.get("model_change") or {}), **mc}
+    if cand["kind"] == "param":
+        refined, _ = _sr.refine_study(child, needs=[{"kind": _sr.SWEEP}], sweep_param=cand["name"],
+                                      sweep_values=list(cand["to"]))
+        child.update({k: refined[k] for k in ("variants",) if k in refined})
+    pg = dict(child.get("pipeline_gate") or {})
+    pg["prerequisites"] = [*(pg.get("prerequisites") or []),
+                           {"study": parent_slug, "relation": "alternative-to"}]
+    child["pipeline_gate"] = pg
+    test = prop.get("discriminating_test") or {}
+    obs = src.get("observable")
+    if test.get("behavior_test"):
+        child["findings"] = [{"id": f"f-{new_slug}-{test['behavior_test']}",
+                              "statement": None,
+                              "evidence": {"from_test": test["behavior_test"],
+                                           **({"measure": obs} if obs else {})},
+                              "origin": {"kind": "revision", "ref": proposal_id}}]
+    gaps = _ss.is_run_ready(child)
+    if gaps:
+        return {"status": "needs_build", "study_path": None, "model_version": None,
+                "mechanism": "child study not run-ready: " + "; ".join(gaps)}
+
+    origin = {"kind": "revision", "ref": proposal_id}
+    hyps: list[dict] = []
+    band = test.get("pass_if")
+    other = _complement_band(band)
+    if obs and isinstance(band, dict) and other:
+        hyps = [
+            {"id": f"h-{new_slug}-formalism-artifact", "study": new_slug,
+             "statement": None, "predictions": [{"observable": obs, "expected": dict(band)}],
+             "status": "open", "origin": dict(origin)},
+            {"id": f"h-{new_slug}-real-divergence", "study": new_slug,
+             "statement": None, "predictions": [{"observable": obs, "expected": other}],
+             "status": "open", "origin": dict(origin)},
+        ]
+    elif obs and isinstance(band, dict):
+        hyps = [{"id": f"h-{new_slug}-formalism-artifact", "study": new_slug, "statement": None,
+                 "predictions": [{"observable": obs, "expected": dict(band)}],
+                 "status": "open", "origin": dict(origin)}]
+
+    params = dict(base.get("params") or {})
+    params.update(mc.get("params") or {})
+    parent_mv = prop.get("affected_model_version")
+    # parent_ids is left to bind_model_versions (regenerable: _study_origin maps the revision
+    # child to its seeded_from parent's FIRST baseline arm mv, == affected_model_version normally).
+    mv = model_version(composite, params, parent_ids=[parent_mv] if parent_mv else [], origin=origin)
+    invalidated = _ev.invalidate_dependents({"kind": "model", "id": parent_slug}, inv_spec, studies)
+
+    path = _write_seeded_study(ws, inv_slug, new_slug, child)
+    doc = load_yaml_mapping(inv_path)  # plain dicts, as review_revision does (atomic safe dump)
+    if hyps:
+        if not isinstance(doc.get("hypotheses"), list):
+            doc["hypotheses"] = []
+        doc["hypotheses"].extend(hyps)
+    if not isinstance(doc.get("model_versions"), list):
+        doc["model_versions"] = []
+    if not any(isinstance(m, dict) and m.get("id") == mv["id"] for m in doc["model_versions"]):
+        doc["model_versions"].append(mv)
+    for p in doc.get("revision_proposals") or []:
+        if isinstance(p, dict) and p.get("id") == proposal_id:
+            p["status"] = "applied"
+            hist = p.get("history")
+            if not isinstance(hist, list):
+                hist = p["history"] = []
+            hist.append({"at": _dt.datetime.now(_dt.timezone.utc).isoformat(timespec="seconds"),
+                         "event": "applied", "by": "human", "child_study": new_slug,
+                         "model_version": mv["id"]})
+    save_yaml_atomic(inv_path, doc)
+    return {"status": "applied", "study_path": str(path), "study": new_slug,
+            "model_version": mv["id"], "hypotheses": [h["id"] for h in hyps],
+            "invalidated": invalidated}
+
+
 # ---------------------------------------------------------------------------
 # run_cycle — one invocation = one turn of the discovery cycle
 # ---------------------------------------------------------------------------
 
-def run_cycle(inv_spec: dict, studies_by_slug: dict[str, dict]) -> dict:
+def run_cycle(inv_spec: dict, studies_by_slug: dict[str, dict], *,
+              evidence_state: dict | None = None, catalog: list | None = None) -> dict:
     """Project one full discovery cycle over an investigation + its studies.
 
     Pure: no disk I/O. Each derived projection is merged over its authored block
     (``inv_spec['knowledge']`` / ``inv_spec['argument']``) with the
     authored-wins / empty-never-clobbers rule, then narrate/audit/synthesize read
-    the merged argument graph.
+    the merged argument graph. ``catalog`` (optional) is a pre-resolved capability
+    catalog passed in as data by an impure caller; absent, it is derived unresolved.
     """
     knowledge = merge_knowledge(inv_spec.get("knowledge"),
                                 derive_knowledge(inv_spec, studies_by_slug))
@@ -195,7 +379,37 @@ def run_cycle(inv_spec: dict, studies_by_slug: dict[str, dict]) -> dict:
     }
     # Suggestions for new studies (the branch op, made first-class + expert-gated).
     bundle["suggestions"] = suggest_studies(bundle, inv_spec, studies_by_slug)
+    # Closed-loop feedback (pure): the raw signals and the typed revision proposals they
+    # yield, so the frontier can raise them as non-blocking items.
+    from . import evaluation as _ev
+    from .hypotheses import anomalies as _anoms
+    from .model_architect import build_catalog
+    from .model_revision import propose_model_revisions
+    mvs = project_model_versions(studies_by_slug, inv_spec.get("model_versions"))
+    evaluation = _ev.compare_hypotheses(inv_spec, studies_by_slug, evidence_state)
+    from .model_revision import _contradicted_studies
+    bad = _contradicted_studies(evidence_state, evaluation)  # evidence problem -> REPAIR, not revise
+    bundle["signals"] = {
+        "model_disagreements": [r for r in _ev.model_disagreement_map(inv_spec, studies_by_slug)
+                                if r.get("study") not in bad],
+        "anomalies": [a for a in _anoms(inv_spec or {}, _ev._keyed_specs(studies_by_slug))
+                      if a.get("study") not in bad],
+    }
+    bundle["revision_proposals"] = propose_model_revisions(
+        inv_spec, studies_by_slug, evaluation, evidence_state, mvs,
+        catalog if catalog is not None else build_catalog(studies_by_slug))
     return bundle
+
+
+def _cycle_with_evidence(ws_root, inv_slug, inv_spec, studies) -> dict:
+    """run_cycle with the Phase-A evidence state computed FIRST, so contradicted
+    (evidence-problem) studies are known to the revision proposer and the frontier."""
+    from . import evidence_integrity as _ei
+    ev = _ei.reconcile_evidence_state(
+        inv_spec, studies, _load_runs_by_study(Path(ws_root), inv_slug, studies))
+    from .model_architect import build_catalog
+    return run_cycle(inv_spec, studies, evidence_state=ev,
+                     catalog=build_catalog(studies, ws_root))  # resolved: enables composite swaps
 
 
 # ---------------------------------------------------------------------------
@@ -305,7 +519,8 @@ def _study_path(ws_root: Path | str, slug: str, study: str) -> Path:
 # persist_cycle — regenerable cache, authored blocks untouched
 # ---------------------------------------------------------------------------
 
-def build_cycle_state(result: dict, inv_spec: dict) -> dict:
+def build_cycle_state(result: dict, inv_spec: dict, *, model_versions: list | None = None,
+                      studies: dict | None = None, evidence_state: dict | None = None) -> dict:
     """Project a **slim, actionable** summary of the cycle — the few dozen lines a
     human, the dashboard, or the next cycle actually needs, instead of the full
     regenerable projection. Carries the cycle's *outputs* that previously never fed
@@ -325,7 +540,7 @@ def build_cycle_state(result: dict, inv_spec: dict) -> dict:
         census[st] = census.get(st, 0) + 1
     sugg = result.get("suggestions") or []
     from .validation import stale_records
-    return {
+    state = {
         "generated_at": _dt.datetime.now(_dt.timezone.utc).isoformat(timespec="seconds"),
         "closed": clo["closed"],
         "frontier_size": clo["open_items"],
@@ -347,9 +562,21 @@ def build_cycle_state(result: dict, inv_spec: dict) -> dict:
         "drift": {"divergences": sum(1 for i in frontier if i["kind"] == "divergence"),
                   "stale_validations": len(stale_records(recs, inv_spec.get("validation_snapshot")))},
     }
+    if model_versions is not None:
+        state["model_versions"] = [m["id"] for m in model_versions]
+    if studies is not None:
+        # ScientificState snapshot (decision §3.5): what the next cycle diffs against.
+        from . import evaluation as _ev
+        from .hypotheses import anomalies as _anoms
+        cmp = _ev.compare_hypotheses(inv_spec, studies, evidence_state)
+        n_anoms = len(_anoms(inv_spec or {}, _ev._keyed_specs(studies)))
+        state["evaluation_snapshot"] = _ev.snapshot_evaluation(
+            cmp, evidence_state, model_versions or [], n_anomalies=n_anoms)
+    return state
 
 
-def persist_cycle(inv_path: Path | str, inv_spec: dict, result: dict) -> dict:
+def persist_cycle(inv_path: Path | str, inv_spec: dict, result: dict, *, studies: dict | None = None,
+                  evidence_state: dict | None = None) -> dict:
     """Write the slim ``cycle_state`` summary into investigation.yaml.
 
     Re-reads the on-disk spec (so concurrent authored edits are never clobbered),
@@ -364,9 +591,123 @@ def persist_cycle(inv_path: Path | str, inv_spec: dict, result: dict) -> dict:
     for dead in (*_RETIRED_INV_CACHES, *_DEPRECATED_INV_FIELDS):
         on_disk.pop(dead, None)  # retire bloat caches + deprecated fields (0 readers)
     _renew_executive_decisions(on_disk)  # move resolved decisions out of the open list
-    on_disk["cycle_state"] = build_cycle_state(result, inv_spec)
+    mvs = project_model_versions(studies, on_disk.get("model_versions")) if studies is not None else None
+    if mvs is not None:
+        _validate_extensions({"model_versions": mvs})
+        on_disk["model_versions"] = mvs
+    new = [p for p in result.get("revision_proposals") or [] if isinstance(p, dict)]
+    if new:
+        have = [r for r in on_disk.get("revision_proposals") or []]
+        ids = {r.get("id") for r in have if isinstance(r, dict)}
+        for p in new:
+            if p.get("id") not in ids:  # content-addressed id: existing rows keep status/history
+                have.append(p)
+                ids.add(p.get("id"))
+        _validate_extensions({"revision_proposals": have})
+        on_disk["revision_proposals"] = have
+    on_disk["cycle_state"] = build_cycle_state(result, inv_spec, model_versions=mvs, studies=studies,
+                                               evidence_state=evidence_state)
+    if studies is not None:
+        _evaluate_applied_proposals(on_disk, studies,
+                                    (on_disk["cycle_state"].get("evaluation_snapshot") or {}).get("fingerprint"))
     save_yaml_atomic(path, on_disk)
     return on_disk["cycle_state"]
+
+
+def _evaluate_applied_proposals(on_disk: dict, studies: dict, fingerprint: str | None) -> list[str]:
+    """Close the feedback loop (decision §3.4/§4): move an ``applied`` proposal to ``evaluated``
+    ONLY once the discriminating disposition is DECIDED. Requires the child to have a code-graded
+    run (``computed_outcomes``), then:
+
+    * ``resolved`` -- the source disagreement is no longer live (adjudicated / settled);
+    * ``persists`` -- the child's measured value (``evidence.observed``) lies OUTSIDE the
+      proposal's discriminating band, i.e. the new arm genuinely REPRODUCED the gap;
+    * otherwise (graded but the gap is not yet adjudicated and the result does not reproduce it)
+      the proposal stays ``applied`` and is re-evaluated on a later cycle -- a revision that
+      later succeeds is never terminally marked failed.
+
+    Writes ``evaluated: {cycle_fingerprint, outcome}``, ``status: evaluated`` and a history
+    event. Mutates ``on_disk``; returns evaluated ids."""
+    from . import evaluation as _ev
+    done: list[str] = []
+    live = None
+    for p in on_disk.get("revision_proposals") or []:
+        if not isinstance(p, dict) or p.get("status") != "applied":
+            continue
+        child = next((e.get("child_study") for e in reversed(p.get("history") or [])
+                      if isinstance(e, dict) and e.get("event") == "applied"), None)
+        cspec = studies.get(child) if child else None
+        runs = (cspec or {}).get("runs")
+        if not any(isinstance(r, dict) and r.get("computed_outcomes") for r in runs or []):
+            continue  # the discriminating run has not happened / been graded yet
+        if live is None:
+            live = [(r.get("study"), r.get("observable"))
+                    for r in _ev.model_disagreement_map(on_disk, studies) if r.get("disagreement")]
+        src = p.get("source") or {}
+        if (src.get("study"), src.get("observable")) not in live:
+            outcome = "resolved"
+        elif _reproduces_gap(p, cspec):
+            outcome = "persists"
+        else:
+            continue  # undecided: awaiting adjudication
+        p["evaluated"] = {"cycle_fingerprint": fingerprint, "outcome": outcome}
+        p["status"] = "evaluated"
+        hist = p.get("history") if isinstance(p.get("history"), list) else []
+        hist.append({"at": _dt.datetime.now(_dt.timezone.utc).isoformat(timespec="seconds"),
+                     "event": "evaluated", "by": "engine", "outcome": outcome})
+        p["history"] = hist
+        done.append(p.get("id"))
+    return done
+
+
+def _reproduces_gap(prop: dict, child: dict | None) -> bool:
+    """True iff the child's discriminating finding has a numeric ``observed`` that falls outside
+    the proposal's ``discriminating_test.pass_if`` ``{low, high}`` band (the gap is reproduced).
+    False when anything is missing -- undecided is never read as failure."""
+    band = (prop.get("discriminating_test") or {}).get("pass_if")
+    if not isinstance(band, dict):
+        return False
+    num = lambda v: isinstance(v, (int, float)) and not isinstance(v, bool)  # noqa: E731
+    lo, hi = band.get("low"), band.get("high")
+    if not (num(lo) or num(hi)):
+        return False
+    for f in (child or {}).get("findings") or []:
+        ev_ = f.get("evidence") if isinstance(f, dict) else None
+        if isinstance(ev_, dict) and ev_.get("from_test") and num(ev_.get("observed")):
+            o = ev_["observed"]
+            return (num(lo) and o < lo) or (num(hi) and o > hi)
+    return False
+
+
+def project_model_versions(studies: dict, existing: list | None = None) -> list[dict]:
+    """Regenerable ``model_versions[]``: a projection of the bound arms. ``bound_to`` and
+    ``resolves`` are recomputed; ``origin`` is the one non-derivable field, kept from disk once written."""
+    from .model_architect import bind_model_versions, resolve_composite
+    prior = {m.get("id"): m for m in (existing or []) if isinstance(m, dict)}
+    out: dict[str, dict] = {}
+    for slug, arms in bind_model_versions(studies).items():
+        for arm, mv in arms.items():
+            row = out.get(mv["id"])
+            if row is None:
+                old = prior.get(mv["id"]) or {}
+                row = out[mv["id"]] = {
+                    "id": mv["id"], "composite": mv["composite"], "params": mv["params"],
+                    "parent_ids": list(mv["parent_ids"]),  # projection: always recomputed
+                    "origin": old.get("origin") or mv["origin"],
+                    "bound_to": [],
+                    "resolves": bool(resolve_composite(mv["composite"], None)["resolves"]),
+                }
+            row["bound_to"].append({"study": slug, "arm": arm})
+    return list(out.values())
+
+
+def _validate_extensions(block: dict) -> None:
+    """Validate the new investigation blocks against the bundled JSON Schema (write boundary only)."""
+    import json
+    import jsonschema
+    schema = json.loads((Path(__file__).parent / "schemas" / "investigation-extensions.schema.json")
+                        .read_text(encoding="utf-8"))
+    jsonschema.validate(json.loads(json.dumps(block, default=str)), schema)
 
 
 def _renew_executive_decisions(on_disk: dict) -> None:
@@ -539,7 +880,8 @@ def _env_decider(target: str, detail: str) -> dict:
 
 
 def execute_action(ws_root: Path | str, inv_slug: str, *, autonomous: bool = False,
-                   runner=None, decider=None, target: str | None = None) -> dict:
+                   runner=None, decider=None, target: str | None = None,
+                   action: str | None = None) -> dict:
     """The bridge's execution step: take the top value-ranked action and carry it out,
     gated by consequence.
 
@@ -561,7 +903,7 @@ def execute_action(ws_root: Path | str, inv_slug: str, *, autonomous: bool = Fal
     happened."""
     from . import discovery_engine as de
     inv_path, inv_spec, studies = load_cycle_inputs(ws_root, inv_slug)
-    cyc = run_cycle(inv_spec, studies)
+    cyc = _cycle_with_evidence(ws_root, inv_slug, inv_spec, studies)
     before = de.closure(cyc, inv_spec)["open_items"]
     plan = de.execute_plan(cyc, inv_spec)
     if not plan:
@@ -569,7 +911,8 @@ def execute_action(ws_root: Path | str, inv_slug: str, *, autonomous: bool = Fal
     # Default: the single highest-value move (plan[0]). With `target`, drive that specific
     # frontier item instead — e.g. an AI decider driving a decision that a higher-value
     # verification run would otherwise rank ahead of.
-    top = plan[0] if target is None else next((p for p in plan if p["source"] == target), None)
+    top = plan[0] if target is None else next((p for p in plan if p["source"] == target
+                                  and (action is None or p["action_type"] == action)), None)
     if top is None:
         return {"status": "no-such-action", "target": target, "frontier": before}
     rec = {"action": top["action_type"], "source": top["source"], "command": top["command"],
@@ -617,6 +960,28 @@ def execute_action(ws_root: Path | str, inv_slug: str, *, autonomous: bool = Fal
                           f"[ai-driven · maximize-discovery] chose {pick}. {why}", by="discovery-ai")
         rec["status"] = "executed"
         rec["outcome"] = {"ok": True, "detail": f"ai-decided: {pick}", "rationale": why}
+    elif top["action_type"] == "revise_model" and decider is not None and autonomous \
+            and str(top["source"]).startswith("rp:"):
+        # AI decider approves a model-revision proposal (history is the only mutation).
+        detail = next((i["rationale"] for i in de.frontier(cyc, inv_spec)
+                       if i["kind"] == "revision_proposed" and i["target"] == top["source"]), top["source"])
+        choice = decider(top["source"], detail)
+        choice = choice if isinstance(choice, dict) else {}
+        verb = {"approve": "approved", "reject": "rejected"}.get(str(choice.get("choice") or "").strip().lower())
+        why = (choice.get("rationale") or "").strip()
+        disk = next((p for p in load_yaml_mapping(inv_path).get("revision_proposals") or []
+                     if isinstance(p, dict) and p.get("id") == top["source"]), None)
+        if disk is not None and disk.get("status", "proposed") != "proposed":
+            rec["status"] = "gated-human"
+            rec["outcome"] = {"ok": None, "detail": f"already {disk.get('status')} — not re-decided"}
+        elif verb is None or not why:
+            rec["status"] = "gated-human"
+            rec["outcome"] = {"ok": None, "detail": "decider gave no usable approve/reject choice "
+                              "with a rationale — needs a human decision"}
+        else:
+            review_revision(inv_path, top["source"], verb, f"[ai-driven] {why}", by="discovery-ai")
+            rec["status"] = "executed"
+            rec["outcome"] = {"ok": True, "detail": f"ai-{verb}: {top['source']}", "rationale": why}
     else:  # review / human-only with no decider
         rec["status"] = "gated-human"
         rec["outcome"] = {"ok": None, "detail": f"{top['consequence']} — needs a human decision"}
@@ -625,7 +990,7 @@ def execute_action(ws_root: Path | str, inv_slug: str, *, autonomous: bool = Fal
         _append_executed(inv_path, rec)
         _, inv2, studies2 = load_cycle_inputs(ws_root, inv_slug)
         rec["frontier_before"] = before
-        rec["frontier_after"] = de.closure(run_cycle(inv2, studies2), inv2)["open_items"]
+        rec["frontier_after"] = de.closure(_cycle_with_evidence(ws_root, inv_slug, inv2, studies2), inv2)["open_items"]
     return rec
 
 
@@ -730,23 +1095,14 @@ def run_readiness(study_spec: dict, ws_root: Path | str | None = None) -> dict:
     # on eukaryogenesis: all 5 baseline composites were ModuleNotFoundError while readiness said
     # ready). Resolve WITHOUT executing composite code (find_spec), and only when the workspace
     # package is importable at all, so a missing package isn't misread as a missing model.
-    import importlib.util as _ilu
+    from .model_architect import _top_importable, resolve_composite
     composite_missing: str | None = None
     _baseline = study_spec.get("baseline") or []
     comp = (_baseline[0].get("composite")
             if _baseline and isinstance(_baseline[0], dict) else None) or study_spec.get("composite")
     if comp and isinstance(comp, str) and "." in comp:
-        top, module = comp.split(".")[0], comp.rsplit(".", 1)[0]
-        try:
-            top_ok = _ilu.find_spec(top) is not None
-        except Exception:  # noqa: BLE001 — a broken intermediate package isn't our assessment
-            top_ok = False
-        if top_ok:
-            try:
-                if _ilu.find_spec(module) is None:
-                    composite_missing = comp
-            except Exception:  # noqa: BLE001 — module (or intermediate) not importable → not built
-                composite_missing = comp
+        if _top_importable(comp) and not resolve_composite(comp, ws_root)["resolves"]:
+            composite_missing = comp
 
     gaps: list[str] = []
     if composite_missing and not already_run:
@@ -793,6 +1149,112 @@ def run_readiness(study_spec: dict, ws_root: Path | str | None = None) -> dict:
             "has_tests": has_tests, "has_contracts": has_contracts}
 
 
+# An applied revision's child runs as a `test` op (applied proposals are off the frontier);
+# `revise_model` is review-consequence, never dispatched.
+_ADVANCE_OPS = ("test", "branch")
+
+
+def _advance_study_for(source, studies: dict) -> str | None:
+    """The on-disk study an advance op would run, or None (gated). The applied child of a
+    revision runs as a plain ``test`` op on ``claim:<child>`` -- applied proposals are off the
+    frontier, so there is deliberately no ``rp:`` resolution here: an unapplied proposal
+    resolves to nothing and is never run."""
+    src = str(source)
+    slug = src.split(":", 1)[1] if src.startswith("claim:") else src
+    return slug if slug in studies else None
+
+
+def _arm_mvs(slug: str, spec: dict) -> dict:
+    from .model_architect import bind_model_versions
+    try:
+        return bind_model_versions({slug: spec}).get(slug) or {}
+    except Exception:  # noqa: BLE001 -- a malformed arm must not break advance
+        return {}
+
+
+def _run_mv_id(run: dict, arms: dict) -> str | None:
+    """A run's model-version id: the id stamped at run time, else (legacy run) derived from
+    its recorded params + its arm's composite."""
+    from .model_architect import model_version
+    if run.get("model_version"):
+        return str(run["model_version"])
+    arm = arms.get(run.get("variant")) if run.get("variant") else next(iter(arms.values()), None)
+    if not arm:
+        return None
+    params = run.get("params")
+    return model_version(arm["composite"], params if isinstance(params, dict) and params
+                         else arm["params"])["id"]
+
+
+def _has_run_at_current_mv(slug: str, spec: dict) -> bool:
+    """True iff some run's mv equals the CURRENT mv of that run's arm. Studies whose arms
+    can't be bound keep the legacy rule (any run => already ran)."""
+    runs = [r for r in spec.get("runs") or [] if isinstance(r, dict)]
+    if not runs:
+        return False
+    arms = _arm_mvs(slug, spec)
+    if not arms:
+        return True
+    for r in runs:
+        arm = arms.get(r.get("variant")) if r.get("variant") else next(iter(arms.values()))
+        if arm and _run_mv_id(r, arms) == arm["id"]:
+            return True
+    return False
+
+
+def _study_dir_on_disk(ws_root, inv_slug: str, slug: str) -> Path | None:
+    for base in (studies_dir(Path(ws_root)), investigations_dir(Path(ws_root)) / inv_slug / "studies"):
+        if (base / slug / "study.yaml").exists():
+            return base / slug
+    return None
+
+
+def _run_names(sdir) -> set:
+    if sdir is None:
+        return set()
+    return {r.get("name") for r in load_yaml_mapping(sdir / "study.yaml").get("runs") or []
+            if isinstance(r, dict)}
+
+
+def _post_run_sync(sdir, before_runs: set) -> None:
+    """Best-effort: sync the study's runs.db into study.yaml (idempotent; fills
+    computed_outcomes) when the runner left it unsynced, then stamp each new run with the
+    model version it ran so a later in-place composite change is detected as stale."""
+    if sdir is None:
+        return
+    try:
+        spec = load_yaml_mapping(sdir / "study.yaml")
+        new = [r for r in spec.get("runs") or [] if isinstance(r, dict) and r.get("name") not in before_runs]
+        if not new or not all(r.get("computed_outcomes") for r in new):
+            from . import study_outcomes
+            study_outcomes.sync(sdir)
+        from io import StringIO
+        arms = _arm_mvs(sdir.name, load_yaml_mapping(sdir / "study.yaml"))
+        y = _ruamel()
+        doc = y.load((sdir / "study.yaml").read_text(encoding="utf-8"))
+        changed = False
+        for r in doc.get("runs") or []:
+            if isinstance(r, dict) and r.get("name") not in before_runs and "model_version" not in r:
+                arm = arms.get(r.get("variant")) if r.get("variant") else next(iter(arms.values()), None)
+                if arm:
+                    r["model_version"] = arm["id"]
+                    changed = True
+        if changed:
+            buf = StringIO()
+            y.dump(doc, buf)
+            (sdir / "study.yaml").write_text(buf.getvalue(), encoding="utf-8")
+        # Link each finding to the run that computed it (provenance.run_ids) and fill the
+        # absent code-owned slots, so the evidence ledger can classify it VERIFIED /
+        # CONTRADICTED on the next cycle instead of leaving it "provisional — no
+        # resolvable registered run". Fill-absent-only: never overwrites an authored
+        # observed value or verdict. This is the write-back that turns an executed run
+        # into a defensible (or honestly-contradicted) finding.
+        from . import finding_observations
+        finding_observations.populate_finding_observations(sdir)
+    except Exception:  # noqa: BLE001 -- sync is best-effort, never fails an advance
+        pass
+
+
 def advance_cycle(ws_root: Path | str, inv_slug: str, *, autonomous: bool = False,
                   runner=None, max_runs: int = 12) -> dict:
     """The cycle's ADVANCE phase — build-if-needed and RUN the open questions, so turning
@@ -811,44 +1273,70 @@ def advance_cycle(ws_root: Path | str, inv_slug: str, *, autonomous: bool = Fals
     ran: list[dict] = []
     needs_build: list[dict] = []
     seen: set = set()
+    seen_slugs: set = set()
+    gated_ops: set = set()      # (op, source) already gated: not retried, but they do not claim the study
     _, inv0, st0 = load_cycle_inputs(ws_root, inv_slug)
-    before = de.closure(run_cycle(inv0, st0), inv0)["open_items"]
+    before = de.closure(_cycle_with_evidence(ws_root, inv_slug, inv0, st0), inv0)["open_items"]
     for _ in range(max_runs):
         _, inv, studies = load_cycle_inputs(ws_root, inv_slug)
-        plan = de.execute_plan(run_cycle(inv, studies), inv)
+        plan = de.execute_plan(_cycle_with_evidence(ws_root, inv_slug, inv, studies), inv)
         target = None
+        target_slug = target_op = None
         for p in plan:
-            if p["action_type"] != "test" or p["source"] in seen:
+            if p["action_type"] not in _ADVANCE_OPS or p["source"] in seen \
+                    or (p["action_type"], p["source"]) in gated_ops:
                 continue
-            slug = p["source"].split(":", 1)[1] if str(p["source"]).startswith("claim:") else p["source"]
-            spec = studies.get(slug)
+            if p["consequence"] not in ("simulation", "simulation+study"):
+                continue                            # review-tier (e.g. revise_model) stays gated
+            # test ops name a study; branch / revise_model run ONLY when they resolve to an
+            # on-disk study (the proposal was already APPLIED). An unapplied / review-tier
+            # proposal resolves to nothing and stays gated.
+            slug = _advance_study_for(p["source"], studies)
+            if slug in seen_slugs:
+                seen.add(p["source"])
+                continue
+            spec = studies.get(slug) if slug else None
             if not isinstance(spec, dict):
                 continue
-            if spec.get("runs"):
-                # already ran: a lingering open_question / pending_gate here means the gate
-                # SKIP'd or the verdict is only-by-roll-up — re-running won't resolve it (the
-                # behavior test / evaluation needs attention, not another sim). Don't loop on it.
+            if _has_run_at_current_mv(slug, spec):
+                # already ran this exact model version: a lingering open_question /
+                # pending_gate means the gate SKIP'd or the verdict is only-by-roll-up --
+                # re-running the same model won't resolve it. A revised study (new file, new
+                # mv) or a composite raised in place (stale run mv) is NOT skipped.
                 seen.add(p["source"])
                 continue
             rr = run_readiness(spec, ws_root)
             if rr["ready"]:
-                target = p["source"]
+                target, target_slug, target_op = p["source"], slug, p["action_type"]
                 break
             needs_build.append({"study": slug, "gaps": rr["gaps"]})
             seen.add(p["source"])
         if target is None:
             break                                   # no runnable test op left
-        seen.add(target)
         if not autonomous:
+            seen.add(target)
+            seen_slugs.add(target_slug)
             ran.append({"target": target, "status": "would-run (pass --autonomous to execute)"})
             break
-        rec = execute_action(ws_root, inv_slug, autonomous=True, runner=runner, target=target)
+        sdir = _study_dir_on_disk(ws_root, inv_slug, target_slug)
+        before_runs = _run_names(sdir)
+        rec = execute_action(ws_root, inv_slug, autonomous=True, runner=runner, target=target,
+                             action=target_op)
+        if rec["status"] == "gated":
+            gated_ops.add((target_op, target))
+        else:
+            seen.add(target)
+        if rec["status"] == "executed":
+            _post_run_sync(sdir, before_runs)
         ran.append({"target": target, "status": rec["status"],
                     "outcome": (rec.get("outcome") or {}).get("detail")})
+        if rec["status"] == "gated":
+            continue            # a gated op neither stops the loop nor claims its study
+        seen_slugs.add(target_slug)   # only a dispatched target claims its study
         if rec["status"] != "executed":
-            break
+            break               # hard failure
     _, inv2, st2 = load_cycle_inputs(ws_root, inv_slug)
-    after = de.closure(run_cycle(inv2, st2), inv2)["open_items"]
+    after = de.closure(_cycle_with_evidence(ws_root, inv_slug, inv2, st2), inv2)["open_items"]
     return {"runs": ran, "needs_build": needs_build,
             "frontier_before": before, "frontier_after": after}
 
@@ -873,7 +1361,7 @@ def build_completion_map(ws_root: Path | str, inv_slug: str) -> dict:
     closure, suggestions, and the execution plan into one map."""
     from . import discovery_engine as de
     _, inv_spec, studies = load_cycle_inputs(ws_root, inv_slug)
-    cyc = run_cycle(inv_spec, studies)
+    cyc = _cycle_with_evidence(ws_root, inv_slug, inv_spec, studies)
     clo = de.closure(cyc, inv_spec)
     front = de.frontier(cyc, inv_spec)
     plan = de.execute_plan(cyc, inv_spec)
@@ -1007,6 +1495,17 @@ def load_cycle_inputs(ws_root: Path | str, slug: str) -> tuple[Path, dict, dict[
                 studies_by_slug[s] = load_yaml(sp)
                 break
     return inv_path, inv_spec, studies_by_slug
+
+
+def missing_members(ws_root: Path | str, slug: str) -> list[str]:
+    """Member slugs listed in the investigation with no ``study.yaml`` on disk (flat or
+    nested). Read-only. ``load_cycle_inputs`` skips these; the
+    ``structural.investigation.members`` validator surfaces them on the frontier."""
+    ws = Path(ws_root)
+    inv_spec = load_yaml_mapping(investigations_dir(ws) / slug / "investigation.yaml")
+    bases = (studies_dir(ws), investigations_dir(ws) / slug / "studies")
+    return [s for s in (inv_spec.get("studies") or [])
+            if not any((b / s / "study.yaml").exists() for b in bases)]
 
 
 def _load_runs_by_study(ws: Path, inv_slug: str, studies: dict) -> dict[str, list]:
@@ -1205,8 +1704,7 @@ def _summarize_model_build(request: dict, catalog: list, routes: dict, mv: dict)
     lines.append("  coupling validation: OK" if not issues else "  coupling checks:")
     for i in issues:
         lines.append(f"    ⚑ {i}")
-    lines.append(f"  model version: {mv['id']}  (executable_digest {mv['executable_digest']}, "
-                 f"validation {mv['validation']['status']} — {', '.join(mv['validation']['required'])})")
+    lines.append(f"  model version: {mv['id']}  (composite {mv['composite']})")
     return "\n".join(lines)
 
 
@@ -1505,16 +2003,29 @@ def main(argv: list[str] | None = None) -> int:
     p_res.add_argument("--rationale", required=True, help="why the item is discharged (the adjudication / bridge)")
     p_res.add_argument("--by", default=None, help="the artifact that resolves it (e.g. study#finding)")
 
+    p_rev = sub.add_parser("revise", help="approve, reject, or apply a model-revision proposal (rp:…)")
+    p_rev.add_argument("investigation", help="investigation slug")
+    p_rev.add_argument("proposal", help="the proposal id (rp:…)")
+    g_rev = p_rev.add_mutually_exclusive_group(required=True)
+    g_rev.add_argument("--approve", action="store_true")
+    g_rev.add_argument("--reject", action="store_true")
+    g_rev.add_argument("--apply", action="store_true", help="apply an approved proposal: child study + model version")
+    p_rev.add_argument("--change", type=int, default=None, help="candidate change index (default: first derived)")
+    p_rev.add_argument("--rationale", default=None, help="why (required for --approve/--reject)")
+
     args = parser.parse_args(argv)
     ws = Path(args.workspace).resolve()
 
     if args.cmd in ("cycle", "status"):
         inv_path, inv_spec, studies = load_cycle_inputs(ws, args.investigation)
-        result = run_cycle(inv_spec, studies)
+        result = _cycle_with_evidence(ws, args.investigation, inv_spec, studies)
         print(summarize(result))
         if args.cmd == "cycle" and not args.no_write:
-            persist_cycle(inv_path, inv_spec, result)
-            print(f"persisted knowledge_cycle -> {inv_path}")
+            from . import evidence_integrity as _ei
+            ev_state = _ei.reconcile_evidence_state(
+                inv_spec, studies, _load_runs_by_study(ws, args.investigation, studies))
+            persist_cycle(inv_path, inv_spec, result, studies=studies, evidence_state=ev_state)
+            print(f"persisted cycle_state -> {inv_path}")
         return 0
 
     if args.cmd == "set-verdict":
@@ -1560,10 +2071,35 @@ def main(argv: list[str] | None = None) -> int:
               + f"  — {rec['rationale']}")
         return 0
 
+    if args.cmd == "revise":
+        inv_path = investigations_dir(ws) / args.investigation / "investigation.yaml"
+        if not inv_path.exists():
+            parser.error(f"no investigation.yaml at {inv_path}")
+        if args.apply:
+            try:
+                res = apply_revision(ws, args.investigation, args.proposal, args.change)
+            except ValueError as e:
+                parser.error(str(e))
+            if res["status"] != "applied":
+                print(f"needs_build {args.proposal}  — {res['mechanism']}")
+                return 1
+            print(f"applied {args.proposal}  -> {res['study']} ({res['model_version']})")
+            print(f"  run it: discover advance {args.investigation}")
+            return 0
+        if not (args.rationale or "").strip():
+            parser.error("--rationale is required for --approve/--reject")
+        try:
+            prop = review_revision(inv_path, args.proposal,
+                                   "approved" if args.approve else "rejected", args.rationale)
+        except ValueError as e:
+            parser.error(str(e))
+        print(f"{prop['status']} {prop['id']}  — {args.rationale}")
+        return 0
+
     if args.cmd == "crank":
         from . import discovery_engine
         _, inv_spec, studies = load_cycle_inputs(ws, args.investigation)
-        result = run_cycle(inv_spec, studies)
+        result = _cycle_with_evidence(ws, args.investigation, inv_spec, studies)
         print(discovery_engine.summarize(discovery_engine.crank(result, inv_spec)))
         return 0
 
@@ -1576,21 +2112,21 @@ def main(argv: list[str] | None = None) -> int:
     if args.cmd == "diagnose":
         from . import discovery_engine
         _, inv_spec, studies = load_cycle_inputs(ws, args.investigation)
-        result = run_cycle(inv_spec, studies)
+        result = _cycle_with_evidence(ws, args.investigation, inv_spec, studies)
         diag = discovery_engine.diagnose(result, inv_spec)
         print(discovery_engine.summarize_diagnosis(diag))
         return 0
 
     if args.cmd == "suggest":
         _, inv_spec, studies = load_cycle_inputs(ws, args.investigation)
-        result = run_cycle(inv_spec, studies)
+        result = _cycle_with_evidence(ws, args.investigation, inv_spec, studies)
         print(summarize_suggestions(result["suggestions"]))
         return 0
 
     if args.cmd == "opportunities":
         from . import discovery_engine
         _, inv_spec, studies = load_cycle_inputs(ws, args.investigation)
-        result = run_cycle(inv_spec, studies)
+        result = _cycle_with_evidence(ws, args.investigation, inv_spec, studies)
         opps = discovery_engine.opportunities(result, inv_spec)
         print(discovery_engine.summarize_opportunities(opps))
         return 0
@@ -1614,7 +2150,9 @@ def main(argv: list[str] | None = None) -> int:
         _, inv_spec, studies = load_cycle_inputs(ws, args.investigation)
         runs_by_study = _load_runs_by_study(ws, args.investigation, studies)
         ev_state = _ei.reconcile_evidence_state(inv_spec, studies, runs_by_study)
-        result = run_cycle(inv_spec, studies)
+        from .model_architect import build_catalog
+        result = run_cycle(inv_spec, studies, evidence_state=ev_state,
+                           catalog=build_catalog(studies, ws))
         portfolio = _ca.select_portfolio(_ca.plan_candidate_actions(result, inv_spec, ev_state))
         print(_summarize_portfolio(portfolio))
         return 0
@@ -1634,7 +2172,9 @@ def main(argv: list[str] | None = None) -> int:
         _, inv_spec, studies = load_cycle_inputs(ws, args.investigation)
         runs_by_study = _load_runs_by_study(ws, args.investigation, studies)
         ev_state = _ei.reconcile_evidence_state(inv_spec, studies, runs_by_study)
-        print(_summarize_discovery_delta(_ev.discovery_delta(inv_spec, studies, ev_state)))
+        print(_summarize_discovery_delta(_ev.discovery_delta(
+            inv_spec, studies, ev_state,
+            prev=(inv_spec.get("cycle_state") or {}).get("evaluation_snapshot"))))
         return 0
 
     if args.cmd == "transition":
@@ -1657,7 +2197,7 @@ def main(argv: list[str] | None = None) -> int:
         req = _ma.ModelBuildRequest(question_id=args.question, required_mechanisms=args.mechanism,
                                     required_observables=args.observable or None)
         routes = _ma.choose_acquisition_route(req, catalog)
-        mv = _ma.model_version(req, routes)
+        mv = _ma.model_version(_ma.routes_composite(routes), {})
         print(_summarize_model_build(req, catalog, routes, mv))
         return 0
 
@@ -1713,7 +2253,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.cmd == "execute":
         from . import discovery_engine
         _, inv_spec, studies = load_cycle_inputs(ws, args.investigation)
-        plan = discovery_engine.execute_plan(run_cycle(inv_spec, studies), inv_spec)
+        plan = discovery_engine.execute_plan(_cycle_with_evidence(ws, args.investigation, inv_spec, studies), inv_spec)
         print(discovery_engine.summarize_execute_plan(plan))
         autonomous = args.autonomous or args.ai_decide
         if (args.execute or autonomous) and plan:

@@ -279,21 +279,23 @@ def test_criterion_falls_back_to_verdict_when_no_behavior_outcome():
     assert "s" in [i["target"] for i in de.frontier(cyc, inv) if i["kind"] == "unaddressed_criterion"]
 
 
-def test_calibrated_study_reads_distinct_from_never_touched():
-    # A calibrated-but-unassessed study (recorded findings, no tracked verdict) still blocks
-    # closure, but its frontier rationale says "calibrated, pending a tracked run" — distinct
-    # from a never-touched study whose rationale carries no such note.
+def test_calibrated_study_is_run_never_touched_is_branched():
+    # A calibrated-but-unassessed study (recorded findings, no tracked verdict) already
+    # EXISTS and is seeded: the frontier surfaces it to RUN (open_question -> test), so the
+    # autonomous crank executes the study that is already built. A never-touched study (no
+    # recorded evidence) has no real study behind the criterion, so it branches a new one.
+    # Both still block closure.
     cyc = _cycle(verdicts={
         "cal": {"verdict": "unassessed", "calibrated": True},
         "raw": {"verdict": "unassessed", "calibrated": False},
     })
     inv = {"acceptance_criteria": [{"study": "cal", "behavior": "b"},
                                    {"study": "raw", "behavior": "b"}]}
-    rats = {i["target"]: i["rationale"] for i in de.frontier(cyc, inv)
-            if i["kind"] == "unaddressed_criterion"}
-    assert "cal" in rats and "raw" in rats           # both still block closure
-    assert "calibrated" in rats["cal"] and "pending" in rats["cal"]
-    assert "calibrated" not in rats["raw"]
+    items = {i["target"]: i for i in de.frontier(cyc, inv)}
+    assert "cal" in items and "raw" in items          # both still block closure
+    assert items["cal"]["kind"] == "open_question" and items["cal"]["op"] == "test"
+    assert items["raw"]["kind"] == "unaddressed_criterion" and items["raw"]["op"] == "branch"
+    assert "run it" in items["cal"]["rationale"]
 
 
 def test_frontier_skips_items_resolved_in_the_investigation():

@@ -11,11 +11,11 @@ from discovery_engine.evidence_integrity import VERIFIED, PROVISIONAL
 
 
 def test_claim_support_gated_by_evidence_integrity():
-    assert E.evaluate_claim_support({"net": 2}, VERIFIED) == E.SUPPORTED
-    assert E.evaluate_claim_support({"net": 2}, PROVISIONAL) == E.PROVISIONAL_SUPPORT
-    assert E.evaluate_claim_support({"net": 2}, None) == E.PROVISIONAL_SUPPORT
-    assert E.evaluate_claim_support({"net": -1}, VERIFIED) == E.CONTESTED
-    assert E.evaluate_claim_support({"net": 0}, VERIFIED) == E.UNRESOLVED
+    assert E.evaluate_claim_support({"net": 2}, VERIFIED, has_quantitative=True) == E.SUPPORTED
+    assert E.evaluate_claim_support({"net": 2}, PROVISIONAL, has_quantitative=True) == E.PROVISIONAL_SUPPORT
+    assert E.evaluate_claim_support({"net": 2}, None, has_quantitative=True) == E.PROVISIONAL_SUPPORT
+    assert E.evaluate_claim_support({"net": -1}, VERIFIED, has_quantitative=True) == E.CONTESTED
+    assert E.evaluate_claim_support({"net": 0}, VERIFIED, has_quantitative=True) == E.UNRESOLVED
 
 
 def _inv_and_studies():
@@ -90,3 +90,161 @@ def test_discovery_delta_records_disagreements_and_fingerprint():
     assert any(d["study"] == "s3" for d in delta["model_disagreements"])
     assert any(r["study"] == "s3" for r in delta["regressions"])   # CPM superseded = recorded progress
     assert len(delta["fingerprint"]) == 16
+
+
+def _quant_case(spec_name="s2"):
+    inv = {"studies": ["s2"], "hypotheses": [
+        {"id": "h-q", "study": "s2", "status": "open",
+         "predictions": [{"observable": "flux", "expected": {"op": ">=", "value": 1e-22}}]}]}
+    studies = {"s2": {"name": spec_name, "findings": [
+        {"id": "f", "evidence": {"measure": "flux", "observed": 1e-22}}]}}
+    return inv, studies
+
+
+def _verified(slug="s2"):
+    return {"by_study": {slug: {"status": VERIFIED}}}
+
+
+def test_prose_only_caps_at_provisional():
+    inv = {"studies": ["s2"], "hypotheses": [{"id": "h-p", "study": "s2", "status": "open"}]}
+    studies = {"s2": {"name": "s2", "discovery_implications": {"alternate_hypotheses": [
+        {"hypothesis_id": "h-p", "claim": "c", "evidence_for": ["prose a", "prose b"]}]}}}
+    cmp = E.compare_hypotheses(inv, studies, _verified())
+    h = cmp["s2"]["hypotheses"][0]
+    assert h["support"]["net"] > 0
+    assert h["verdict"] == E.PROVISIONAL_SUPPORT
+    assert E.evaluate_claim_support({"net": 2}, VERIFIED, has_quantitative=False) == E.PROVISIONAL_SUPPORT
+
+
+def test_supported_needs_verified_and_quantitative():
+    inv, studies = _quant_case()
+    cmp = E.compare_hypotheses(inv, studies, _verified())
+    assert cmp["s2"]["hypotheses"][0]["verdict"] == E.SUPPORTED
+    assert cmp["s2"]["status"] == E.SUPPORTED
+    assert cmp["s2"]["hypotheses"][0]["model_version"] is None
+    # quantitative but unverified evidence still caps
+    cmp2 = E.compare_hypotheses(inv, studies, {"by_study": {"s2": {"status": PROVISIONAL}}})
+    assert cmp2["s2"]["hypotheses"][0]["verdict"] == E.PROVISIONAL_SUPPORT
+
+
+def test_slug_join_matches_inv_studies():
+    inv, studies = _quant_case(spec_name="s2-flux-full")   # spec name differs from slug
+    cmp = E.compare_hypotheses(inv, studies, _verified())
+    h = cmp["s2"]["hypotheses"][0]
+    assert h["support"]["supports"] == 1
+    assert h["verdict"] == E.SUPPORTED
+    # support-log entries are keyed by the inv-studies slug, not the spec name
+    dmap = E.model_disagreement_map(inv, {"s2": {"name": "other", "findings": [
+        {"evidence": {"measure": "m", "by_arm": {"a": 0.1, "b": 0.9}}}]}})
+    assert dmap[0]["study"] == "s2"
+
+
+# ---- Task 7: snapshot + delta memory ----
+
+def test_delta_prev_none_back_compat():
+    inv, studies = _inv_and_studies()
+    d = E.discovery_delta(inv, studies)
+    assert d["prev_fingerprint"] is None and d["changed"] == [] and d["new_model_versions"] == []
+    assert d["unchanged"] is False
+    assert set(d["proposals"]) == {"opened", "applied", "evaluated"}
+
+
+def test_identical_snapshots_unchanged():
+    inv, studies = _inv_and_studies()
+    cmp = E.compare_hypotheses(inv, studies)
+    snap = E.snapshot_evaluation(cmp, None, [])
+    d = E.discovery_delta(inv, studies, None, prev=snap)
+    assert d["unchanged"] is True and d["changed"] == [] and d["new_model_versions"] == []
+    assert d["prev_fingerprint"] == snap["fingerprint"] == d["fingerprint"]
+
+
+def test_n_anomalies_is_load_bearing_for_fingerprint():
+    from discovery_engine.hypotheses import anomalies
+    inv, studies = _inv_and_studies()
+    # 7e-23 sits in the gap between h-s2-spatial (>=1e-22) and h-s2-null (<=5e-23)
+    studies["s2"]["findings"][0]["evidence"]["observed"] = 7e-23
+    anoms = anomalies(inv, E._keyed_specs(studies))
+    assert len(anoms) >= 1
+    cmp = E.compare_hypotheses(inv, studies)
+    d = E.discovery_delta(inv, studies)
+    snap = E.snapshot_evaluation(cmp, None, [], n_anomalies=len(anoms))
+    assert snap["fingerprint"] == d["fingerprint"]
+    assert E.snapshot_evaluation(cmp, None, [])["fingerprint"] != d["fingerprint"]
+
+
+def test_flip_with_new_model_version_is_one_changed_row(monkeypatch):
+    inv, studies = _inv_and_studies()
+    real = E.compare_hypotheses
+
+    def fake(i, s, e=None):
+        out = real(i, s, e)
+        out["s2"] = {**out["s2"], "status": E.SUPPORTED, "favored": "h-s2-spatial",
+                     "model_version": "mv:new"}
+        return out
+    prev = E.snapshot_evaluation(real(inv, studies), None, [])
+    prev["by_study"]["s2"]["status"] = "unassessed"
+    monkeypatch.setattr(E, "compare_hypotheses", fake)
+    d = E.discovery_delta(inv, studies, None, prev=prev)
+    rows = [c for c in d["changed"] if c["study"] == "s2"]
+    assert len(rows) == 1 and rows[0]["from"] == "unassessed" and rows[0]["to"] == E.SUPPORTED
+    assert rows[0]["model_version_to"] == "mv:new"
+    assert "mv:new" in d["new_model_versions"] and d["unchanged"] is False
+
+
+def test_snapshot_shape_and_pure():
+    inv, studies = _inv_and_studies()
+    cmp = E.compare_hypotheses(inv, studies)
+    snap = E.snapshot_evaluation(cmp, {"by_study": {"s2": {"status": VERIFIED}}}, [{"id": "mv:a"}])
+    assert set(snap) == {"fingerprint", "by_study", "model_versions", "proposals"}
+    assert snap["by_study"]["s2"]["evidence"] == VERIFIED
+    assert set(snap["by_study"]["s2"]) == {"status", "favored", "evidence", "model_version"}
+    assert snap["model_versions"] == ["mv:a"]
+
+
+def test_compare_wires_favored_model_version():
+    inv, studies = _quant_case()
+    studies["s2"]["findings"][0]["provenance"] = {"model_version": "mv:abc"}
+    cmp = E.compare_hypotheses(inv, studies, _verified())
+    assert cmp["s2"]["favored"] == "h-q"
+    assert cmp["s2"]["model_version"] == "mv:abc"
+    assert cmp["s2"]["hypotheses"][0]["model_version"] == "mv:abc"
+
+
+def _mv_case(findings, predictions):
+    inv = {"studies": ["s2"], "hypotheses": [
+        {"id": "h-q", "study": "s2", "status": "open", "predictions": predictions}]}
+    studies = {"s2": {"name": "s2", "findings": findings}}
+    return inv, studies
+
+
+def _f(fid, measure, mv, observed=1e-22):
+    return {"id": fid, "evidence": {"measure": measure, "observed": observed},
+            "provenance": {"model_version": mv} if mv else {}}
+
+
+_PRED = [{"observable": "flux", "expected": {"op": ">=", "value": 1e-22}}]
+
+
+def test_mv_nonmatching_observable_is_none():
+    inv, studies = _mv_case([_f("a", "flux", "mv:1"), _f("b", "other", "mv:2")], _PRED)
+    assert E.compare_hypotheses(inv, studies, _verified())["s2"]["model_version"] == "mv:1"
+    inv, studies = _mv_case([_f("b", "other", "mv:2"), _f("a", "flux", None)], _PRED)
+    cmp = E.compare_hypotheses(inv, studies, _verified())["s2"]
+    assert cmp["model_version"] is None
+
+
+def test_mv_ambiguous_across_arms_is_none():
+    inv, studies = _mv_case([_f("a", "flux", "mv:2d"), _f("b", "flux", "mv:3d")], _PRED)
+    cmp = E.compare_hypotheses(inv, studies, _verified())["s2"]
+    assert cmp["favored"] == "h-q" and cmp["model_version"] is None
+
+
+def test_mv_same_version_twice_is_not_ambiguous():
+    inv, studies = _mv_case([_f("a", "flux", "mv:1"), _f("b", "flux", "mv:1")], _PRED)
+    assert E.compare_hypotheses(inv, studies, _verified())["s2"]["model_version"] == "mv:1"
+
+
+def test_mv_no_predictions_is_none():
+    assert E._favored_model_version(
+        {"hypotheses": [{"id": "h", "study": "s2", "predictions": []}]},
+        [{"name": "s2", "findings": [_f("a", "flux", "mv:1")]}], "s2", "h") is None

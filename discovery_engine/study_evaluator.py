@@ -491,12 +491,12 @@ def _scalar_compare(op: str, measured: float, pass_if: dict, label: str) -> dict
     """Apply a scalar pass_if op to a pre-computed measured value."""
     if op in ("==", "eq", "equals"):
         ok = _equals_ok(measured, pass_if.get("value"), pass_if)
-        return _code_outcome("PASS" if ok else "FAIL", round(measured, 6), label,
+        return _code_outcome("PASS" if ok else "FAIL", _sig6(measured), label,
                              f"{measured:.4g} == {pass_if.get('value')}")
     if op in ("range", "in_range"):
         low, high = float(pass_if["low"]), float(pass_if["high"])
         ok = low <= measured <= high
-        return _code_outcome("PASS" if ok else "FAIL", round(measured, 6), label,
+        return _code_outcome("PASS" if ok else "FAIL", _sig6(measured), label,
                              f"{measured:.4g} in [{low}, {high}]")
     cmps = {"<=": (lambda a, b: a <= b), ">=": (lambda a, b: a >= b),
             "<": (lambda a, b: a < b), ">": (lambda a, b: a > b),
@@ -504,7 +504,7 @@ def _scalar_compare(op: str, measured: float, pass_if: dict, label: str) -> dict
     if op in cmps:
         target = float(pass_if.get("value", pass_if.get("threshold", 0)))
         ok = cmps[op](measured, target)
-        return _code_outcome("PASS" if ok else "FAIL", round(measured, 6), label,
+        return _code_outcome("PASS" if ok else "FAIL", _sig6(measured), label,
                              f"{measured:.4g} {op} {target}")
     return _agent(f"run_delta: unsupported op {op!r}")
 
@@ -735,6 +735,23 @@ def _agent(reason: str) -> dict:
 
 def _needs_rerun(reason: str) -> dict:
     return {"evaluated_by": "needs_rerun", "reason": reason}
+
+
+def _sig6(x: Any, n: int = 6) -> Any:
+    """Round a measured scalar to ``n`` SIGNIFICANT figures (not decimal places).
+
+    Fixed-decimal ``round(x, 6)`` zeroes any value below ~1e-6, which silently
+    destroyed small-magnitude observables (e.g. ~1e-22 metabolite fluxes) so their
+    findings could never match ``observed`` and never verify. Significant-figure
+    rounding preserves magnitude: ``3.34e-22`` stays ``3.34e-22``, ``0.536`` stays
+    ``0.536``. Non-finite / None / non-numeric pass through unchanged."""
+    import math
+    xf = _as_float(x)
+    if xf is None:
+        return x
+    if xf == 0 or not math.isfinite(xf):
+        return xf
+    return float(f"{xf:.{n}g}")
 
 
 def _code_outcome(result: str, measured_value: Any, operator: str, detail: str) -> dict:
@@ -1204,7 +1221,7 @@ def _apply_op(windowed: tuple, pass_if: dict, kind: str, op: str, config=None) -
         ok = low <= measured <= high
         return _code_outcome(
             result="PASS" if ok else "FAIL",
-            measured_value=round(measured, 6),
+            measured_value=_sig6(measured),
             operator=label,
             detail=(f"{measured:.4g} in [{low}, {high}]" if ok
                     else f"{measured:.4g} not in [{low}, {high}]"),
@@ -1275,7 +1292,7 @@ def _apply_op(windowed: tuple, pass_if: dict, kind: str, op: str, config=None) -
             ok = comparators[effective_op](measured, target)
         return _code_outcome(
             result="PASS" if ok else "FAIL",
-            measured_value=round(measured, 6),
+            measured_value=_sig6(measured),
             operator=label,
             detail=f"{measured:.4g} {effective_op} {target}",
         )
@@ -1292,7 +1309,7 @@ def _apply_op(windowed: tuple, pass_if: dict, kind: str, op: str, config=None) -
         ok = measured in target_set
         return _code_outcome(
             result="PASS" if ok else "FAIL",
-            measured_value=round(measured, 6),
+            measured_value=_sig6(measured),
             operator=label,
             detail=(f"{measured} in {target_set}" if ok
                     else f"{measured} not in {target_set}"),
@@ -1449,7 +1466,7 @@ def _apply_op(windowed: tuple, pass_if: dict, kind: str, op: str, config=None) -
         ok = cmp(measured, target)
         return _code_outcome(
             result="PASS" if ok else "FAIL",
-            measured_value=round(measured, 6),
+            measured_value=_sig6(measured),
             operator=label,
             detail=f"{red}={measured:.4g} {sym} {target}" + ("" if ok else " (violated)"),
         )
