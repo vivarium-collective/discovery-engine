@@ -59,9 +59,9 @@ def _catalog_by_address(viz_catalog) -> dict:
 
 def covered_observables(spec: dict, viz_catalog) -> set:
     """Observables a study's declared visualizations cover: ``covers`` U ``requires`` U
-    ``config.inputs_map`` values U the catalog input ports of a ``local:`` class entry."""
+    ``config.inputs_map`` values. Catalog input PORT names are generic (``observable``, ``x``,
+    ...), never observables, so they are deliberately not a coverage source."""
     from .viz_freshness import normalize_entry
-    cat = _catalog_by_address(viz_catalog)
     cov: set = set()
     for e in (spec or {}).get("visualizations") or []:
         if not isinstance(e, dict):
@@ -72,9 +72,6 @@ def covered_observables(spec: dict, viz_catalog) -> set:
         im = cfg.get("inputs_map") or e.get("inputs_map")
         if isinstance(im, dict):
             cov |= {str(v) for v in im.values() if isinstance(v, str)}
-        ent = cat.get(ns["address"] or "") or cat.get(_class_ref(ns["address"]) or "")
-        if ent:
-            cov |= {str(k) for k in (ent.get("inputs") or {})}
     return cov
 
 

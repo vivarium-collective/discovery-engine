@@ -53,9 +53,19 @@ def test_covered_by_declared_viz_gives_none():
         assert _prop(_spec([_test("t-a", "pop/survivors")], vis)) == []
 
 
-def test_covered_via_catalog_inputs_of_declared_class_gives_none():
-    cat = [{"address": "local:Cls", "inputs": {"pop/survivors": "timeseries"}}]
+def test_generic_catalog_ports_do_not_cover_but_inputs_map_does():
+    # real catalogs name generic ports (observable/x/y), never observables: a declared class
+    # must NOT suppress a proposal via its port names...
+    cat = [{"address": "local:Cls", "inputs": {"observable": "timeseries", "x": "x", "y": "y"}}]
     spec = _spec([_test("t-a", "pop/survivors")], [{"name": "v", "address": "local:Cls"}])
+    assert len(_prop(spec, cat)) == 1
+    # a port name is never an observable, even when the strings collide
+    cat2 = [{"address": "local:Cls", "inputs": {"pop/survivors": "timeseries"}}]
+    assert len(_prop(spec, cat2)) == 1
+    # ...real coverage comes from the authored inputs_map values
+    spec = _spec([_test("t-a", "pop/survivors")],
+                 [{"name": "v", "address": "local:Cls",
+                   "config": {"inputs_map": {"observable": "pop/survivors"}}}])
     assert _prop(spec, cat) == []
 
 
