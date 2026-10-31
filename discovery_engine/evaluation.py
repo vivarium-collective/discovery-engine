@@ -80,15 +80,19 @@ def _favored_model_version(inv_spec: dict, specs: list, slug: str, hyp_id) -> st
            if isinstance(p, dict)}
     spec = next((s for s in specs if isinstance(s, dict)
                  and (s.get("name") or s.get("slug")) == slug), None)
+    if not obs:
+        return None  # prose-only hypothesis: no observable to join a finding on
+    mvs: set[str] = set()
     for f in _as_list((spec or {}).get("findings")):
         if not isinstance(f, dict):
             continue
         ev = f.get("evidence") if isinstance(f.get("evidence"), dict) else {}
         prov = f.get("provenance") if isinstance(f.get("provenance"), dict) else {}
         mv = prov.get("model_version")
-        if mv and (not obs or (ev.get("measure") or ev.get("observable")) in obs):
-            return mv
-    return None
+        if mv and (ev.get("measure") or ev.get("observable")) in obs:
+            mvs.add(mv)
+    # Exactly one distinct version, or ambiguous (multi-arm study): never guess.
+    return next(iter(mvs)) if len(mvs) == 1 else None
 
 
 def compare_hypotheses(inv_spec: dict, studies: dict, evidence_state: dict | None = None) -> dict:

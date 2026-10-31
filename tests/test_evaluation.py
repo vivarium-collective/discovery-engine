@@ -152,10 +152,24 @@ def test_delta_prev_none_back_compat():
 def test_identical_snapshots_unchanged():
     inv, studies = _inv_and_studies()
     cmp = E.compare_hypotheses(inv, studies)
-    snap = E.snapshot_evaluation(cmp, None, [], n_anomalies=0)
+    snap = E.snapshot_evaluation(cmp, None, [])
     d = E.discovery_delta(inv, studies, None, prev=snap)
     assert d["unchanged"] is True and d["changed"] == [] and d["new_model_versions"] == []
     assert d["prev_fingerprint"] == snap["fingerprint"] == d["fingerprint"]
+
+
+def test_n_anomalies_is_load_bearing_for_fingerprint():
+    from discovery_engine.hypotheses import anomalies
+    inv, studies = _inv_and_studies()
+    # 7e-23 sits in the gap between h-s2-spatial (>=1e-22) and h-s2-null (<=5e-23)
+    studies["s2"]["findings"][0]["evidence"]["observed"] = 7e-23
+    anoms = anomalies(inv, E._keyed_specs(studies))
+    assert len(anoms) >= 1
+    cmp = E.compare_hypotheses(inv, studies)
+    d = E.discovery_delta(inv, studies)
+    snap = E.snapshot_evaluation(cmp, None, [], n_anomalies=len(anoms))
+    assert snap["fingerprint"] == d["fingerprint"]
+    assert E.snapshot_evaluation(cmp, None, [])["fingerprint"] != d["fingerprint"]
 
 
 def test_flip_with_new_model_version_is_one_changed_row(monkeypatch):
@@ -194,3 +208,43 @@ def test_compare_wires_favored_model_version():
     assert cmp["s2"]["favored"] == "h-q"
     assert cmp["s2"]["model_version"] == "mv:abc"
     assert cmp["s2"]["hypotheses"][0]["model_version"] == "mv:abc"
+
+
+def _mv_case(findings, predictions):
+    inv = {"studies": ["s2"], "hypotheses": [
+        {"id": "h-q", "study": "s2", "status": "open", "predictions": predictions}]}
+    studies = {"s2": {"name": "s2", "findings": findings}}
+    return inv, studies
+
+
+def _f(fid, measure, mv, observed=1e-22):
+    return {"id": fid, "evidence": {"measure": measure, "observed": observed},
+            "provenance": {"model_version": mv} if mv else {}}
+
+
+_PRED = [{"observable": "flux", "expected": {"op": ">=", "value": 1e-22}}]
+
+
+def test_mv_nonmatching_observable_is_none():
+    inv, studies = _mv_case([_f("a", "flux", "mv:1"), _f("b", "other", "mv:2")], _PRED)
+    assert E.compare_hypotheses(inv, studies, _verified())["s2"]["model_version"] == "mv:1"
+    inv, studies = _mv_case([_f("b", "other", "mv:2"), _f("a", "flux", None)], _PRED)
+    cmp = E.compare_hypotheses(inv, studies, _verified())["s2"]
+    assert cmp["model_version"] is None
+
+
+def test_mv_ambiguous_across_arms_is_none():
+    inv, studies = _mv_case([_f("a", "flux", "mv:2d"), _f("b", "flux", "mv:3d")], _PRED)
+    cmp = E.compare_hypotheses(inv, studies, _verified())["s2"]
+    assert cmp["favored"] == "h-q" and cmp["model_version"] is None
+
+
+def test_mv_same_version_twice_is_not_ambiguous():
+    inv, studies = _mv_case([_f("a", "flux", "mv:1"), _f("b", "flux", "mv:1")], _PRED)
+    assert E.compare_hypotheses(inv, studies, _verified())["s2"]["model_version"] == "mv:1"
+
+
+def test_mv_no_predictions_is_none():
+    assert E._favored_model_version(
+        {"hypotheses": [{"id": "h", "study": "s2", "predictions": []}]},
+        [{"name": "s2", "findings": [_f("a", "flux", "mv:1")]}], "s2", "h") is None
