@@ -121,7 +121,8 @@ RESOLUTION_KINDS = ("unaddressed_criterion", "open_challenge", "narrative_gap",
                     "open_decision", "divergence", "open_question",
                     "validation_finding", "stale_validation", "pending_gate",
                     "revision_proposed", "model_disagreement", "anomaly",
-                    "viz_broken", "viz_missing", "viz_proposed", "viz_stale")
+                    "viz_broken", "viz_missing", "viz_proposed", "viz_stale",
+                    "viz_misplaced", "viz_duplicated", "viz_untied")
 
 
 def add_resolution(inv_spec: dict, kind: str, target: str, rationale: str,
@@ -654,6 +655,11 @@ def run_cycle(inv_spec: dict, studies_by_slug: dict[str, dict], *,
         from .viz_proposals import propose_visualizations
         bundle["viz_proposals"] = propose_visualizations(
             inv_spec, studies_by_slug, bundle, viz_state, viz_catalog)
+    # Always assessed. Headless (no catalog): scope_of is None for every address, so an unresolved
+    # port is `not_assessed` (no false alarm) while an AUTHORED `scope:` is still honored.
+    from .viz_appropriateness import investigation_viz_appropriateness
+    bundle["viz_appropriateness"] = investigation_viz_appropriateness(
+        studies_by_slug, _viz_scope_of(viz_catalog))
     from .capability_gaps import propose_capability_gaps
     # The catalog (carrying `capability` + `builds`) is the same one the acquisition route reads.
     gaps = propose_capability_gaps(
@@ -661,6 +667,16 @@ def run_cycle(inv_spec: dict, studies_by_slug: dict[str, dict], *,
     if gaps:
         bundle["capability_gaps"] = gaps
     return bundle
+
+
+def _viz_scope_of(viz_catalog):
+    """address -> the viz class's input-port schema, from the injected ``viz_catalog`` (the same
+    catalog the viz loop threads). Unlisted / port-less addresses -> None (scope UNKNOWN)."""
+    ports = {}
+    for c in viz_catalog or []:
+        if isinstance(c, dict) and c.get("address") and isinstance(c.get("inputs"), dict):
+            ports[c["address"]] = c["inputs"]
+    return lambda address: ports.get(address)
 
 
 def _cycle_with_evidence(ws_root, inv_slug, inv_spec, studies) -> dict:
@@ -842,6 +858,15 @@ def build_cycle_state(result: dict, inv_spec: dict, *, model_versions: list | No
             "accepted": sum(1 for p in vps if p.get("status") == "accepted"),
             "built": sum(1 for p in vps if p.get("status") == "built")}
         state["drift"]["stale_viz"] = state["viz_census"]["stale"]
+    va = result.get("viz_appropriateness")
+    if va:
+        rows = [r for rs in va["per_study"].values() for r in rs]
+        count = lambda k: sum(1 for r in rows for i in r["issues"] if i["kind"] == k)  # noqa: E731
+        state["viz_appropriateness"] = {
+            "misplaced": count("misplaced_scope"), "untied": count("untied"),
+            "duplicated": len(va["duplicated_cross_arm"]), "not_assessed": va["not_assessed"],
+            "any_issue": bool(va["any_issue"]),
+            "untied_surfaced": bool(((inv_spec or {}).get("cycle_flags") or {}).get("viz_untied"))}
     if studies is not None:
         state["freshness"] = _tab_freshness(inv_spec or {}, studies)
     if model_versions is not None:
@@ -931,6 +956,7 @@ def persist_cycle(inv_path: Path | str, inv_spec: dict, result: dict, *, studies
                                     (on_disk["cycle_state"].get("evaluation_snapshot") or {}).get("fingerprint"))
     if studies is not None:  # per-tab freshness against the post-renew on-disk spec
         on_disk["cycle_state"]["freshness"] = _tab_freshness(on_disk, studies)
+    _validate_extensions({"cycle_state": on_disk["cycle_state"]})
     save_yaml_atomic(path, on_disk)
     return on_disk["cycle_state"]
 
