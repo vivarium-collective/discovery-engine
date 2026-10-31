@@ -207,7 +207,8 @@ def _pick_candidate(prop: dict, change_index: int | None) -> dict | None:
             return bool(c.get("name")) and bool(c.get("to"))
         return False
     if change_index is not None:
-        return cands[change_index] if 0 <= change_index < len(cands) else None
+        c = cands[change_index] if 0 <= change_index < len(cands) else None
+        return c if c is not None and derived(c) else None
     return next((c for c in cands if derived(c)), None)
 
 
@@ -306,13 +307,13 @@ def apply_revision(ws_root: Path | str, inv_slug: str, proposal_id: str,
     params = dict(base.get("params") or {})
     params.update(mc.get("params") or {})
     parent_mv = prop.get("affected_model_version")
+    # parent_ids is left to bind_model_versions (regenerable: _study_origin maps the revision
+    # child to its seeded_from parent's FIRST baseline arm mv, == affected_model_version normally).
     mv = model_version(composite, params, parent_ids=[parent_mv] if parent_mv else [], origin=origin)
     invalidated = _ev.invalidate_dependents({"kind": "model", "id": parent_slug}, inv_spec, studies)
 
     path = _write_seeded_study(ws, inv_slug, new_slug, child)
-    y = _ruamel()
-    with inv_path.open(encoding="utf-8") as fh:
-        doc = y.load(fh)
+    doc = load_yaml_mapping(inv_path)  # plain dicts, as review_revision does (atomic safe dump)
     if hyps:
         if not isinstance(doc.get("hypotheses"), list):
             doc["hypotheses"] = []
@@ -330,8 +331,7 @@ def apply_revision(ws_root: Path | str, inv_slug: str, proposal_id: str,
             hist.append({"at": _dt.datetime.now(_dt.timezone.utc).isoformat(timespec="seconds"),
                          "event": "applied", "by": "human", "child_study": new_slug,
                          "model_version": mv["id"]})
-    with inv_path.open("w", encoding="utf-8") as fh:
-        y.dump(doc, fh)
+    save_yaml_atomic(inv_path, doc)
     return {"status": "applied", "study_path": str(path), "study": new_slug,
             "model_version": mv["id"], "hypotheses": [h["id"] for h in hyps],
             "invalidated": invalidated}

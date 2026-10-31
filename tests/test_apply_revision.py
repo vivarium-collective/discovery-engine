@@ -8,6 +8,7 @@ import pytest
 from discovery_engine import discover
 from discovery_engine import discovery_engine as de
 from discovery_engine import hypotheses as H
+from discovery_engine import model_architect as M
 from discovery_engine.study_io import load_yaml, save_yaml_atomic
 
 PID = "rp:s3:mv:old:abcd1234"
@@ -77,6 +78,15 @@ def test_apply_composite_candidate(tmp_path):
     assert prop["status"] == "applied"
     ev = prop["history"][-1]
     assert ev["event"] == "applied" and ev["child_study"] == res["study"] and ev["model_version"] == mv["id"]
+    # lineage is REGENERABLE: survives a persist round-trip (bind recomputes parent_ids)
+    _, inv_spec, studies = discover.load_cycle_inputs(tmp_path, "og")
+    parent_mv = M.bind_model_versions(studies)["s3"]["baseline"]["id"]
+    rt = {m["id"]: m for m in discover.project_model_versions(studies, inv_spec.get("model_versions"))}
+    assert rt[mv["id"]]["parent_ids"] == [parent_mv]
+    assert rt[mv["id"]]["origin"] == {"kind": "revision", "ref": PID}
+    discover.persist_cycle(ip, inv_spec, discover.run_cycle(inv_spec, studies), studies=studies)
+    again = {m["id"]: m for m in load_yaml(ip)["model_versions"]}
+    assert again[mv["id"]]["parent_ids"] == [parent_mv]
     # child is run-ready
     assert discover.run_readiness(child, tmp_path)["ready"]
 
@@ -87,6 +97,25 @@ def test_apply_param_candidate_sweeps(tmp_path):
     child = load_yaml(res["study_path"])
     assert child["baseline"][0]["composite"] == C2D and child["baseline"][0]["params"]["membrane_bending"] == 0.5
     assert len(child["variants"]) == 2
+    assert child["model_change"]["ref"] == PID
+    inv = load_yaml(tmp_path / "investigations" / "og" / "investigation.yaml")
+    (mv,) = [m for m in inv["model_versions"] if m["id"] == res["model_version"]]
+    assert mv["origin"]["kind"] == "revision"
+    _, _, studies = discover.load_cycle_inputs(tmp_path, "og")
+    assert M.bind_model_versions(studies)[res["study"]]["baseline"]["origin"]["kind"] == "revision"
+
+
+@pytest.mark.parametrize("idx", [0, 1])
+def test_explicit_change_underived_is_needs_build(tmp_path, idx):
+    ip, _ = _ws(tmp_path)
+    spec = load_yaml(ip)
+    spec["revision_proposals"][0]["candidate_changes"] = [
+        {"kind": "composite"}, {"kind": "param", "name": "x"}]
+    save_yaml_atomic(ip, spec)
+    before = ip.read_text()
+    res = discover.apply_revision(tmp_path, "og", PID, change_index=idx)
+    assert res["status"] == "needs_build" and res["mechanism"]
+    assert ip.read_text() == before
 
 
 def test_apply_build_route_refuses(tmp_path):

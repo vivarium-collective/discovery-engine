@@ -228,7 +228,11 @@ def _study_origin(spec: dict) -> tuple[dict, str | None]:
     """(origin, parent study slug) for a study's baseline arm."""
     sf, rf, mc = spec.get("seeded_from"), spec.get("refined_from"), spec.get("model_change")
     if isinstance(mc, dict) and str(mc.get("ref") or "").startswith("rp:"):
-        return {"kind": "revision", "ref": mc["ref"]}, None
+        # Lineage parent stays derivable: seeded_from.study is the parent (set by build_seeded_study).
+        # Caveat: _bind uses the parent's FIRST baseline arm mv, which equals the proposal's
+        # affected_model_version in the normal case but not if that mv is a non-baseline arm.
+        return {"kind": "revision", "ref": mc["ref"]}, ((sf if isinstance(sf, dict) else None)
+                                                         or (rf if isinstance(rf, dict) else None) or {}).get("study")
     if isinstance(sf, dict) and sf.get("study"):
         return {"kind": "seeded", "ref": sf["study"]}, sf["study"]
     if isinstance(rf, dict) and rf.get("study"):
