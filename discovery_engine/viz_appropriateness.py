@@ -56,13 +56,27 @@ def _covers(entry: dict) -> list:
     return sorted(set(ns["covers"]) | set(ns["requires"]))
 
 
-def classify_viz(entry: dict, inputs_schema: dict | None, *, is_member_study: bool = True) -> dict:
-    """Pure per-viz verdict: ``ok`` or a list of issues (``misplaced_scope`` / ``untied``)."""
+def is_synthesis_study(study_spec: dict) -> bool:
+    """A study that builds-on two or more parents is an aggregation / synthesis node — the
+    legitimate home for investigation-scope (cross-arm) viz, which are therefore NOT
+    misplaced there."""
+    n = 0
+    for e in (study_spec or {}).get("parent_studies") or []:
+        rel = str((e.get("relation") if isinstance(e, dict) else "") or "").strip().lower()
+        if rel in ("builds-on", "builds_on"):
+            n += 1
+    return n >= 2
+
+
+def classify_viz(entry: dict, inputs_schema: dict | None, *, on_synthesis: bool = False) -> dict:
+    """Pure per-viz verdict: ``ok`` or a list of issues (``misplaced_scope`` / ``untied``).
+    ``on_synthesis`` exempts investigation-scope viz from ``misplaced_scope`` (a synthesis
+    study is where cross-arm comparisons belong)."""
     entry = entry or {}
     scope = viz_scope(inputs_schema, entry.get("scope"))
     covers = _covers(entry)
     issues = []
-    if scope == INVESTIGATION and is_member_study:
+    if scope == INVESTIGATION and not on_synthesis:
         issues.append({"kind": MISPLACED_SCOPE,
                        "detail": "cross-arm comparison shown under a single study — it depicts the "
                                  "whole investigation, not this study (move to the investigation level "
@@ -79,9 +93,10 @@ def study_viz_appropriateness(study_spec: dict,
     """Per-viz verdicts for one study's ``visualizations:`` list. ``scope_of`` maps a viz
     address to its class's input-port schema (or None if unresolved)."""
     out = []
+    on_synthesis = is_synthesis_study(study_spec)
     for e in (study_spec or {}).get("visualizations") or []:
         if isinstance(e, dict):
-            out.append(classify_viz(e, scope_of(e.get("address"))))
+            out.append(classify_viz(e, scope_of(e.get("address")), on_synthesis=on_synthesis))
     return out
 
 
