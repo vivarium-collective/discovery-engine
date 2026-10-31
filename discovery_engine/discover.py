@@ -268,6 +268,39 @@ def accept_viz_proposal(ws_root: Path | str, inv_slug: str, vp: str, *, address:
     return prop
 
 
+def refresh_narrative(ws_root: Path | str, inv_slug: str, *, rationale: str, by: str = "human") -> dict:
+    """Accept-gated refresh of the Narrative tab: stamp ``executive.narrative_basis`` to the
+    current member-study basis and append a ``narrative_history`` entry. A blank rationale is
+    refused (a human must have re-read the prose); never called from ``persist_cycle``."""
+    from .narrative_freshness import stamp_narrative
+    if not (rationale or "").strip():
+        raise ValueError("a rationale is required — refreshing the narrative certifies the prose was re-read")
+    inv_path, spec, studies = load_cycle_inputs(ws_root, inv_slug)
+    stamp_narrative(spec, studies, rationale=rationale, by=by)
+    _validate_extensions({"executive": spec["executive"]})
+    save_yaml_atomic(inv_path, spec)
+    return spec["executive"]
+
+
+def accept_verdict(ws_root: Path | str, inv_slug: str, *, rationale: str, by: str = "human") -> dict:
+    """Accept-gated verdict accept: set ``executive.verdict_status`` to the engine-computed
+    ``executive.computed_verdict_status`` and append a ``verdict_history`` entry. Blank rationale
+    refused; errors when no computed status exists yet."""
+    from .narrative_freshness import renew_executive
+    if not (rationale or "").strip():
+        raise ValueError("a rationale is required — accepting the verdict edits authored prose")
+    inv_path = investigations_dir(Path(ws_root)) / inv_slug / "investigation.yaml"
+    spec = load_yaml_mapping(inv_path)
+    computed = (spec.get("executive") or {}).get("computed_verdict_status")
+    if not computed:
+        raise ValueError("no executive.computed_verdict_status to accept — run the status refresh first")
+    renew_executive(spec, computed_verdict_status=computed,
+                    accept_verdict_rationale=rationale, by=by)
+    _validate_extensions({"executive": spec["executive"]})
+    save_yaml_atomic(inv_path, spec)
+    return spec["executive"]
+
+
 def reject_viz_proposal(ws_root: Path | str, inv_slug: str, vp: str, *, rationale: str,
                         by: str = "human") -> dict:
     """Terminal reject (rationale required): the content-addressed id means it never re-emits."""
@@ -809,6 +842,8 @@ def build_cycle_state(result: dict, inv_spec: dict, *, model_versions: list | No
             "accepted": sum(1 for p in vps if p.get("status") == "accepted"),
             "built": sum(1 for p in vps if p.get("status") == "built")}
         state["drift"]["stale_viz"] = state["viz_census"]["stale"]
+    if studies is not None:
+        state["freshness"] = _tab_freshness(inv_spec or {}, studies)
     if model_versions is not None:
         state["model_versions"] = [m["id"] for m in model_versions]
     if studies is not None:
@@ -820,6 +855,15 @@ def build_cycle_state(result: dict, inv_spec: dict, *, model_versions: list | No
         state["evaluation_snapshot"] = _ev.snapshot_evaluation(
             cmp, evidence_state, model_versions or [], n_anomalies=n_anoms)
     return state
+
+
+def _tab_freshness(inv_spec: dict, studies: dict) -> dict:
+    """Per-tab freshness for the summary. The computed verdict is what ``investigation_status``
+    already wrote on the executive -- not recomputed here."""
+    from .narrative_freshness import investigation_freshness
+    return investigation_freshness(
+        inv_spec, studies,
+        computed_verdict_status=(inv_spec.get("executive") or {}).get("computed_verdict_status"))
 
 
 def persist_cycle(inv_path: Path | str, inv_spec: dict, result: dict, *, studies: dict | None = None,
@@ -885,6 +929,8 @@ def persist_cycle(inv_path: Path | str, inv_spec: dict, result: dict, *, studies
     if studies is not None:
         _evaluate_applied_proposals(on_disk, studies,
                                     (on_disk["cycle_state"].get("evaluation_snapshot") or {}).get("fingerprint"))
+    if studies is not None:  # per-tab freshness against the post-renew on-disk spec
+        on_disk["cycle_state"]["freshness"] = _tab_freshness(on_disk, studies)
     save_yaml_atomic(path, on_disk)
     return on_disk["cycle_state"]
 
