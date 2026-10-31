@@ -126,17 +126,30 @@ def frontier(cycle_result: dict, inv_spec: dict) -> list[dict]:
         vrec = verdicts.get(study) or {}
         v = vrec.get("verdict")
         if v not in _MET:
-            # Recorded findings are partial, non-tracked evidence (knowledge_store): a
-            # calibrated-but-unrun study is "calibrated, pending a tracked run" — distinct
-            # from a never-touched one — but the criterion stays UNMET (findings never
-            # close it on their own), so this only enriches the rationale.
-            note = (" — calibrated (recorded findings present), pending a tracked run"
-                    if vrec.get("calibrated") else "")
-            add("unaddressed_criterion", study,
-                (f"acceptance criterion '{behavior}' on {study} not met "
-                 f"(behavior: {beh_result or 'no-run'}, verdict: {v or 'none'}){note}"
-                 if behavior else
-                 f"acceptance criterion on {study} not met (verdict: {v or 'none'}){note}"))
+            if vrec.get("calibrated"):
+                # The study addressing this criterion ALREADY EXISTS and is seeded/
+                # calibrated (recorded findings present) but has never been run as a
+                # tracked study. The resolving action is to RUN the existing study (an
+                # `open_question` -> `test` op that `advance` can execute), NOT to branch
+                # a brand-new one. `run_readiness` is re-checked at execution, so a
+                # calibrated-but-unrunnable study simply is not dispatched — but a
+                # run-ready one gets run, its outcomes write back, and the criterion is
+                # re-evaluated next cycle. (Without this, a seeded/calibrated arc stalls
+                # on 'planned/pending' forever: branch is a human-gated placeholder the
+                # autonomous crank never executes.)
+                add("open_question", study,
+                    (f"{study} is calibrated/seeded but not run as a tracked study — run it "
+                     f"to assess acceptance behavior '{behavior}' on tracked evidence"
+                     if behavior else
+                     f"{study} is calibrated/seeded but not run as a tracked study — run it"))
+            else:
+                # No real study behind the criterion yet (never seeded / no recorded
+                # evidence): propose a new one.
+                add("unaddressed_criterion", study,
+                    (f"acceptance criterion '{behavior}' on {study} not met "
+                     f"(behavior: {beh_result or 'no-run'}, verdict: {v or 'none'})"
+                     if behavior else
+                     f"acceptance criterion on {study} not met (verdict: {v or 'none'})"))
         elif behavior:
             # Met via the study's verdict, but the NAMED gate behavior never actually
             # passed (no run / not PASS). The criterion is satisfied on paper but the
