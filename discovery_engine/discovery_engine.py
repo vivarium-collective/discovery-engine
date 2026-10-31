@@ -52,6 +52,8 @@ _PRIORITY = {
     "anomaly": 48,                 # an observation outside every live hypothesis band
     # Visualization loop (NON-blocking): a declared figure that is broken/missing/stale.
     "viz_broken": 47, "viz_missing": 46, "viz_proposed": 44, "viz_stale": 38,
+    # Capability-gap loop (NON-blocking): a required mechanism no catalog component provides.
+    "capability_gap": 43,
 }
 # Recommended operation per item kind (the RFC-0005 op that resolves it).
 _OP = {
@@ -69,6 +71,7 @@ _OP = {
     "anomaly": "revise_model",
     "viz_broken": "refine_viz", "viz_missing": "build_viz",
     "viz_proposed": "build_viz", "viz_stale": "refine_viz",
+    "capability_gap": "build_process",
 }
 # open_calls kinds map straight onto frontier kinds.
 _CALL_KIND = {"narrative_gap": "narrative_gap", "decision": "open_decision",
@@ -273,6 +276,20 @@ def frontier(cycle_result: dict, inv_spec: dict) -> list[dict]:
         add("viz_proposed", p.get("id"),
             f"propose {sug.get('form')} for {src.get('observable')} in {p.get('study')} "
             f"({src.get('kind')}; {'needs_author' if sug.get('needs_author') else 'derivable'})")
+
+    # 9. capability gaps (non-blocking, review tier): a `proposed` one awaits accept/reject, an
+    #    `accepted` one awaits its build. Disk status wins; built/rejected/failed/needs_author
+    #    are terminal for the engine and never re-raised.
+    gdisk = {p.get("id"): p for p in inv_spec.get("capability_gaps") or [] if isinstance(p, dict)}
+    for p in cycle_result.get("capability_gaps") or []:
+        if isinstance(p, dict):
+            gdisk.setdefault(p.get("id"), p)
+    for gid, p in sorted(gdisk.items(), key=lambda kv: str(kv[0])):
+        if p.get("status", "proposed") not in ("proposed", "accepted"):
+            continue
+        add("capability_gap", gid,
+            f"{p.get('status', 'proposed')} build of a process providing {p.get('mechanism')!r} "
+            f"({'derivable' if p.get('derivable') else 'needs_author'})")
 
     items.sort(key=lambda x: (-x["priority"], str(x["kind"]), str(x["target"])))
     return items
@@ -499,11 +516,11 @@ _CLOSURE_BLOCKING = ("unaddressed_criterion", "narrative_gap", "open_challenge")
 # can teach something new; reconciling/adjudicating resolves bookkeeping.
 _OPP_INFO = {"test": 1.0, "branch": 1.0, "steer": 0.5, "synthesize": 0.3,
              "reconcile": 0.3, "revise": 0.3, "revalidate": 0.3, "revise_model": 0.6,
-             "build_viz": 0.4, "refine_viz": 0.2}
+             "build_viz": 0.4, "refine_viz": 0.2, "build_process": 0.4}
 # Cost by action: a new study + simulation is dear; a reconcile is cheap.
 _OPP_COST = {"branch": 1.0, "test": 0.6, "steer": 0.3, "synthesize": 0.2,
              "reconcile": 0.2, "revise": 0.2, "revalidate": 0.2, "revise_model": 0.4,
-             "build_viz": 0.3, "refine_viz": 0.2}
+             "build_viz": 0.3, "refine_viz": 0.2, "build_process": 0.5}
 
 
 def _opp_impact(target: str, edges: list) -> float:
@@ -603,6 +620,9 @@ def _executor_for(op: str, target: str, kind: str | None = None) -> dict:
                     "consequence": "review", "auto_safe": False}
         return {"executor": "discover viz",
                 "command": f"discover viz <inv> {t} --accept|--reject",
+                "consequence": "review", "auto_safe": False}
+    if op == "build_process":
+        return {"executor": "discover gap", "command": f"discover gap <inv> --accept|--reject {target}",
                 "consequence": "review", "auto_safe": False}
     study = str(target).split(":", 1)[1] if str(target).startswith("claim:") else str(target)
     if op == "revalidate":
