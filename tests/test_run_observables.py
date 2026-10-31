@@ -2,24 +2,34 @@
 
 Best-effort: no run / unreadable run → ``None``, never an exception.
 """
-import os
-
-import pytest
-
 from discovery_engine.run_observables import study_run_observables
 
-GENESIS = "/Users/eranagmon/code/viva-genesis"
 
 
-@pytest.mark.skipif(
-    not os.path.isdir(f"{GENESIS}/workspace/studies/og-00-vent-reactor-baseline"),
-    reason="viva-genesis og-00 run fixture not present",
-)
-def test_observables_from_real_run():
-    obs = study_run_observables({"slug": "og-00-vent-reactor-baseline"}, GENESIS)
-    assert obs is not None
-    assert "temperature" in obs        # declared AND emitted
-    assert "pressure" not in obs       # declared in contract.face but never emitted
+def test_observables_from_synthetic_run(tmp_path, monkeypatch):
+    # Synthetic in-repo workspace: one study with a canonical run store. The
+    # emitter reader is stubbed, so no external workspace or run data is needed.
+    import sys
+    import types
+
+    study = tmp_path / "studies" / "demo-study"
+    store = study / "canonical-runs" / "comp__RID1__aaa"
+    store.mkdir(parents=True)
+    (store / "run.db").write_text("x")
+
+    class _FakeReader:
+        @staticmethod
+        def open(path):
+            assert path.endswith("run.db")
+            return types.SimpleNamespace(observables=lambda: ["temperature"])
+
+    fake = types.ModuleType("viva_emitters")
+    fake.RunReader = _FakeReader
+    monkeypatch.setitem(sys.modules, "viva_emitters", fake)
+
+    obs = study_run_observables({"slug": "demo-study"}, tmp_path)
+    assert obs == {"temperature"}      # emitted
+    assert "pressure" not in obs       # declared elsewhere but never emitted
 
 
 def test_observables_none_when_no_run(tmp_path):

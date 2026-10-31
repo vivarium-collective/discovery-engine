@@ -49,7 +49,7 @@ def canonicalize_models(spec) -> dict:
 
     conditions = spec.get("conditions")
     if not isinstance(conditions, dict) or not conditions.get("baseline"):
-        return report  # nothing canonical to normalize (e.g. parca / non-model study)
+        return report  # nothing canonical to normalize (e.g. a non-model study)
 
     cond_baseline = conditions["baseline"]
     base_composite = cond_baseline.get("composite") if isinstance(cond_baseline, dict) else None

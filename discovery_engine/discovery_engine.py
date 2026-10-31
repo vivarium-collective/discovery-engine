@@ -30,6 +30,7 @@ crank(cycle_result, inv_spec) -> dict          # one combined report
 """
 from __future__ import annotations
 
+from .run_command import run_command
 from .validation import epistemic_separation_violations, stale_records
 
 
@@ -409,7 +410,7 @@ def diagnose(cycle_result: dict, inv_spec: dict) -> dict:
     # `scientific_argument` and study-level `parent_studies` — so an edgeless graph means
     # NEITHER was authored. Flag that (not "author parent_studies", which names only one
     # channel): with no edges, every claim stands alone, downstream impact is 0, and the
-    # value-ranking can't differentiate (observed on island; genesis has 94 edges and is fine).
+    # value-ranking can't differentiate (observed on a small graph; a 94-edge graph is fine).
     arg = cycle_result.get("argument") or {}
     if (arg.get("claims")) and not (arg.get("edges") or []):
         flags.append(_flag("argument_disconnected",
@@ -420,7 +421,7 @@ def diagnose(cycle_result: dict, inv_spec: dict) -> dict:
                             "`scientific_argument` (claim→claim) or study `parent_studies` "
                             "(builds-on / refutes / qualifies)"))
 
-    # Census split so the actionable-vs-standing weight is legible (observed on genesis:
+    # Census split so the actionable-vs-standing weight is legible (observed on a real workspace:
     # 64 records = 3 actionable + 61 standing — the pass-rate uses only the frontier bucket).
     census: dict[str, int] = {}
     census_frontier: dict[str, int] = {}
@@ -556,12 +557,12 @@ def _executor_for(op: str, target: str) -> dict:
                 "consequence": "safe", "auto_safe": True}
     if op == "test":
         return {"executor": "run-study",
-                "command": f"vivarium-workbench run study {study} --workspace <ws>",
+                "command": run_command(study),
                 "consequence": "simulation", "auto_safe": False}
     if op == "branch":
         return {"executor": "seed-from-followup + run-study",
                 "command": f"viva-study seed-from-followup <parent> <proposal>; "
-                           f"vivarium-workbench run study {study} --workspace <ws>",
+                           f"{run_command(study)}",
                 "consequence": "simulation+study", "auto_safe": False}
     if op == "reconcile":
         return {"executor": "set-verdict", "command": f"discover set-verdict {study} <derived> --rationale '…'",

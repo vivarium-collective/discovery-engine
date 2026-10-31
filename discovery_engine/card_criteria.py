@@ -34,7 +34,7 @@ organism-behavior card and the v1<->v2 equivalence card share one grader:
                    the reference establishes that a response is expected over
                    the swept range, so its ABSENCE is the mismatch.
 
-Verdicts use a 4-state band (adopted from the vEcoli<->v2ecoli report):
+Verdicts use a 4-state band (adopted from a cross-implementation comparison report):
 ``within_tol`` (pass) / ``drift`` (amber warning) / ``mismatch`` (fail) /
 ``ungraded`` (no reference). Each grade returns a compact ``meter`` string and a
 human-readable ``criterion`` string for the report.
@@ -50,7 +50,7 @@ from typing import Any
 
 from discovery_engine.test_vocab import CANONICAL as VERDICTS
 
-# Severity order matches pbg_v2ecoli/evaluators.py::_SEVERITY — used to take the
+# Severity order matches the workspace evaluators' severity table — used to take the
 # worst-of across the sub-verdicts that make up a single axis grade.
 _SEVERITY = {"mismatch": 3, "drift": 2, "within_tol": 1, "ungraded": 0}
 

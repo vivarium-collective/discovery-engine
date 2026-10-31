@@ -6,30 +6,28 @@ location and writes one ``ResultsHandle`` (emitter-agnostic, built on
 ``[emitter output] -> ResultsStep -> {AnalysisStep, ReportCardStep, ...}``
 runs deterministically off one read of the run. ``AnalysisStep`` reads that
 handle. ``Analysis`` is a genuinely separate, non-deprecated base for the
-live-``conn`` surface v2ecoli's ``analysis_runner.py`` drives directly
+live-``conn`` surface a workspace analysis runner drives directly
 (``conn``/``history_sql``/``sim_data``/... injected straight into ``state``,
 bypassing ``ResultsHandle``) — the two bases share only their
 ``scale``/registry machinery, not their I/O contract.
 
-Moved from v2ecoli (``v2ecoli/workflow/post_sim.py``,
-``v2ecoli/workflow/analysis.py``, ``v2ecoli/workflow/report_cards/__init__.py``)
-as the study Evaluate-stage substrate: any workspace can build post-simulation
-analyses / visualizations / report cards on these bases without depending on
-v2ecoli.
+Moved from a workspace simulation package as the study Evaluate-stage
+substrate: any workspace can build post-simulation analyses / visualizations /
+report cards on these bases without depending on that package.
 
-The v2ecoli bases subclassed ``v2ecoli.steps.base.V2Step`` — process-bigraph's
+The original bases subclassed a workspace ``Step`` subclass — process-bigraph's
 ``Step`` plus an error-swallowing ``invoke()`` (catches exceptions from
 ``update()`` and returns an empty update, so one broken Step doesn't crash the
-Composite's step cascade). Importing ``V2Step`` here would drag a v2ecoli
+Composite's step cascade). Importing that subclass here would drag a workspace
 dependency into this shared package, so the bases below subclass pbg's
 ``Step`` directly and carry that same ``invoke()`` guard **verbatim, in the
 same place the original had it**:
 
   - ``VisualizationStep`` / ``ReportCardStep`` never overrode ``invoke()`` in
-    v2ecoli (they inherited ``V2Step``'s swallow-on-error behavior), so they
+    the original (they inherited the workspace ``Step``'s swallow-on-error behavior), so they
     define it explicitly here with the same try/except guard.
-  - ``Analysis`` / ``AnalysisStep`` explicitly overrode ``V2Step.invoke()`` in
-    v2ecoli to fail loudly (a broken ``analyze()`` must surface, not silently
+  - ``Analysis`` / ``AnalysisStep`` explicitly overrode ``invoke()`` in
+    the original to fail loudly (a broken ``analyze()`` must surface, not silently
     return ``{}``); that override is preserved here unchanged.
 
 Registries: each base auto-registers named subclasses (``__init_subclass__``)
@@ -76,7 +74,7 @@ ANALYSIS_REGISTRY: dict[str, type] = {}
 VISUALIZATION_REGISTRY: dict[str, type] = {}
 
 # canonical: TEST_REGISTRY. REPORT_CARD_REGISTRY is the SAME dict object,
-# kept for back-compat (v2ecoli's cards + workbench still read this name).
+# kept for back-compat (existing workspace cards + the workbench still read this name).
 TEST_REGISTRY: dict[str, type] = {}
 REPORT_CARD_REGISTRY: dict[str, type] = TEST_REGISTRY
 
@@ -320,12 +318,12 @@ class AnalysisStep(Step):
     Subclasses set ``scale`` (one of ``ANALYSIS_SCALES``) + ``name``.
 
     ``Analysis`` (below) is a *separate*, genuinely distinct base for the
-    live-``conn`` surface v2ecoli's ``analysis_runner.py`` drives directly —
+    live-``conn`` surface a workspace analysis runner drives directly —
     it only shares ``__init_subclass__``'s ``scale``/registry machinery with
     this class, not ``update()``/``inputs()``/``outputs()``. (An earlier
     revision collapsed ``Analysis`` into a thin alias of this class, which
     silently dropped the injected ``conn``/``history_sql``/``sim_data``
-    kwargs and broke every v2ecoli ``Analysis`` subclass; do not repeat
+    kwargs and broke every workspace ``Analysis`` subclass; do not repeat
     that — the two bases stay distinct.) For backward compatibility,
     ``update()`` here also accepts a plain list in the ``results`` store
     (the pre-``ResultsHandle`` contract) — used as-is, no handle required.
@@ -368,8 +366,8 @@ class AnalysisStep(Step):
 
 class Analysis(AnalysisStep):
     """Live-``conn`` analysis base: reads sim output via a DuckDB connection +
-    the ParCa ``sim_data``, and emits a rendered ``view`` (HTML) plus optional
-    ``data`` (map). Faithful native ports of vEcoli's ``plot()`` analyses build
+    the workspace's parameter-fit ``sim_data``, and emits a rendered ``view`` (HTML) plus optional
+    ``data`` (map). Faithful native ports of upstream ``plot()`` analyses build
     on this base (cf. the record-based ``AnalysisStep`` for emitted-observable
     analyses). Subclasses set ``scale`` + ``name`` and implement ``analyze``.
 
@@ -379,7 +377,7 @@ class Analysis(AnalysisStep):
 
     Genuinely distinct from ``AnalysisStep`` (its parent only for the shared
     ``scale``/registry machinery via ``__init_subclass__``) — this is NOT a
-    thin alias. v2ecoli's production ``analysis_runner.py::run_analyses()``
+    thin alias. the workspace's production analysis runner
     drives ~30 concrete subclasses through exactly this surface (calling
     ``update()`` with ``conn``/``history_sql``/``sim_data``/... injected
     directly into ``state``, bypassing ``ResultsHandle`` entirely), so
@@ -450,7 +448,7 @@ class VisualizationStep(Step):
         return {"view": view, "data": data}
 
     def invoke(self, state, interval=None):
-        # v2ecoli's V2Step guard, carried verbatim: catch errors from missing
+        # the original Step guard, carried verbatim: catch errors from missing
         # data so one broken visualization doesn't crash the step cascade.
         try:
             update = self.update(state)
@@ -509,7 +507,7 @@ class TestStep(Step):
         return {"view": html, "data": verdict}
 
     def invoke(self, state, interval=None):
-        # v2ecoli's V2Step guard, carried verbatim: catch errors from missing
+        # the original Step guard, carried verbatim: catch errors from missing
         # data so one broken card doesn't crash the step cascade.
         try:
             update = self.update(state)

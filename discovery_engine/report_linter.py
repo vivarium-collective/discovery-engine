@@ -596,7 +596,6 @@ def _check_investigation_missing_adversarial(ctx: _LintContext) -> None:
 
 _INVESTIGATION_CHECK_FUNCTIONS = (
     _check_investigation_narrative_spine,
-    _check_investigation_missing_adversarial,
 )
 
 
@@ -629,7 +628,7 @@ CHECKS = (
     # Band provenance (stage 3a): expert-sourced bands should carry structured cites
     "band_test_missing_cites",
     "band_cites_unknown_bib_key",
-    # Derive-on-read status drift (v2ecoli round-2 #2)
+    # Derive-on-read status drift (status-drift lesson)
     "status_out_of_date_vs_runs",
     # Forward-drift: declares done/passed but records no runs (dnaa-replication
     # 2026-05-31 — reviewer couldn't tell if studies had actually run)
@@ -711,7 +710,7 @@ CHECKS = (
     # Otherwise the workbench viewer shows composite defaults, not a
     # reproducible spec, and a Run won't reproduce the study.
     "baseline_config_carry",
-    # Campaign quality bar + enrichment-plan design principles (viva-genesis):
+    # Campaign quality bar + enrichment-plan design principles (campaign lessons):
     # provenance on every quantitative claim; phase-maps-not-single-runs for a
     # Decision view; authored vs derived confidence reconciliation.
     "finding_missing_cites",
@@ -2099,7 +2098,7 @@ def _runs_db_rows(ws_root: Path, slug: str) -> list[dict]:
 
 
 def _check_status_out_of_date_vs_runs(ctx: _LintContext) -> None:
-    """v2ecoli round-2 friction #2: a report shipped a "planning" status after
+    """Integration friction: a report shipped a "planning" status after
     all studies had executed. Derive the observable status from runs.db and
     flag any stored axis (or a legacy planning headline) that contradicts it,
     so the drift is caught pre-publication instead of by the expert.
@@ -2129,7 +2128,7 @@ def _check_status_claims_done_but_no_runs_recorded(ctx: _LintContext) -> None:
     report renders the study as "pending / not run" even though its headline
     says passed.
 
-    This is the gap a reviewer hit on v2ecoli dnaa-replication (Rashmi,
+    This is the gap a reviewer hit on a workspace investigation (Rashmi,
     2026-05-31): "I think the first study is passed. But I am not sure whether
     it ran the simulations or not. Tests still show pending." The two
     foundational studies declared ``status: completed`` / ``gate_status:
@@ -2913,6 +2912,28 @@ def _check_readout_migration_status(ctx: _LintContext) -> None:
         )
 
 
+_SERVER_URL_RESOLVER = None
+
+
+def register_server_url_resolver(fn) -> None:
+    """Install ``fn(ws_root) -> str | None`` used by the optional live-server
+    lint probes. ``None`` restores the default (the workbench server-info
+    reader in ``discovery_engine.integration.server_preflight``, imported
+    lazily; if unavailable the probes are simply skipped)."""
+    global _SERVER_URL_RESOLVER
+    _SERVER_URL_RESOLVER = fn
+
+
+def _server_url(ws_root: Path):
+    fn = _SERVER_URL_RESOLVER
+    if fn is None:
+        try:
+            from discovery_engine.integration.server_preflight import read_server_url as fn
+        except Exception:  # noqa: BLE001
+            return None
+    return fn(ws_root)
+
+
 def fetch_study_observable_check(
     ws_root: Path, slug: str, *, timeout: float = 2.0
 ) -> dict | None:
@@ -2933,9 +2954,7 @@ def fetch_study_observable_check(
     import urllib.parse
     import urllib.request
 
-    from discovery_engine import server_preflight
-
-    url = server_preflight.read_server_url(ws_root)
+    url = _server_url(ws_root)
     if not url:
         return None
     endpoint = f"{url.rstrip('/')}/api/study-observable-check?" + urllib.parse.urlencode(
@@ -3254,9 +3273,7 @@ def _dashboard_render_error(ws_root: Path, slug: str) -> str | None:
     import urllib.error
     import urllib.request
 
-    from discovery_engine.server_preflight import read_server_url
-
-    url = read_server_url(ws_root)
+    url = _server_url(ws_root)
     if not url:
         return None  # server not running → render check unavailable, skip
     try:
@@ -3997,7 +4014,7 @@ def _check_baseline_config_carry(ctx: _LintContext) -> None:
 
 # ---------------------------------------------------------------------------
 # Campaign quality bar + enrichment-plan design principles
-# (viva-genesis lessons, 2026-10 — see feedback_campaign_build_quality_bar +
+# (campaign lessons, 2026-10 — see feedback_campaign_build_quality_bar +
 # the Scientific Enrichment Plan §14 design principles).
 # ---------------------------------------------------------------------------
 
@@ -4258,22 +4275,90 @@ _CHECK_FUNCTIONS = (
     # Reproducibility — baseline must resolve to a real run-config (not bare
     # composite defaults / {seed, cache_dir}); config_file ⊕ params ⊕ runtime.
     _check_baseline_config_carry,
-    # Campaign quality bar + enrichment-plan design principles (viva-genesis):
-    # (b) a quantitative finding with no provenance;
-    # (a) a Decision view that is a single run, not a phase map;
-    # (d) authored confidence that diverges from derive_confidence.
-    _check_finding_missing_cites,
-    _check_decision_viz_single_run,
-    _check_authored_confidence_diverges,
 )
 
 
-def lint_workspace_report(ws_root: Path, *, strict: bool = False) -> list[LintFinding]:
+# ---------------------------------------------------------------------------
+# Opt-in rulesets
+#
+# ``_CHECK_FUNCTIONS`` / ``_INVESTIGATION_CHECK_FUNCTIONS`` are the DEFAULT,
+# domain-neutral structural checks. Policy-level expectations (a "quality bar"
+# a given research programme chooses to hold itself to) live in NAMED rulesets
+# that a consumer enables explicitly:
+#
+#   * ``lint_workspace_report(ws, rulesets=["campaign"])``
+#   * ``set_default_rulesets(["campaign"])``   (process-wide)
+#   * ``lint: {rulesets: [campaign]}`` in ``workspace.yaml``
+#   * ``python -m discovery_engine.report_linter --ruleset campaign``
+#
+# Each rule keeps its own logic; a ruleset only decides whether it runs.
+# ---------------------------------------------------------------------------
+
+_RULESETS: dict[str, tuple[tuple, tuple]] = {}
+_DEFAULT_RULESETS: list[str] = []
+
+
+def register_ruleset(name: str, study_checks=(), investigation_checks=()) -> None:
+    """Register (or replace) a named opt-in ruleset.
+
+    ``study_checks`` / ``investigation_checks`` are callables taking a
+    ``_LintContext``. Registration does NOT enable the ruleset.
+    """
+    _RULESETS[name] = (tuple(study_checks), tuple(investigation_checks))
+
+
+def available_rulesets() -> list[str]:
+    return sorted(_RULESETS)
+
+
+def set_default_rulesets(names) -> None:
+    """Process-wide default for ``rulesets=None`` (replaces; ``[]`` clears)."""
+    names = list(names or [])
+    unknown = [n for n in names if n not in _RULESETS]
+    if unknown:
+        raise KeyError(f"unknown lint ruleset(s) {unknown}; available: {available_rulesets()}")
+    _DEFAULT_RULESETS[:] = names
+
+
+def _workspace_rulesets(ws_root: Path) -> list[str]:
+    """Rulesets a workspace opts into via ``lint.rulesets`` in workspace.yaml."""
+    try:
+        import yaml as _yaml
+        data = _yaml.safe_load((ws_root / "workspace.yaml").read_text(encoding="utf-8")) or {}
+        names = (data.get("lint") or {}).get("rulesets") or []
+        return [str(n) for n in names] if isinstance(names, list) else []
+    except Exception:  # noqa: BLE001 - absent/invalid workspace.yaml -> no opt-ins
+        return []
+
+
+# Campaign quality bar + enrichment-plan design principles (campaign lessons):
+# (b) a quantitative finding with no provenance;
+# (a) a Decision view that is a single run, not a phase map;
+# (d) authored confidence that diverges from derive_confidence;
+# plus an investigation must include an adversarial / ablation member study.
+register_ruleset(
+    "campaign",
+    study_checks=(
+        _check_finding_missing_cites,
+        _check_decision_viz_single_run,
+        _check_authored_confidence_diverges,
+    ),
+    investigation_checks=(_check_investigation_missing_adversarial,),
+)
+
+
+def lint_workspace_report(
+    ws_root: Path, *, strict: bool = False, rulesets=None
+) -> list[LintFinding]:
     """Run every Pass B check against every study in the workspace.
 
     Returns a flat list of findings. Sort: error before warning before
     info; within each level, sorted by study_slug then field_path so the
     output is stable across runs.
+
+    ``rulesets`` names extra opt-in rulesets (see ``register_ruleset``) run on
+    top of the default structural checks. ``None`` means "the workspace's
+    ``lint.rulesets`` plus ``set_default_rulesets``"; ``[]`` means defaults only.
 
     ``strict`` promotes opt-in warning-level checks (e.g.
     ``viz_stale_vs_latest_run``) to error level.
@@ -4289,9 +4374,18 @@ def lint_workspace_report(ws_root: Path, *, strict: bool = False) -> list[LintFi
     """
     out: list[LintFinding] = []
     ws_cache: dict = {}
+    if rulesets is None:
+        rulesets = list(dict.fromkeys([*_DEFAULT_RULESETS, *_workspace_rulesets(ws_root)]))
+    study_checks = list(_CHECK_FUNCTIONS)
+    inv_checks = list(_INVESTIGATION_CHECK_FUNCTIONS)
+    for name in rulesets:
+        if name not in _RULESETS:
+            raise KeyError(f"unknown lint ruleset {name!r}; available: {available_rulesets()}")
+        study_checks += _RULESETS[name][0]
+        inv_checks += _RULESETS[name][1]
     for slug, spec in _iter_study_specs(ws_root):
         ctx = _LintContext(ws_root=ws_root, slug=slug, spec=spec, strict=strict, ws_cache=ws_cache)
-        for fn in _CHECK_FUNCTIONS:
+        for fn in study_checks:
             try:
                 fn(ctx)
             except Exception as e:  # noqa: BLE001
@@ -4309,7 +4403,7 @@ def lint_workspace_report(ws_root: Path, *, strict: bool = False) -> list[LintFi
     # spine) — run on investigation specs, not studies.
     for slug, spec in _iter_investigation_specs(ws_root):
         ctx = _LintContext(ws_root=ws_root, slug=slug, spec=spec, strict=strict, ws_cache=ws_cache)
-        for fn in _INVESTIGATION_CHECK_FUNCTIONS:
+        for fn in inv_checks:
             try:
                 fn(ctx)
             except Exception as e:  # noqa: BLE001
@@ -4393,6 +4487,12 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="Promote opt-in warning checks (e.g. viz_stale_vs_latest_run) to errors.",
     )
+    p.add_argument(
+        "--ruleset",
+        action="append",
+        default=None,
+        help="Enable an opt-in ruleset (repeatable), e.g. --ruleset campaign.",
+    )
     args = p.parse_args(argv)
 
     ws_root = Path(args.ws).resolve()
@@ -4400,7 +4500,7 @@ def main(argv: list[str] | None = None) -> int:
         print(f"ERROR: no workspace.yaml under {ws_root}", file=sys.stderr)
         return 2
 
-    findings = lint_workspace_report(ws_root, strict=args.strict)
+    findings = lint_workspace_report(ws_root, strict=args.strict, rulesets=args.ruleset)
     overrides = load_overrides(ws_root)
     visible = apply_overrides(findings, overrides)
 

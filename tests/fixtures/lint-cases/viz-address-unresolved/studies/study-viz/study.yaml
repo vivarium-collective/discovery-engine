@@ -8,7 +8,7 @@ visualizations:
   - name: box-occupancy
     address: "local:DnaABoxOccupancyVisualization"
   - name: ts-from-obs
-    address: "viva_superpowers.visualizations.TimeSeriesFromObservables"   # dotted path — linter does not check
+    address: "some_pkg.visualizations.TimeSeriesFromObservables"   # dotted path — linter does not check
   - name: empty-addr
     address: ""                                                            # empty — linter skips
   - name: bare-name

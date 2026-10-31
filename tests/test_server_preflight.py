@@ -1,4 +1,4 @@
-"""Tests for discovery_engine.server_preflight (served-version preflight)."""
+"""Tests for discovery_engine.integration.server_preflight (served-version preflight)."""
 from __future__ import annotations
 
 import io
@@ -6,7 +6,7 @@ import json
 import urllib.error
 from contextlib import contextmanager
 
-from discovery_engine import server_preflight
+from discovery_engine.integration import server_preflight
 
 
 @contextmanager

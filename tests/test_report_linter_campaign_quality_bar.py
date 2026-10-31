@@ -231,5 +231,20 @@ def test_investigation_check_runs_via_workspace_report(tmp_path):
         "narrative_spine_skip": ["executive", "scientific_argument",
                                  "biological_story"],
     }))
-    findings = lint_workspace_report(ws)
+    findings = lint_workspace_report(ws, rulesets=["campaign"])
     assert _by_check(findings, "investigation_missing_adversarial")
+
+
+def test_campaign_rules_are_opt_in_not_default(tmp_path):
+    from discovery_engine import report_linter as rl
+    campaign = set(rl._RULESETS["campaign"][0]) | set(rl._RULESETS["campaign"][1])
+    assert campaign
+    assert not campaign & (set(rl._CHECK_FUNCTIONS) | set(rl._INVESTIGATION_CHECK_FUNCTIONS))
+    assert "campaign" in rl.available_rulesets()
+
+
+def test_workspace_yaml_enables_ruleset(tmp_path):
+    from discovery_engine import report_linter as rl
+    (tmp_path / "workspace.yaml").write_text("lint:\n  rulesets: [campaign]\n")
+    assert rl._workspace_rulesets(tmp_path) == ["campaign"]
+    assert rl._workspace_rulesets(tmp_path / "nope") == []

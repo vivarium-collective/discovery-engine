@@ -1,3 +1,6 @@
+# moved out of the framework — domain analysis belongs in the workspace (viva-genesis).
+# Original location: tests/test_transition_model.py. Imports `discovery_engine.model_architect`;
+# if adopted, register the domain synonyms (see model_architect.register_synonyms).
 """Transition composition + conditional phase diagram (DE 2.0 Milestone 4 / Cycle N+2).
 
 Gate: the decision rule classifies each regime to the right outcome, the sweep covers

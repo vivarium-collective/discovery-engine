@@ -25,21 +25,27 @@ REUSE = "reuse"
 WRAP = "wrap"
 BUILD = "build"
 
-# Mechanism → capability synonyms. A component *provides* a mechanism if any synonym
+# Mechanism -> capability synonyms. A component *provides* a mechanism if any synonym
 # appears in its capability signature (composite name tokens + topic/concept + observables).
-_SYNONYMS = {
-    "exchange": ("exchange", "metabolite", "metabolic", "cross_lineage", "flux", "syntroph"),
-    "metabolic_exchange": ("exchange", "metabolite", "metabolic", "cross_lineage", "flux"),
-    "diffusion": ("diffusion", "spatial", "reaction_diffusion", "pore", "placement"),
-    "growth": ("growth", "population", "reproduction", "division", "propensity"),
-    "adhesion": ("adhesion", "cpm", "potts", "wrapping", "contact", "differential"),
-    "membrane_remodeling": ("membrane", "enclosure", "wrapping", "bending", "protrusion"),
-    "membrane": ("membrane", "enclosure", "wrapping", "bending"),
-    "spatial_contact": ("spatial", "contact", "placement", "proximity", "cpm"),
-    "transport": ("transport", "permeability", "pump", "internalization"),
-    "energy": ("energy", "energetic", "atp", "bioenergetic", "internalization", "electrochemical"),
-    "heredity": ("heredity", "heritab", "inheritance", "lineage", "transmission"),
-}
+# The framework ships NO domain vocabulary: a workspace supplies its own via
+# ``register_synonyms``. With nothing registered a mechanism matches only itself.
+_SYNONYMS: dict[str, tuple[str, ...]] = {}
+
+
+def register_synonyms(mapping: dict[str, "tuple[str, ...] | list[str]"], *, replace: bool = False) -> None:
+    """Register mechanism -> synonym tuples. Merges (union) with existing entries
+    unless ``replace`` is true, in which case the whole table is replaced."""
+    if replace:
+        _SYNONYMS.clear()
+    for mech, syns in mapping.items():
+        merged = list(_SYNONYMS.get(mech, ()))
+        merged += [x for x in syns if x not in merged]
+        _SYNONYMS[mech] = tuple(merged)
+
+
+def clear_synonyms() -> None:
+    """Reset to the neutral (empty) default."""
+    _SYNONYMS.clear()
 
 
 def ModelBuildRequest(*, question_id: str, required_mechanisms: list[str],

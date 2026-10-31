@@ -3,7 +3,7 @@ the wrong place. The dashboard's local: resolver and the linter only discover
 classes under pkg/visualizations/, so `local:MisplacedViz` won't resolve even
 though the class plainly exists.
 """
-from viva_superpowers.visualization import Visualization
+from process_bigraph.visualization import Visualization
 
 
 class MisplacedViz(Visualization):

@@ -6,7 +6,7 @@ reproducibility contract. Returns a structured, JSON-serializable
 any HARD-tier failure) for CI.
 
 This module MUST NOT import ``vivarium_workbench``: it ships in the package
-v2ecoli CI imports, so a workbench dependency here would invert the dependency
+a workspace's CI imports, so a workbench dependency here would invert the dependency
 graph and break that CI. It reuses only ``discovery_engine`` internals + stdlib.
 
 Tiers (design doc §3):
@@ -167,7 +167,7 @@ def _discover_generators(extra_packages=None):
 def _workspace_packages(wp: WorkspacePaths) -> list[str]:
     """Best-effort import names for the workspace's own composite generators.
 
-    The workspace Python package (e.g. ``pbg_v2ecoli`` / ``v2ecoli``) registers
+    The workspace Python package (e.g. ``<pkg>``) registers
     its ``@composite_generator`` decorators only when imported, so include it and
     its ``.composites`` subpackage in the discovery import set."""
     out: list[str] = []
@@ -241,7 +241,7 @@ def audit_workspace(
     # investigations/**/study.yaml is a DELIBERATE L0 violation — the
     # reproducibility contract mandates the flat studies/ layout with
     # investigations referencing members via `members:` (Phase 1 migrated
-    # v2ecoli to it). This intentionally diverges from
+    # a real workspace to it). This intentionally diverges from
     # WorkspacePaths.iter_study_dirs' general nested-study support; do not
     # "fix" it to accept nested studies.
     nested = _nested_study_files(wp)
@@ -318,10 +318,10 @@ def _composite_alias_set(known_composites: set) -> set:
     """Expand registry ids into the forms a study.yaml may reference.
 
     A registered generator id is ``<dotted_module>.<name>``. In a workspace whose
-    composite modules are named after the composite (v2ecoli style), the id
-    duplicates its tail — ``v2ecoli.composites.parca.parca`` — while studies
-    reference the collapsed module form ``v2ecoli.composites.parca`` or the bare
-    name ``parca``. Expand every known id into: the full id, its bare last
+    composite modules are named after the composite (one-module-per-composite style), the id
+    duplicates its tail — ``<pkg>.composites.<name>.<name>`` — while studies
+    reference the collapsed module form ``<pkg>.composites.<name>`` or the bare
+    name ``<name>``. Expand every known id into: the full id, its bare last
     segment, and (only when the tail is duplicated) the collapsed module form."""
     out: set = set()
     for k in known_composites:
@@ -1053,7 +1053,7 @@ def main(argv=None) -> int:
     ap.add_argument("--package", action="append", dest="package", default=None,
                     metavar="PKG",
                     help="extra package to import for composite discovery "
-                         "(repeatable), e.g. --package v2ecoli.composites")
+                         "(repeatable), e.g. --package <pkg>.composites")
     ap.add_argument("--allowlist", default=None, metavar="FILE",
                     help="file of known-accepted 'slug:check' hard failures "
                          "(one per line, # comments). --gate ignores these but "

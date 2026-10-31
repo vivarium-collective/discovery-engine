@@ -8,7 +8,33 @@ from __future__ import annotations
 
 import pytest
 
-from discovery_engine import model_architect as M
+from discovery_engine import hypotheses as _H, model_architect as M
+
+# Domain vocabulary is workspace-supplied, not a framework default: register it here.
+_DOMAIN_SYNONYMS = {
+    "exchange": ("exchange", "metabolite", "metabolic", "cross_lineage", "flux", "syntroph"),
+    "metabolic_exchange": ("exchange", "metabolite", "metabolic", "cross_lineage", "flux"),
+    "diffusion": ("diffusion", "spatial", "reaction_diffusion", "pore", "placement"),
+    "growth": ("growth", "population", "reproduction", "division", "propensity"),
+    "adhesion": ("adhesion", "cpm", "potts", "wrapping", "contact", "differential"),
+    "membrane_remodeling": ("membrane", "enclosure", "wrapping", "bending", "protrusion"),
+    "membrane": ("membrane", "enclosure", "wrapping", "bending"),
+    "spatial_contact": ("spatial", "contact", "placement", "proximity", "cpm"),
+    "transport": ("transport", "permeability", "pump", "internalization"),
+    "energy": ("energy", "energetic", "atp", "bioenergetic", "internalization", "electrochemical"),
+    "heredity": ("heredity", "heritab", "inheritance", "lineage", "transmission"),
+}
+
+
+@pytest.fixture(autouse=True)
+def _domain_registries():
+    syn, fid = dict(M._SYNONYMS), dict(_H._FIDELITY_RANK)
+    M.register_synonyms(_DOMAIN_SYNONYMS)
+    _H.register_fidelity_ranks({"geometric_feasibility": 1, "coarse_spatial": 2, "spatial_dynamics": 2,
+                                "reproduction": 2, "population": 2, "continuum_membrane_energetics": 3})
+    yield
+    M._SYNONYMS.clear(); M._SYNONYMS.update(syn)
+    _H._FIDELITY_RANK.clear(); _H._FIDELITY_RANK.update(fid)
 
 
 def _studies():
