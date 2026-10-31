@@ -10,6 +10,8 @@ from discovery_engine.viz_appropriateness import (
     classify_viz,
     duplicated_cross_arm,
     investigation_viz_appropriateness,
+    is_synthesis_study,
+    study_viz_appropriateness,
     viz_scope,
 )
 
@@ -96,6 +98,32 @@ def test_investigation_rollup_any_issue_and_clean():
     clean = {"s1": {"visualizations": [{"address": "local:SpeciesDynamics", "covers": ["traj"]}]}}
     roll2 = investigation_viz_appropriateness(clean, scope_of)
     assert roll2["any_issue"] is False and roll2["duplicated_cross_arm"] == []
+
+
+def test_synthesis_study_detection_and_exemption():
+    # a study that builds-on >=2 arms is a synthesis node
+    synth = {"parent_studies": [{"study": "a", "relation": "builds-on"},
+                                {"study": "b", "relation": "builds-on"}]}
+    assert is_synthesis_study(synth) is True
+    assert is_synthesis_study({"parent_studies": [{"study": "a", "relation": "builds-on"}]}) is False
+    # an investigation-scope viz on a synthesis study is NOT misplaced
+    c = classify_viz({"address": "local:RuntimeComparison", "covers": ["t"]},
+                     scope_of("local:RuntimeComparison"), on_synthesis=True)
+    assert c["scope"] == INVESTIGATION and c["ok"] is True
+
+
+def test_synthesis_hosts_cross_arm_arm_studies_keep_own():
+    # the sbml-decomposition fix shape: a synthesis builds-on all arms, hosts the cross-arm viz
+    studies = {
+        "sbml-in-tellurium": {"visualizations": [{"address": "local:SpeciesDynamics", "covers": ["traj"]}]},
+        "decomposition-synthesis": {
+            "parent_studies": [{"study": "sbml-in-tellurium", "relation": "builds-on"},
+                               {"study": "fully-native-pbg", "relation": "builds-on"}],
+            "visualizations": [{"address": "local:RuntimeComparison", "covers": ["t"], "scope": "investigation"},
+                               {"address": "local:ComposabilityScorecard", "covers": ["c"]}]},
+    }
+    roll = investigation_viz_appropriateness(studies, scope_of)
+    assert roll["any_issue"] is False and roll["duplicated_cross_arm"] == []
 
 
 def test_appropriateness_is_non_blocking():
