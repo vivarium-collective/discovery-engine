@@ -1243,6 +1243,14 @@ def _post_run_sync(sdir, before_runs: set) -> None:
             buf = StringIO()
             y.dump(doc, buf)
             (sdir / "study.yaml").write_text(buf.getvalue(), encoding="utf-8")
+        # Link each finding to the run that computed it (provenance.run_ids) and fill the
+        # absent code-owned slots, so the evidence ledger can classify it VERIFIED /
+        # CONTRADICTED on the next cycle instead of leaving it "provisional — no
+        # resolvable registered run". Fill-absent-only: never overwrites an authored
+        # observed value or verdict. This is the write-back that turns an executed run
+        # into a defensible (or honestly-contradicted) finding.
+        from . import finding_observations
+        finding_observations.populate_finding_observations(sdir)
     except Exception:  # noqa: BLE001 -- sync is best-effort, never fails an advance
         pass
 
