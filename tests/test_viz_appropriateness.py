@@ -126,7 +126,152 @@ def test_synthesis_hosts_cross_arm_arm_studies_keep_own():
     assert roll["any_issue"] is False and roll["duplicated_cross_arm"] == []
 
 
+def _syn(*entries, field="pipeline_gate"):
+    if field == "pipeline_gate":
+        return {"pipeline_gate": {"prerequisites": list(entries)}}
+    return {field: list(entries)}
+
+
+def test_synthesis_via_canonical_pipeline_gate_prerequisites():
+    spec = _syn({"study": "a", "relation": "builds-on"}, {"study": "b", "relation": "builds-on"})
+    assert is_synthesis_study(spec) is True
+
+
+def test_synthesis_via_parent_relations():
+    spec = _syn({"study": "a", "relation": "builds-on"}, {"study": "b", "relation": "builds-on"},
+                field="parent_relations")
+    assert is_synthesis_study(spec) is True
+
+
+def test_synthesis_gathers_across_sources():
+    spec = {"pipeline_gate": {"prerequisites": [{"study": "a", "relation": "builds-on"}]},
+            "parent_studies": [{"study": "b", "relation": "builds-on"}]}
+    assert is_synthesis_study(spec) is True
+
+
+def test_synthesis_dedupes_by_distinct_study():
+    same = {"study": "a", "relation": "builds-on"}
+    assert is_synthesis_study(_syn(same, dict(same))) is False
+    # same parent declared in two different sources is still ONE parent
+    spec = {"pipeline_gate": {"prerequisites": [same]}, "parent_studies": [dict(same)],
+            "parent_relations": [dict(same)]}
+    assert is_synthesis_study(spec) is False
+
+
+def test_synthesis_requires_builds_on_relation():
+    spec = _syn({"study": "a", "relation": "tests"}, {"study": "b", "relation": "builds-on"})
+    assert is_synthesis_study(spec) is False
+    assert is_synthesis_study(_syn({"study": "a"}, {"study": "b"})) is False  # bare organizational
+
+
+def test_synthesis_relation_normalized_and_malformed_safe():
+    spec = _syn({"study": "a", "relation": " Builds_On "}, {"study": "b", "relation": "BUILDS-ON"})
+    assert is_synthesis_study(spec) is True
+    for bad in (None, {"pipeline_gate": "x"}, {"pipeline_gate": {"prerequisites": "a"}},
+                {"parent_studies": [["a"], 3, None, "s"]}, {"parent_relations": {"study": "a"}}):
+        assert is_synthesis_study(bad) is False
+
+
+def test_dup_excludes_synthesis_rehost():
+    studies = {
+        "plain": {"visualizations": [{"address": "local:RuntimeComparison"}]},
+        "synth": {**_syn({"study": "a", "relation": "builds-on"}, {"study": "b", "relation": "builds-on"}),
+                  "visualizations": [{"address": "local:RuntimeComparison"}]},
+    }
+    assert duplicated_cross_arm(studies, scope_of) == []
+
+
+def test_dup_same_study_listing_twice_counts_once():
+    studies = {"s1": {"visualizations": [{"address": "local:RuntimeComparison"},
+                                         {"address": "local:RuntimeComparison"}]}}
+    assert duplicated_cross_arm(studies, scope_of) == []
+    studies["s2"] = {"visualizations": [{"address": "local:RuntimeComparison"}]}
+    (d,) = duplicated_cross_arm(studies, scope_of)
+    assert d["count"] == 2 and d["studies"] == ["s1", "s2"]
+
+
+def test_dup_name_fallback_only_without_address_and_no_cross_namespace_collision():
+    studies = {
+        "s1": {"visualizations": [{"name": "Map", "scope": "investigation"}]},
+        "s2": {"visualizations": [{"name": " map ", "scope": "investigation"}]},
+        "s3": {"visualizations": [{"name": "local:RuntimeComparison", "scope": "investigation"}]},
+        "s4": {"visualizations": [{"address": "local:RuntimeComparison"}]},
+    }
+    got = {d["address"]: d["studies"] for d in duplicated_cross_arm(studies, scope_of)}
+    assert got == {"name:map": ["s1", "s2"]}  # name never collides with an address
+
+
+def test_covers_requires_only_counts_as_tied():
+    c = classify_viz({"address": "local:SpeciesDynamics", "requires": ["glucose"]},
+                     scope_of("local:SpeciesDynamics"))
+    assert c["ok"] is True and c["covers"] == ["glucose"]
+
+
+def test_covers_inputs_map_values_count_as_ties():
+    for entry in ({"address": "local:SpeciesDynamics", "config": {"inputs_map": {"species": "atp_trace"}}},
+                  {"address": "local:SpeciesDynamics", "inputs_map": {"species": "atp_trace"}}):
+        c = classify_viz(entry, scope_of("local:SpeciesDynamics"))
+        assert c["covers"] == ["atp_trace"] and c["ok"] is True
+
+
+def test_covers_agrees_with_viz_proposals_covered_observables():
+    from discovery_engine.viz_proposals import covered_observables
+    entry = {"address": "local:SpeciesDynamics", "covers": ["a"], "requires": ["b"],
+             "config": {"inputs_map": {"x": "c", "y": 3}}}
+    assert set(classify_viz(entry, None)["covers"]) == covered_observables({"visualizations": [entry]}, None)
+
+
+def test_malformed_covers_never_raises():
+    for bad in ([["x"]], "abc", 5, {"k": "v"}, [None, 3, ["y"]], True):
+        for key in ("covers", "requires"):
+            c = classify_viz({"address": "local:SpeciesDynamics", key: bad}, scope_of("local:SpeciesDynamics"))
+            assert isinstance(c["covers"], list)
+    c = classify_viz({"address": "x", "config": {"inputs_map": [1, 2]}}, None)
+    assert c["covers"] == []
+    assert classify_viz(None, None)["covers"] == []
+    assert study_viz_appropriateness({"visualizations": "oops"}, scope_of) == []
+    assert study_viz_appropriateness({"visualizations": [None, 3, {"covers": [["x"]]}]}, scope_of)
+
+
+def test_unresolved_scope_is_not_assessed_not_ok():
+    c = classify_viz({"address": "local:Nope", "covers": ["t"]}, scope_of("local:Nope"))
+    assert c["scope"] == UNKNOWN and c["state"] == "not_assessed"
+    assert c["issues"] == [] and c["ok"] is False
+    roll = investigation_viz_appropriateness(
+        {"s": {"visualizations": [{"address": "local:Nope", "covers": ["t"]}]}}, scope_of)
+    assert roll["any_issue"] is False and roll["not_assessed"] == 1
+
+
+def test_resolved_clean_viz_state_ok():
+    c = classify_viz({"address": "local:SpeciesDynamics", "covers": ["t"]}, scope_of("local:SpeciesDynamics"))
+    assert c["state"] == "ok" and c["ok"] is True
+
+
+def test_issue_state_when_issues():
+    assert classify_viz({"address": "local:SpeciesDynamics"}, scope_of("local:SpeciesDynamics"))["state"] == "issues"
+
+
+def test_rollup_row_for_plain_study_carries_misplaced_scope():
+    rows = study_viz_appropriateness(
+        {"visualizations": [{"address": "local:RuntimeComparison", "covers": ["t"]}]}, scope_of)
+    assert [i["kind"] for i in rows[0]["issues"]] == [MISPLACED_SCOPE] and rows[0]["state"] == "issues"
+    # ...and the same viz on a canonical synthesis study does not
+    synth = {**_syn({"study": "a", "relation": "builds-on"}, {"study": "b", "relation": "builds-on"}),
+             "visualizations": [{"address": "local:RuntimeComparison", "covers": ["t"]}]}
+    assert study_viz_appropriateness(synth, scope_of)[0]["issues"] == []
+
+
+def test_scope_normalization_case_and_whitespace():
+    assert viz_scope({"x": 1}, declared="  Investigation ") == INVESTIGATION
+    assert viz_scope({"x": 1}, declared=" STUDY") == STUDY
+    assert viz_scope({" Arms ": 1}) == INVESTIGATION
+    assert viz_scope(None, declared=" Investigation\n") == INVESTIGATION
+
+
 def test_appropriateness_is_non_blocking():
+    # fires if any real appropriateness kind is ever added to the closure-blocking set
     from discovery_engine import discovery_engine as de
-    for kind in ("misplaced_scope", "untied", "viz_appropriateness", "duplicated_cross_arm"):
-        assert kind not in de._CLOSURE_BLOCKING
+    from discovery_engine import viz_appropriateness as va
+    kinds = {va.MISPLACED_SCOPE, va.UNTIED, va.NOT_ASSESSED,
+             "viz_misplaced", "viz_untied", "viz_duplicated", "viz_not_assessed"}
+    assert kinds.isdisjoint(de._CLOSURE_BLOCKING)
