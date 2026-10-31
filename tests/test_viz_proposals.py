@@ -71,12 +71,40 @@ def test_discriminating_and_disagreement_triggers():
         {"id": "h1", "study": "s5", "predictions": [{"observable": "o/d", "expected": {"low": 0, "high": 1}}]},
         {"id": "h2", "study": "s5", "predictions": [{"observable": "o/d", "expected": {"low": 5, "high": 6}}]}]}
     spec = {"name": "s5", "visualizations": [],
-            "findings": [{"id": "f", "evidence": {"measure": "o/m", "arms": {"a": 1.0, "b": 2.0}}}]}
+            "findings": [{"id": "f", "evidence": {"measure": "o/m", "by_arm": {"a": 1.0, "b": 2.0}}}]}
     ps = propose_visualizations(inv, {"s5": spec}, {}, {"s5": {}}, None, now="T")
     kinds = {p["source"]["kind"] for p in ps}
-    assert "discriminating_uncovered" in kinds
+    assert {"discriminating_uncovered", "disagreement_uncovered"} <= kinds
+    dis = [p for p in ps if p["source"]["kind"] == "disagreement_uncovered"][0]
+    assert dis["suggested"]["form"] == "arm_comparison" and dis["source"]["observable"] == "o/m"
     disc = [p for p in ps if p["source"]["kind"] == "discriminating_uncovered"][0]
     assert disc["suggested"]["form"] == "prediction_bands" and disc["source"]["observable"] == "o/d"
+
+
+def _mixed_inv():
+    return {**INV, "hypotheses": [
+        {"id": "h1", "study": "s5", "predictions": [{"observable": "o/d", "expected": {"low": 0, "high": 1}}]},
+        {"id": "h2", "study": "s5", "predictions": [{"observable": "o/d", "expected": {"low": 5, "high": 6}}]}]}
+
+
+def _mixed_spec(tests):
+    return {"name": "s5", "visualizations": [], "behavior_tests": tests,
+            "findings": [{"id": "f", "evidence": {"measure": "o/m", "by_arm": {"a": 1.0, "b": 2.0}}}]}
+
+
+def test_cap_keeps_kind_ordered_proposals():
+    ps = propose_visualizations(_mixed_inv(), {"s5": _mixed_spec([_test("t", "o/g")])}, {}, {"s5": {}},
+                                None, now="T")
+    assert [p["source"]["kind"] for p in ps] == ["gate_uncovered", "discriminating_uncovered"]
+
+
+def test_cap_ties_break_by_id_within_kind():
+    tests = [_test(f"t{i}", f"o/g{i}") for i in range(4)]
+    ps = propose_visualizations(_mixed_inv(), {"s5": _mixed_spec(tests)}, {}, {"s5": {}}, None, now="T")
+    assert all(p["source"]["kind"] == "gate_uncovered" for p in ps)
+    all_gate = propose_visualizations(INV, {"s5": _spec(tests)}, {}, {"s5": {}}, None, now="T")
+    assert [p["id"] for p in ps] == sorted(p["id"] for p in ps)
+    assert len(ps) == 2 and [p["id"] for p in ps] == [p["id"] for p in all_gate]
 
 
 def test_content_id_rederive_is_stable():
@@ -189,10 +217,71 @@ def test_reject_is_terminal(tmp_path, monkeypatch):
         D.accept_viz_proposal(ws, "inv", vp, address="local:X", rationale="late")
 
 
+def _disk(ws):
+    return yaml.safe_load((investigations_dir(ws) / "inv" / "investigation.yaml").read_text())
+
+
 def test_cli_propose_accept_reject(tmp_path, monkeypatch, capsys):
-    ws, _ = _ws(tmp_path, monkeypatch)
+    ws, sd = _ws(tmp_path, monkeypatch)
     assert D.main(["--workspace", str(ws), "viz", "inv", "--propose"]) == 0
     out = capsys.readouterr().out
     assert "vp:s5:" in out and "needs_author" in out
     vp = out.split()[0]
+    assert D.main(["--workspace", str(ws), "viz", "inv", "--accept", vp, "--address", "local:BandOverlayViz",
+                   "--rationale", "yes"]) == 0
+    assert _disk(ws)["viz_proposals"][0]["status"] == "accepted"
+    ent = yaml.safe_load((sd / "study.yaml").read_text())["visualizations"][0]
+    assert ent["origin"] == {"kind": "viz_proposal", "ref": vp}
+
+
+def test_cli_reject_persists_rejected(tmp_path, monkeypatch, capsys):
+    ws, sd = _ws(tmp_path, monkeypatch)
+    D.main(["--workspace", str(ws), "viz", "inv", "--propose"])
+    vp = capsys.readouterr().out.split()[0]
     assert D.main(["--workspace", str(ws), "viz", "inv", "--reject", vp, "--rationale", "no"]) == 0
+    p = _disk(ws)["viz_proposals"][0]
+    assert p["status"] == "rejected" and p["history"][-1]["rationale"] == "no"
+    assert not yaml.safe_load((sd / "study.yaml").read_text()).get("visualizations")
+
+
+def _make_derivable(ws, vp):
+    path = investigations_dir(ws) / "inv" / "investigation.yaml"
+    d = yaml.safe_load(path.read_text())
+    sug = d["viz_proposals"][0]["suggested"]
+    sug.update(address="local:BandOverlayViz", needs_author=False, inputs_map={"series": "pop/survivors"})
+    path.write_text(yaml.safe_dump(d))
+
+
+def _decide(ws, vp, decider):
+    return D.execute_action(ws, "inv", autonomous=True, decider=decider, target=vp, action="build_viz")
+
+
+def test_decider_acts_on_derivable_proposal(tmp_path, monkeypatch):
+    ws, sd = _ws(tmp_path, monkeypatch)
+    vp = _cycle(ws)[0]["viz_proposals"][0]["id"]
+    _make_derivable(ws, vp)
+    rec = _decide(ws, vp, lambda t, d: {"choice": "accept", "rationale": "covers the gate"})
+    assert rec["status"] == "executed"
+    p = _disk(ws)["viz_proposals"][0]
+    assert p["status"] == "accepted" and p["history"][-1]["by"] == "discovery-ai"
+    assert yaml.safe_load((sd / "study.yaml").read_text())["visualizations"][0]["origin"]["ref"] == vp
+
+
+def test_decider_reject_recorded(tmp_path, monkeypatch):
+    ws, _ = _ws(tmp_path, monkeypatch)
+    vp = _cycle(ws)[0]["viz_proposals"][0]["id"]
+    _make_derivable(ws, vp)
+    assert _decide(ws, vp, lambda t, d: {"choice": "reject", "rationale": "noise"})["status"] == "executed"
+    assert _disk(ws)["viz_proposals"][0]["status"] == "rejected"
+
+
+def test_decider_needs_author_or_no_rationale_is_gated(tmp_path, monkeypatch):
+    ws, sd = _ws(tmp_path, monkeypatch)
+    vp = _cycle(ws)[0]["viz_proposals"][0]["id"]
+    ok = lambda t, d: {"choice": "accept", "rationale": "sure"}  # noqa: E731
+    assert _decide(ws, vp, ok)["status"] == "gated-human"          # needs_author
+    _make_derivable(ws, vp)
+    assert _decide(ws, vp, lambda t, d: {"choice": "accept", "rationale": ""})["status"] == "gated-human"
+    assert _decide(ws, vp, None)["status"] == "gated-human"
+    assert _disk(ws)["viz_proposals"][0]["status"] == "proposed"
+    assert not yaml.safe_load((sd / "study.yaml").read_text()).get("visualizations")
