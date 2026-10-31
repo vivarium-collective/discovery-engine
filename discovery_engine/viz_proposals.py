@@ -40,23 +40,6 @@ def slugify(text: str) -> str:
     return re.sub(r"[^a-z0-9]+", "-", str(text).lower()).strip("-") or "viz"
 
 
-def _class_ref(address) -> str | None:
-    if isinstance(address, str) and address.startswith(("local:", "dashboard:")):
-        return address.split(":", 1)[1]
-    return None
-
-
-def _catalog_by_address(viz_catalog) -> dict:
-    out: dict = {}
-    for c in viz_catalog or []:
-        if isinstance(c, dict) and c.get("address"):
-            out[str(c["address"])] = c
-            ref = _class_ref(c["address"])
-            if ref:
-                out.setdefault(ref, c)
-    return out
-
-
 def covered_observables(spec: dict, viz_catalog) -> set:
     """Observables a study's declared visualizations cover: ``covers`` U ``requires`` U
     ``config.inputs_map`` values. Catalog input PORT names are generic (``observable``, ``x``,
