@@ -30,7 +30,7 @@ crank(cycle_result, inv_spec) -> dict          # one combined report
 """
 from __future__ import annotations
 
-from .run_command import run_command
+from .run_command import render_command, run_command
 from .validation import epistemic_separation_violations, stale_records
 
 
@@ -576,7 +576,20 @@ def opportunities(cycle_result: dict, inv_spec: dict) -> list[dict]:
 # (re-snapshot) is auto_safe; running a simulation, seeding a study, or overwriting a
 # verdict is consequential and stays gated behind an explicit human/--autonomous step.
 
-def _executor_for(op: str, target: str) -> dict:
+def _executor_for(op: str, target: str, kind: str | None = None) -> dict:
+    if op in ("build_viz", "refine_viz"):
+        t = str(target)
+        if t.startswith("fig:") and "/" in t and kind != "viz_broken":
+            fstudy, _, fname = t[4:].partition("/")
+            return {"executor": "render-viz", "command": render_command(fstudy, fname),
+                    "consequence": "render", "auto_safe": False}
+        if t.startswith("fig:"):       # broken stub: declare an address/render, never auto
+            return {"executor": "discover viz",
+                    "command": f"discover viz <inv> {t} --declare address=… --rationale '…'",
+                    "consequence": "review", "auto_safe": False}
+        return {"executor": "discover viz",
+                "command": f"discover viz <inv> {t} --accept|--reject",
+                "consequence": "review", "auto_safe": False}
     study = str(target).split(":", 1)[1] if str(target).startswith("claim:") else str(target)
     if op == "revalidate":
         return {"executor": "snapshot-validations", "command": "discover snapshot-validations <inv>",
@@ -617,8 +630,8 @@ def execute_plan(cycle_result: dict, inv_spec: dict) -> list[dict]:
     its consequence class, it does not run anything (gated)."""
     out: list[dict] = []
     for o in opportunities(cycle_result, inv_spec):
-        ex = _executor_for(o["action_type"], o["source"])
-        out.append({"id": o["id"], "source": o["source"], "action_type": o["action_type"],
+        ex = _executor_for(o["action_type"], o["source"], o.get("kind"))
+        out.append({"id": o["id"], "kind": o.get("kind"), "source": o["source"], "action_type": o["action_type"],
                     "score": o["value"]["score"], "state": "proposed", **ex})
     return out
 

@@ -42,7 +42,7 @@ from .argument_store import derive_argument, merge_argument
 from .investigation_import import investigations_dir, studies_dir
 from .knowledge_store import canonical_verdict, derive_knowledge, merge_knowledge
 from .narrative import audit, narrate
-from .run_command import run_command
+from .run_command import render_command, run_command
 from .study_io import atomic_write, load_yaml, load_yaml_mapping, save_yaml_atomic
 from .synthesis import open_calls, synthesize_gates
 from .validation import ValidationContext, run_validators
@@ -157,6 +157,46 @@ def record_resolution(inv_path: Path | str, kind: str, target: str, rationale: s
     spec = add_resolution(load_yaml_mapping(path), kind, target, rationale, by)
     save_yaml_atomic(path, spec)
     return spec["resolutions"][-1]
+
+
+def declare_viz(ws_root: Path | str, inv_slug: str, target: str, declare: dict,
+                rationale: str, by: str = "human") -> dict:
+    """Review-tier write-back for a ``viz_broken`` figure: set ``address`` / ``render`` /
+    ``requires`` on the named ``visualizations[]`` entry of ``fig:<study>/<name>``, drop a
+    ``rendered:`` field (read by nothing), stamp ``origin: {kind: derived_fix}``, and record
+    a ``viz_broken`` resolution. Authored-wins: a rationale is required, the entry must
+    exist, and only those three keys may be set. Never dispatched by ``advance``."""
+    if not (rationale or "").strip():
+        raise ValueError("a rationale is required — --declare edits an authored list")
+    vt = _viz_target(target)
+    if vt is None:
+        raise ValueError(f"target must be fig:<study>/<name>, got {target!r}")
+    bad = set(declare) - {"address", "render", "requires"}
+    if bad:
+        raise ValueError(f"--declare may set only address/render/requires, got {sorted(bad)}")
+    if not (declare.get("address") or declare.get("render")):
+        raise ValueError("--declare needs an address= or render= (else the entry stays a broken stub)")
+    study, name = vt
+    sdir = _study_dir_on_disk(ws_root, inv_slug, study)
+    if sdir is None:
+        raise ValueError(f"no study.yaml for {study!r}")
+    y = _ruamel()
+    sp = sdir / "study.yaml"
+    doc = y.load(sp.read_text(encoding="utf-8"))
+    ent = next((e for e in doc.get("visualizations") or []
+                if isinstance(e, dict) and e.get("name") == name), None)
+    if ent is None:
+        raise ValueError(f"{study} declares no visualization named {name!r}")
+    for k, v in declare.items():
+        ent[k] = list(v) if k == "requires" else v
+    ent.pop("rendered", None)
+    ent["origin"] = {"kind": "derived_fix"}
+    from io import StringIO
+    buf = StringIO()
+    y.dump(doc, buf)
+    sp.write_text(buf.getvalue(), encoding="utf-8")
+    inv_path = investigations_dir(Path(ws_root)) / inv_slug / "investigation.yaml"
+    return record_resolution(inv_path, "viz_broken", target, rationale, by=by)
 
 
 def review_revision(inv_path: Path | str, proposal_id: str, event: str, rationale: str,
@@ -898,7 +938,7 @@ def _env_decider(target: str, detail: str) -> dict:
 
 def execute_action(ws_root: Path | str, inv_slug: str, *, autonomous: bool = False,
                    runner=None, decider=None, target: str | None = None,
-                   action: str | None = None) -> dict:
+                   action: str | None = None, render_hook=None) -> dict:
     """The bridge's execution step: take the top value-ranked action and carry it out,
     gated by consequence.
 
@@ -967,6 +1007,45 @@ def execute_action(ws_root: Path | str, inv_slug: str, *, autonomous: bool = Fal
                 else:
                     rec["outcome"] = (runner or _default_runner)(command, ws_root)
                     rec["status"] = "executed" if rec["outcome"].get("ok") else "failed"
+    elif top["consequence"] == "render":
+        # A figure (re)render. Autonomous-only; refused unless the declared entry is
+        # RESOLVABLE (the readiness analog: never a broken_stub / static figure with no
+        # recipe). The executor is the injected `render_hook` (in-process) else the
+        # templated `render-viz` subprocess via `runner`. Never fabricates: a render that
+        # leaves no file is `failed`, and a failed render leaves any existing figure alone.
+        if not autonomous:
+            rec["status"] = "gated"
+            rec["outcome"] = {"ok": None, "detail": "consequential — re-run with --autonomous to execute"}
+        else:
+            vt = _viz_target(top["source"])
+            entry = _viz_entry(studies, *vt) if vt else None
+            if entry is None or not _viz_resolvable(entry):
+                rec["status"] = "gated"
+                rec["outcome"] = {"ok": None, "detail": "figure is not renderable (no resolvable "
+                                  "address/render) — declare one: discover viz <inv> "
+                                  f"{top['source']} --declare address=… --rationale '…'"}
+            else:
+                from .viz_freshness import normalize_entry
+                vstudy, vname = vt
+                sdir = _study_dir_on_disk(ws_root, inv_slug, vstudy)
+                latest = viz_inventory(ws_root, inv_slug, {vstudy: studies[vstudy]})[vstudy]["_latest"]
+                command = render_command(vstudy, vname, str(ws_root))
+                rec["command"] = command
+                try:
+                    if render_hook is not None:
+                        out = render_hook(sdir, entry, latest) or {}
+                    else:
+                        out = (runner or _default_runner)(command, ws_root) or {}
+                except Exception as e:  # noqa: BLE001 -- a crashing renderer is a failed render
+                    out = {"ok": False, "detail": f"render raised {type(e).__name__}: {e}"}
+                chart = (sdir / normalize_entry(entry)["output"]) if sdir else None
+                if out.get("ok") and not (chart and chart.is_file()):
+                    out = {**out, "ok": False,
+                           "detail": f"render reported ok but wrote no figure at {chart}"}
+                rec["outcome"] = out
+                rec["status"] = "executed" if out.get("ok") else "failed"
+                if rec["status"] == "executed":
+                    _post_render_stamp(sdir, entry, latest, command)
     elif top["action_type"] == "steer" and decider is not None and autonomous:
         # AI drives the expert decision: pick the option that maximizes discovery.
         detail = next((i["rationale"] for i in de.frontier(cyc, inv_spec)
@@ -1166,9 +1245,58 @@ def run_readiness(study_spec: dict, ws_root: Path | str | None = None) -> dict:
             "has_tests": has_tests, "has_contracts": has_contracts}
 
 
+def _viz_target(source) -> tuple[str, str] | None:
+    """``fig:<study>/<name>`` -> ``(study, name)`` else None."""
+    src = str(source)
+    if not src.startswith("fig:") or "/" not in src:
+        return None
+    study, _, name = src[4:].partition("/")
+    return (study, name) if study and name else None
+
+
+def _viz_entry(studies: dict, study: str, name: str) -> dict | None:
+    for e in (studies.get(study) or {}).get("visualizations") or []:
+        if isinstance(e, dict) and e.get("name") == name:
+            return e
+    return None
+
+
+def _viz_resolvable(entry: dict) -> bool:
+    """A declared entry the render executor can act on: a `class` or `command` kind. Never
+    a broken_stub (no identity) or a static figure with no `render:` recipe."""
+    from .viz_freshness import normalize_entry
+    return normalize_entry(entry)["kind"] in ("class", "command")
+
+
+def _post_render_stamp(sdir, entry: dict, latest: dict | None, command: str | None = None) -> bool:
+    """Best-effort (the `_post_run_sync` discipline): make sure the rendered figure carries
+    a ``<output>.meta.json`` stamped against the latest run, when the hook left it
+    unstamped (or stamped against an older run). Never creates a figure; returns True iff
+    it wrote a stamp. With no run to stamp against, writes nothing (mtime fallback)."""
+    if sdir is None or not latest or not latest.get("run_id"):
+        return False
+    try:
+        import time
+        from .viz_freshness import normalize_entry, read_meta, stamp_meta
+        out = normalize_entry(entry)["output"]
+        chart = Path(sdir) / out if out else None
+        if chart is None or not chart.is_file():
+            return False
+        meta = read_meta(chart)
+        if meta and meta.get("source_run_id") == latest["run_id"]:
+            return False
+        stamp_meta(chart, source_run_id=latest["run_id"],
+                   generation_id=(meta or {}).get("generation_id"),
+                   rendered_at=time.time(), command=command or (entry.get("render") or ""),
+                   model_version=(meta or {}).get("model_version"))
+        return True
+    except Exception:  # noqa: BLE001 -- stamping is best-effort, never fails an advance
+        return False
+
+
 # An applied revision's child runs as a `test` op (applied proposals are off the frontier);
 # `revise_model` is review-consequence, never dispatched.
-_ADVANCE_OPS = ("test", "branch")
+_ADVANCE_OPS = ("test", "branch", "build_viz", "refine_viz")
 
 
 def _advance_study_for(source, studies: dict) -> str | None:
@@ -1273,7 +1401,7 @@ def _post_run_sync(sdir, before_runs: set) -> None:
 
 
 def advance_cycle(ws_root: Path | str, inv_slug: str, *, autonomous: bool = False,
-                  runner=None, max_runs: int = 12) -> dict:
+                  runner=None, max_runs: int = 12, render_hook=None) -> dict:
     """The cycle's ADVANCE phase — build-if-needed and RUN the open questions, so turning
     the crank moves the science forward instead of only describing it.
 
@@ -1303,6 +1431,24 @@ def advance_cycle(ws_root: Path | str, inv_slug: str, *, autonomous: bool = Fals
             if p["action_type"] not in _ADVANCE_OPS or p["source"] in seen \
                     or (p["action_type"], p["source"]) in gated_ops:
                 continue
+            if p["action_type"] in ("build_viz", "refine_viz"):
+                # render ops: only a RESOLVABLE declared entry with consequence `render`
+                # (review-tier broken_stub / vp: stay gated); skip iff already stamped
+                # against the latest run (belt-and-braces for a hook that forgot to stamp).
+                vt = _viz_target(p["source"])
+                entry = _viz_entry(studies, *vt) if vt else None
+                if p["consequence"] != "render" or entry is None or not _viz_resolvable(entry):
+                    continue
+                from .viz_freshness import normalize_entry, read_meta
+                sd = _study_dir_on_disk(ws_root, inv_slug, vt[0])
+                lat = viz_inventory(ws_root, inv_slug, {vt[0]: studies[vt[0]]})[vt[0]]["_latest"]
+                chart = sd / normalize_entry(entry)["output"] if sd else None
+                meta = read_meta(chart) if chart is not None and chart.is_file() else None
+                if lat and meta and meta.get("source_run_id") == lat.get("run_id"):
+                    seen.add(p["source"])
+                    continue
+                target, target_slug, target_op = p["source"], vt[0], p["action_type"]
+                break
             if p["consequence"] not in ("simulation", "simulation+study"):
                 continue                            # review-tier (e.g. revise_model) stays gated
             # test ops name a study; branch / revise_model run ONLY when they resolve to an
@@ -1338,7 +1484,23 @@ def advance_cycle(ws_root: Path | str, inv_slug: str, *, autonomous: bool = Fals
         sdir = _study_dir_on_disk(ws_root, inv_slug, target_slug)
         before_runs = _run_names(sdir)
         rec = execute_action(ws_root, inv_slug, autonomous=True, runner=runner, target=target,
-                             action=target_op)
+                             action=target_op, render_hook=render_hook)
+        if target_op in ("build_viz", "refine_viz"):
+            # a render claims neither the study nor stops the loop; a failed/gated render
+            # is not retried this advance (gated_ops), a done one is not re-dispatched.
+            if rec["status"] == "executed":
+                seen.add(target)
+                _vt = _viz_target(target)
+                _, _inv, _st = load_cycle_inputs(ws_root, inv_slug)
+                _e = _viz_entry(_st, *_vt) if _vt else None
+                _lat = viz_inventory(ws_root, inv_slug, {_vt[0]: _st[_vt[0]]})[_vt[0]]["_latest"] if _e else None
+                if _e is not None:
+                    _post_render_stamp(sdir, _e, _lat, rec.get("command"))
+            else:
+                gated_ops.add((target_op, target))
+            ran.append({"target": target, "status": rec["status"],
+                        "outcome": (rec.get("outcome") or {}).get("detail")})
+            continue
         if rec["status"] == "gated":
             gated_ops.add((target_op, target))
         else:
@@ -2043,6 +2205,13 @@ def main(argv: list[str] | None = None) -> int:
     p_rev.add_argument("--change", type=int, default=None, help="candidate change index (default: first derived)")
     p_rev.add_argument("--rationale", default=None, help="why (required for --approve/--reject)")
 
+    p_viz = sub.add_parser("viz", help="review-tier edits of a declared figure (fig:<study>/<name>)")
+    p_viz.add_argument("investigation", help="investigation slug")
+    p_viz.add_argument("target", help="the figure, fig:<study>/<name>")
+    p_viz.add_argument("--declare", nargs="+", metavar="KEY=VALUE", required=True,
+                       help="set address=… [render=…] [requires=a,b] on the entry")
+    p_viz.add_argument("--rationale", default=None, help="why (required)")
+
     args = parser.parse_args(argv)
     ws = Path(args.workspace).resolve()
 
@@ -2099,6 +2268,21 @@ def main(argv: list[str] | None = None) -> int:
         print(f"resolved [{rec['kind']}] {rec['target']}"
               + (f"  (by {rec['by']})" if rec.get("by") else "")
               + f"  — {rec['rationale']}")
+        return 0
+
+    if args.cmd == "viz":
+        decl_kv: dict = {}
+        for kv in args.declare:
+            k, sep, v = kv.partition("=")
+            if not sep:
+                parser.error(f"--declare expects KEY=VALUE, got {kv!r}")
+            decl_kv[k.strip()] = [x.strip() for x in v.split(",") if x.strip()] if k.strip() == "requires" else v
+        try:
+            rec = declare_viz(ws, args.investigation, args.target, decl_kv, args.rationale or "")
+        except ValueError as e:
+            parser.error(str(e))
+            return 1
+        print(f"declared {args.target}: {', '.join(decl_kv)}  — {rec['rationale']}")
         return 0
 
     if args.cmd == "revise":
