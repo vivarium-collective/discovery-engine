@@ -655,10 +655,11 @@ def run_cycle(inv_spec: dict, studies_by_slug: dict[str, dict], *,
         from .viz_proposals import propose_visualizations
         bundle["viz_proposals"] = propose_visualizations(
             inv_spec, studies_by_slug, bundle, viz_state, viz_catalog)
-    if viz_catalog:  # headless (no catalog): scopes unknown -> nothing assessed, no false alarm
-        from .viz_appropriateness import investigation_viz_appropriateness
-        bundle["viz_appropriateness"] = investigation_viz_appropriateness(
-            studies_by_slug, _viz_scope_of(viz_catalog))
+    # Always assessed. Headless (no catalog): scope_of is None for every address, so an unresolved
+    # port is `not_assessed` (no false alarm) while an AUTHORED `scope:` is still honored.
+    from .viz_appropriateness import investigation_viz_appropriateness
+    bundle["viz_appropriateness"] = investigation_viz_appropriateness(
+        studies_by_slug, _viz_scope_of(viz_catalog))
     from .capability_gaps import propose_capability_gaps
     # The catalog (carrying `capability` + `builds`) is the same one the acquisition route reads.
     gaps = propose_capability_gaps(

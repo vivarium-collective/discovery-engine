@@ -90,6 +90,8 @@
         "freshness": {"type": "object"},
         "viz_appropriateness": {
           "type": "object",
+          "additionalProperties": false,
+          "required": ["misplaced", "untied", "duplicated", "not_assessed", "any_issue", "untied_surfaced"],
           "properties": {
             "misplaced": {"type": "integer", "minimum": 0},
             "untied": {"type": "integer", "minimum": 0},
