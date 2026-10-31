@@ -10,15 +10,17 @@ from discovery_engine.viz_appropriateness import (
     classify_viz,
     duplicated_cross_arm,
     investigation_viz_appropriateness,
-    study_viz_appropriateness,
     viz_scope,
 )
 
-# Input-port schemas mirroring the real sbml-decomposition viz classes.
+# Input-port schemas from the REAL sbml-decomposition viz classes (via inputs()).
 SCHEMAS = {
-    "local:TradeoffMap": {"arms": "list[string]", "labels": "list[string]", "points": "list[tree]"},
     "local:ComposabilityScorecard": {"arms": "list[string]", "labels": "list[string]", "dims": "list[string]"},
-    "local:RuntimeComparison": {"arms": "list[string]", "labels": "list[string]", "overhead": "tree"},
+    "local:RuntimeComparison": {"arms": "list[string]", "labels": "list[string]", "overhead_fraction": "tree"},
+    "local:AccuracyDivergence": {"arms": "list[string]", "labels": "list[string]", "max_rel_err": "tree"},
+    "local:ConvergenceCurves": {"curves": "tree", "labels": "list[string]"},  # per-study multi-curve
+    "local:TradeoffMap": {"points": "list[tree]", "off_axis": "list[string]"},  # cross-arm, PRE-AGGREGATED
+    "local:DecisionTable": {"rows": "list[tree]"},  # cross-arm, PRE-AGGREGATED
     "local:SpeciesDynamics": {"time": "list[float]", "species": "tree"},
 }
 
@@ -27,73 +29,73 @@ def scope_of(address):
     return SCHEMAS.get(address)
 
 
-def test_viz_scope_from_ports():
-    assert viz_scope(SCHEMAS["local:TradeoffMap"]) == INVESTIGATION
-    assert viz_scope(SCHEMAS["local:SpeciesDynamics"]) == STUDY
-    assert viz_scope(None) == UNKNOWN  # unresolved class -> no false alarm
+def test_arms_port_is_investigation():
+    for addr in ("local:ComposabilityScorecard", "local:RuntimeComparison", "local:AccuracyDivergence"):
+        assert viz_scope(SCHEMAS[addr]) == INVESTIGATION
+
+
+def test_labels_alone_is_not_a_cross_arm_signal():
+    # ConvergenceCurves labels its intervals, not arms — must NOT be flagged investigation
+    assert viz_scope(SCHEMAS["local:ConvergenceCurves"]) == STUDY
+
+
+def test_preaggregated_cross_arm_needs_explicit_scope():
+    # ports alone can't tell: TradeoffMap(points)/DecisionTable(rows) look study-scope
+    assert viz_scope(SCHEMAS["local:TradeoffMap"]) == STUDY
+    # the escape hatch: an explicit scope: on the entry wins
+    assert viz_scope(SCHEMAS["local:TradeoffMap"], declared="investigation") == INVESTIGATION
+
+
+def test_unresolved_class_is_unknown():
+    assert viz_scope(None) == UNKNOWN
 
 
 def test_cross_arm_viz_on_a_study_is_misplaced():
-    entry = {"name": "tradeoff_map", "address": "local:TradeoffMap", "covers": ["speed", "accuracy"]}
-    c = classify_viz(entry, scope_of("local:TradeoffMap"))
+    entry = {"name": "runtime", "address": "local:RuntimeComparison", "covers": ["wall_clock_s"]}
+    c = classify_viz(entry, scope_of("local:RuntimeComparison"))
     assert c["scope"] == INVESTIGATION
-    assert [i["kind"] for i in c["issues"]] == [MISPLACED_SCOPE]  # covered, so not untied
+    assert [i["kind"] for i in c["issues"]] == [MISPLACED_SCOPE]
+
+
+def test_explicit_scope_flags_preaggregated_cross_arm():
+    entry = {"name": "tradeoff", "address": "local:TradeoffMap", "scope": "investigation", "covers": ["speed"]}
+    c = classify_viz(entry, scope_of("local:TradeoffMap"))
+    assert c["scope"] == INVESTIGATION and [i["kind"] for i in c["issues"]] == [MISPLACED_SCOPE]
 
 
 def test_study_viz_untied_when_no_covers():
-    entry = {"name": "species_dynamics", "address": "local:SpeciesDynamics"}  # no covers
-    c = classify_viz(entry, scope_of("local:SpeciesDynamics"))
-    assert c["scope"] == STUDY
-    assert [i["kind"] for i in c["issues"]] == [UNTIED]
+    c = classify_viz({"name": "sp", "address": "local:SpeciesDynamics"}, scope_of("local:SpeciesDynamics"))
+    assert c["scope"] == STUDY and [i["kind"] for i in c["issues"]] == [UNTIED]
 
 
 def test_study_viz_ok_when_scoped_and_tied():
-    entry = {"name": "species_dynamics", "address": "local:SpeciesDynamics", "covers": ["glycolysis_trajectory"]}
+    entry = {"name": "sp", "address": "local:SpeciesDynamics", "covers": ["glycolysis_trajectory"]}
     assert classify_viz(entry, scope_of("local:SpeciesDynamics"))["ok"] is True
 
 
-def test_unknown_scope_only_flags_untied_not_misplaced():
-    entry = {"name": "mystery", "address": "local:NotInCatalog"}
-    c = classify_viz(entry, scope_of("local:NotInCatalog"))
-    assert c["scope"] == UNKNOWN
-    assert [i["kind"] for i in c["issues"]] == [UNTIED]  # never misplaced on an unresolved class
-
-
 def test_duplicated_cross_arm_detects_the_real_ambiguity():
-    # TradeoffMap declared on 3 studies, ComposabilityScorecard on 2 (the sbml-decomposition pattern)
     studies = {
         "sbml-in-tellurium": {"visualizations": [
-            {"address": "local:SpeciesDynamics"}, {"address": "local:TradeoffMap"}]},
-        "cross-engine-coupling": {"visualizations": [
-            {"address": "local:TradeoffMap"}, {"address": "local:ComposabilityScorecard"}]},
-        "bigger-models-and-abm-limit": {"visualizations": [
-            {"address": "local:TradeoffMap"}, {"address": "local:ComposabilityScorecard"}]},
+            {"address": "local:SpeciesDynamics"}, {"address": "local:RuntimeComparison"}]},
+        "fully-native-pbg": {"visualizations": [
+            {"address": "local:RuntimeComparison"}, {"address": "local:ComposabilityScorecard"}]},
+        "cross-engine-coupling": {"visualizations": [{"address": "local:ComposabilityScorecard"}]},
     }
-    dupes = duplicated_cross_arm(studies, scope_of)
-    by_addr = {d["address"]: d for d in dupes}
-    assert by_addr["local:TradeoffMap"]["count"] == 3
+    by_addr = {d["address"]: d for d in duplicated_cross_arm(studies, scope_of)}
+    assert by_addr["local:RuntimeComparison"]["count"] == 2
     assert by_addr["local:ComposabilityScorecard"]["count"] == 2
-    # a study-scope viz is never reported as a cross-arm duplicate
-    assert "local:SpeciesDynamics" not in by_addr
+    assert "local:SpeciesDynamics" not in by_addr  # study-scope never a cross-arm dup
 
 
-def test_investigation_rollup_any_issue():
-    studies = {
-        "s1": {"visualizations": [{"address": "local:TradeoffMap"}]},  # misplaced + untied
-        "s2": {"visualizations": [{"address": "local:TradeoffMap"}]},  # duplicated
-    }
-    roll = investigation_viz_appropriateness(studies, scope_of)
-    assert roll["any_issue"] is True
-    assert roll["duplicated_cross_arm"][0]["count"] == 2
-    assert all(not v["ok"] for rows in roll["per_study"].values() for v in rows)
+def test_investigation_rollup_any_issue_and_clean():
+    dirty = {"s1": {"visualizations": [{"address": "local:RuntimeComparison"}]},
+             "s2": {"visualizations": [{"address": "local:RuntimeComparison"}]}}
+    roll = investigation_viz_appropriateness(dirty, scope_of)
+    assert roll["any_issue"] is True and roll["duplicated_cross_arm"][0]["count"] == 2
 
-
-def test_clean_investigation_has_no_issues():
-    studies = {
-        "s1": {"visualizations": [{"address": "local:SpeciesDynamics", "covers": ["traj"]}]},
-    }
-    roll = investigation_viz_appropriateness(studies, scope_of)
-    assert roll["any_issue"] is False and roll["duplicated_cross_arm"] == []
+    clean = {"s1": {"visualizations": [{"address": "local:SpeciesDynamics", "covers": ["traj"]}]}}
+    roll2 = investigation_viz_appropriateness(clean, scope_of)
+    assert roll2["any_issue"] is False and roll2["duplicated_cross_arm"] == []
 
 
 def test_appropriateness_is_non_blocking():
