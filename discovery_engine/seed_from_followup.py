@@ -698,7 +698,8 @@ def resolve_seed_source(
 # ---------------------------------------------------------------------------
 
 
-def _child_scaffold(parent_slug: str, parent_study: dict, new_slug: str) -> dict:
+def _child_scaffold(parent_slug: str, parent_study: dict, new_slug: str,
+                    default_composite: str | None = None) -> dict:
     """A minimal, valid child study.yaml dict pre-wired back to the parent.
 
     The ChildSeed (purpose / key_assumptions / seeded_from / pipeline_gate /
@@ -709,6 +710,14 @@ def _child_scaffold(parent_slug: str, parent_study: dict, new_slug: str) -> dict
     import datetime
 
     today = datetime.date.today().isoformat()
+    # No workspace-specific default: explicit param, else inherit the parent's baseline
+    # composite, else None (the seed / author must fill it).
+    parent_composite = None
+    pb = (parent_study or {}).get("baseline")
+    if isinstance(pb, list) and pb and isinstance(pb[0], dict):
+        parent_composite = pb[0].get("composite")
+    elif isinstance(pb, dict):
+        parent_composite = pb.get("composite")
     return {
         "schema_version": 4,
         "name": new_slug,
@@ -717,7 +726,7 @@ def _child_scaffold(parent_slug: str, parent_study: dict, new_slug: str) -> dict
         "phase": "Design",
         "baseline": [{
             "name": "baseline-placeholder",
-            "composite": "v2ecoli.composites.baseline.baseline",
+            "composite": default_composite or parent_composite,
             "params": {"seed": 0, "cache_dir": "out/cache"},
         }],
         "purpose": {},
@@ -812,6 +821,7 @@ def write_child_study(
     seed_source: "SeedSource",
     *,
     new_slug: str | None = None,
+    default_composite: str | None = None,
 ) -> dict:
     """Create ``studies/<new_slug>/study.yaml`` + stamp the parent, atomically.
 
@@ -842,7 +852,7 @@ def write_child_study(
     if new_dir.exists():
         raise FileExistsError(f"study {new_slug!r} already exists at {new_dir}")
 
-    child = _child_scaffold(parent_slug, parent_study, new_slug)
+    child = _child_scaffold(parent_slug, parent_study, new_slug, default_composite)
 
     if seed_source.finding_id:
         seed = build_child_seed_from_finding(

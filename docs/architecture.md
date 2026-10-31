@@ -113,7 +113,9 @@ resolved history, not a live caveat. `discovery_delta` is the per-cycle record o
 added/qualified claims, gated studies, disagreements, anomalies, and recorded
 regressions.
 
-### N+2 — Transition composition · `transition_model` · `discover transition`
+### N+2 — Transition composition (extracted)
+This was a domain analysis and no longer ships in the engine; see `docs/extracted/transition_model.py`. Description of what it did:
+
 Compose the validated sub-models into a versioned transition composite (routing
 each mechanism through the Phase-D catalog, pinning the Cycle N+1 `ModelVersion`s
 as parents) and estimate a **conditional phase diagram**: which regime of the

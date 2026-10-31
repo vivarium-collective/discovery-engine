@@ -54,7 +54,6 @@ half). Each phase produces a typed contract and is driven by one CLI verb:
 | **D** build | capability-driven model acquisition (reuse / wrap / build); immutable `ModelVersion` | `build-model` | `model_architect` |
 | **E** execute | run the designed studies, consequence- and autonomy-gated | `advance` / `execute` | (Layer 1) |
 | **F** evaluate | promote or reject claims (support × evidence integrity); emit a `DiscoveryDelta` | `evaluate` / `delta` | `evaluation` |
-| **N+2** compose | compose the sub-models into a transition model + a conditional phase diagram | `transition` | `transition_model` |
 
 **Growth ops** close the loop — propose → seed → run → promote → refine — gated
 by a `human_in_the_loop` (default) vs `autonomous` policy:
@@ -122,7 +121,6 @@ discover evaluate <inv>                # F: claim verdicts (support × integrity
 discover delta <inv>                   # F: the per-cycle DiscoveryDelta
 
 # Cycle N+2
-discover transition <inv>              # compose the transition model + phase diagram
 
 # Grow — propose · seed · refine (autonomy-gated)
 discover seed-study <inv> <parent> --slug … [--autonomy …] [--write]

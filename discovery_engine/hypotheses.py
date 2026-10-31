@@ -458,12 +458,23 @@ def discriminating_hypotheses(inv_spec: dict) -> dict:
 
 # Fidelity ranks for simulation evidence (higher = more mechanistically adequate).
 # Evidence may carry ``fidelity: <level>``; an absent/unknown level is rank 0.
-_FIDELITY_RANK = {
-    "heuristic": 1, "analytic": 1, "analytical": 1, "budget": 1, "geometric_feasibility": 1,
-    "reduced": 2, "coarse_spatial": 2, "spatial_dynamics": 2, "reproduction": 2, "population": 2,
-    "continuum": 3, "continuum_membrane_energetics": 3, "mechanistic": 3, "dynamical": 3,
+# The framework ships only generic tiers; workspaces add domain-specific level names via
+# ``register_fidelity_ranks``.
+_FIDELITY_RANK: dict[str, int] = {
+    "heuristic": 1, "analytic": 1, "analytical": 1, "budget": 1,
+    "reduced": 2,
+    "continuum": 3, "mechanistic": 3, "dynamical": 3,
     "mesh": 4, "molecular": 4, "high_fidelity": 4,
 }
+
+
+def register_fidelity_ranks(mapping: dict[str, int], *, replace: bool = False) -> None:
+    """Register fidelity-level -> rank entries (keys are lower-cased). ``replace``
+    discards the generic defaults first."""
+    if replace:
+        _FIDELITY_RANK.clear()
+    for k, v in mapping.items():
+        _FIDELITY_RANK[str(k).strip().lower()] = int(v)
 
 
 def _fidelity_rank(level: Any) -> int:

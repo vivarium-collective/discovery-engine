@@ -2,6 +2,8 @@
 run would separate (the stage-3 heuristic information-value signal)."""
 from __future__ import annotations
 
+import pytest
+
 from discovery_engine import hypotheses as H
 
 
@@ -88,6 +90,14 @@ def test_single_hypothesis_observable_is_not_checked_for_anomaly():
            "predictions": [{"observable": "flux", "expected": {"op": ">=", "value": 1.0e-22}}]}]}
     study = {"name": "s2", "findings": [{"evidence": {"measure": "flux", "observed": 0.0}}]}
     assert H.anomalies(inv, [study]) == []
+
+
+@pytest.fixture(autouse=True)
+def _domain_fidelity_ranks():
+    saved = dict(H._FIDELITY_RANK)
+    H.register_fidelity_ranks({"geometric_feasibility": 1, "continuum_membrane_energetics": 3})
+    yield
+    H._FIDELITY_RANK.clear(); H._FIDELITY_RANK.update(saved)
 
 
 # --- fidelity_flags: automatic model-fidelity caveats (stage 4/6) ---

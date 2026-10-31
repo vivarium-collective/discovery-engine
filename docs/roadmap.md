@@ -29,7 +29,7 @@ CLI verbs. See [`architecture.md`](architecture.md). Landed:
 - ✅ **Prediction + ExperimentDesign** (`experiment_design`, `discover design`) — contrast, controls, registered predictions, committed decision rule (specify-before-run). Satisfies AC-03.01 (discriminating ranks above non-discriminating).
 - ✅ **ModelVersion** (`model_architect`, `discover build-model`) — immutable, content-addressed, parent_ids; reuse/wrap/build acquisition + coupling checks. Satisfies FR-04.04.
 - ✅ **DiscoveryDelta** (`evaluation`, `discover delta`) — semantic change per cycle. Satisfies FR-08.01.
-- ✅ **Transition composition** (`transition_model`, `discover transition`) — composed model + conditional phase diagram (Cycle N+2).
+- Transition composition (Cycle N+2) was a domain analysis; moved out of the framework to `docs/extracted/transition_model.py` for the workspace to adopt.
 - ✅ **Growth loop** (`study_seeding` / `study_refinement`, `discover seed-study` / `refine-study`) — propose→seed→run→promote→refine, with a `human_in_the_loop` vs `autonomous` policy. Covers FR-03.04 (designs → run-ready study.yaml) and part of FR-04.01 (needs_build → build routing).
 
 ## Still missing — new data entities

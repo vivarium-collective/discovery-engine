@@ -1,3 +1,6 @@
+# moved out of the framework — domain analysis belongs in the workspace (viva-genesis).
+# Original location: discovery_engine/transition_model.py. Imports `discovery_engine.model_architect`;
+# if adopted, register the domain synonyms (see model_architect.register_synonyms).
 """Transition composition — Discovery Engine 2.0, Milestone 4 (Cycle N+2).
 
 Compose the Cycle N+1 sub-models into a versioned Proto-Endosymbiosis Composite and
