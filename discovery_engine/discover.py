@@ -2615,6 +2615,8 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     if args.cmd == "gap":
+        if args.accept and args.reject:
+            parser.error("gap: pass only one of --accept / --reject")
         try:
             if args.reject:
                 reject_capability_gap(ws, args.investigation, args.reject, rationale=args.rationale or "")
@@ -2635,7 +2637,6 @@ def main(argv: list[str] | None = None) -> int:
                 parser.error("gap needs --propose, --accept CG, or --reject CG")
         except ValueError as e:
             parser.error(str(e))
-            return 1
         return 0
 
     if args.cmd == "viz" and (args.propose or args.accept or args.reject):

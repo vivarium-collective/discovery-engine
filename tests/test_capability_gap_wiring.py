@@ -134,3 +134,60 @@ def test_cli_gap_verb(tmp_path, monkeypatch, capsys):
     assert cg in capsys.readouterr().out
     assert D.main(["--workspace", str(ws), "gap", "inv", "--accept", cg, "--rationale", "yes"]) == 0
     assert _gaps(ws)[0]["status"] == "accepted"
+
+
+def _write_gaps(ws, mutate):
+    p = investigations_dir(ws) / "inv" / "investigation.yaml"
+    d = yaml.safe_load(p.read_text())
+    mutate(d["capability_gaps"][0])
+    p.write_text(yaml.safe_dump(d))
+
+
+@pytest.mark.parametrize("bad", [{"id": "vp:wrong"}, {"status": "bogus"}])
+def test_persist_rejects_malformed_gap(tmp_path, monkeypatch, bad):
+    import jsonschema
+    ws = _fixture(tmp_path, monkeypatch)
+    _, res = _persist(ws)
+    res["capability_gaps"] = [{**res["capability_gaps"][0], "id": "cg:inv:zz", **bad}]
+    p = investigations_dir(ws) / "inv" / "investigation.yaml"
+    d = yaml.safe_load(p.read_text())
+    d.pop("capability_gaps")
+    p.write_text(yaml.safe_dump(d))
+    inv_path, inv, st = D.load_cycle_inputs(ws, "inv")
+    with pytest.raises(jsonschema.ValidationError):
+        D.persist_cycle(inv_path, inv, res, studies=st)
+
+
+def test_non_autonomous_never_builds_accepted_gap(tmp_path, monkeypatch):
+    ws = _fixture(tmp_path, monkeypatch)
+    cg = _persist(ws)[0]["capability_gaps"][0]["id"]
+    D.accept_capability_gap(ws, "inv", cg, rationale="needed")
+    calls = []
+    monkeypatch.setattr(D, "load_workspace_build_hook", lambda w: (lambda g, r: calls.append(g)))
+    rec = D.execute_action(ws, "inv", autonomous=False, target=cg)
+    assert rec["status"] == "gated-human" and calls == [] and _gaps(ws)[0]["status"] == "accepted"
+
+
+def test_hand_edited_accepted_gap_without_rationale_is_gated(tmp_path, monkeypatch):
+    ws = _fixture(tmp_path, monkeypatch)
+    cg = _persist(ws)[0]["capability_gaps"][0]["id"]
+    _write_gaps(ws, lambda g: g.update(status="accepted"))        # no accept.rationale
+    calls = []
+    rec = D.execute_action(ws, "inv", autonomous=True, target=cg, build_hook=lambda g, r: calls.append(g))
+    assert rec["status"] == "gated-human" and calls == [] and _gaps(ws)[0]["status"] == "accepted"
+
+
+def test_derivable_proposed_gap_without_decider_is_gated(tmp_path, monkeypatch):
+    ws = _fixture(tmp_path, monkeypatch, builds=MECH)
+    cg = _persist(ws)[0]["capability_gaps"][0]["id"]
+    calls = []
+    rec = D.execute_action(ws, "inv", autonomous=True, target=cg, build_hook=lambda g, r: calls.append(g))
+    assert rec["status"] == "gated-human" and calls == [] and _gaps(ws)[0]["status"] == "proposed"
+
+
+def test_cli_accept_and_reject_together_is_an_error(tmp_path, monkeypatch):
+    ws = _fixture(tmp_path, monkeypatch)
+    cg = _persist(ws)[0]["capability_gaps"][0]["id"]
+    with pytest.raises(SystemExit):
+        D.main(["--workspace", str(ws), "gap", "inv", "--accept", cg, "--reject", cg, "--rationale", "x"])
+    assert _gaps(ws)[0]["status"] == "proposed"
