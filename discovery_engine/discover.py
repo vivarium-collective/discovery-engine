@@ -1009,6 +1009,17 @@ def load_cycle_inputs(ws_root: Path | str, slug: str) -> tuple[Path, dict, dict[
     return inv_path, inv_spec, studies_by_slug
 
 
+def missing_members(ws_root: Path | str, slug: str) -> list[str]:
+    """Member slugs listed in the investigation with no ``study.yaml`` on disk (flat or
+    nested). Read-only. ``load_cycle_inputs`` skips these; the
+    ``structural.investigation.members`` validator surfaces them on the frontier."""
+    ws = Path(ws_root)
+    inv_spec = load_yaml_mapping(investigations_dir(ws) / slug / "investigation.yaml")
+    bases = (studies_dir(ws), investigations_dir(ws) / slug / "studies")
+    return [s for s in (inv_spec.get("studies") or [])
+            if not any((b / s / "study.yaml").exists() for b in bases)]
+
+
 def _load_runs_by_study(ws: Path, inv_slug: str, studies: dict) -> dict[str, list]:
     """``{study_slug: [registered runs]}`` from each study's ``runs.db`` (flat path
     first, then the nested investigation path). Shared by the Phase A/B/F commands."""
@@ -1514,7 +1525,7 @@ def main(argv: list[str] | None = None) -> int:
         print(summarize(result))
         if args.cmd == "cycle" and not args.no_write:
             persist_cycle(inv_path, inv_spec, result)
-            print(f"persisted knowledge_cycle -> {inv_path}")
+            print(f"persisted cycle_state -> {inv_path}")
         return 0
 
     if args.cmd == "set-verdict":

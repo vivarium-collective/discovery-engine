@@ -429,6 +429,22 @@ def _investigation_hygiene(ctx: ValidationContext) -> list[dict]:
         validator_id="structural.investigation.hygiene")]
 
 
+@validator(type="structural", scope="investigation", id="structural.investigation.members",
+           surfaces="frontier")
+def _investigation_members(ctx: ValidationContext) -> list[dict]:
+    """A member study listed in the investigation but absent from the loaded studies
+    (no ``study.yaml`` on disk) -- one frontier finding each, so it never silently vanishes."""
+    listed = (getattr(ctx, "inv_spec", None) or {}).get("studies") or []
+    loaded = getattr(ctx, "studies", None) or {}
+    return [validation_record(
+        type="structural", scope="investigation", target=f"member:{s}",
+        execution_status="failed", criteria=["members_present"],
+        findings=[f"member study `{s}` is listed in the investigation but has no study.yaml on disk"],
+        recommendations=[f"create `{s}/study.yaml` or remove `{s}` from the investigation's studies"],
+        validator_id="structural.investigation.members")
+        for s in listed if s not in loaded]
+
+
 # Load-bearing secondary prose the derive-first cycle DEPENDS ON but does not generate
 # (content-flow audit, 2026-10-27): the cycle copies these into propositions / the
 # executive opening, or degrades to an explicit stub. Flag an absent one on the frontier
