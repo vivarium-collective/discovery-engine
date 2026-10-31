@@ -138,3 +138,23 @@ def test_resolver_only_names_on_disk_studies():
     assert discover._advance_study_for("kid", {"kid": {}}) == "kid"
     assert discover._advance_study_for("rp:x", {"kid": {}}) is None
     assert discover._advance_study_for("claim:nope", {"kid": {}}) is None
+
+
+def test_gated_op_does_not_stop_or_preclaim(tmp_path, monkeypatch):
+    # A GATED branch op (placeholder command) on study x is ranked first. It must not stop the
+    # loop (y still runs) nor pre-claim x (x's own runnable test op still runs).
+    from discovery_engine import discovery_engine as de
+    _ws(tmp_path, {"x": _study("x"), "y": _study("y")})
+    real = de.execute_plan
+
+    def plan(cyc, inv):
+        ex = de._executor_for("branch", "claim:x")
+        gated = {"id": "b", "source": "claim:x", "action_type": "branch", "score": 99.0,
+                 "state": "proposed", **ex}
+        return [gated] + [p for p in real(cyc, inv)]
+
+    monkeypatch.setattr(de, "execute_plan", plan)
+    runner = FakeRunner()
+    res = _advance(tmp_path, runner)
+    assert sorted(runner.calls) == ["x", "y"]
+    assert any(r["status"] == "gated" for r in res["runs"])

@@ -807,7 +807,8 @@ def _env_decider(target: str, detail: str) -> dict:
 
 
 def execute_action(ws_root: Path | str, inv_slug: str, *, autonomous: bool = False,
-                   runner=None, decider=None, target: str | None = None) -> dict:
+                   runner=None, decider=None, target: str | None = None,
+                   action: str | None = None) -> dict:
     """The bridge's execution step: take the top value-ranked action and carry it out,
     gated by consequence.
 
@@ -837,7 +838,8 @@ def execute_action(ws_root: Path | str, inv_slug: str, *, autonomous: bool = Fal
     # Default: the single highest-value move (plan[0]). With `target`, drive that specific
     # frontier item instead — e.g. an AI decider driving a decision that a higher-value
     # verification run would otherwise rank ahead of.
-    top = plan[0] if target is None else next((p for p in plan if p["source"] == target), None)
+    top = plan[0] if target is None else next((p for p in plan if p["source"] == target
+                                  and (action is None or p["action_type"] == action)), None)
     if top is None:
         return {"status": "no-such-action", "target": target, "frontier": before}
     rec = {"action": top["action_type"], "source": top["source"], "command": top["command"],
@@ -1189,15 +1191,17 @@ def advance_cycle(ws_root: Path | str, inv_slug: str, *, autonomous: bool = Fals
     needs_build: list[dict] = []
     seen: set = set()
     seen_slugs: set = set()
+    gated_ops: set = set()      # (op, source) already gated: not retried, but they do not claim the study
     _, inv0, st0 = load_cycle_inputs(ws_root, inv_slug)
     before = de.closure(_cycle_with_evidence(ws_root, inv_slug, inv0, st0), inv0)["open_items"]
     for _ in range(max_runs):
         _, inv, studies = load_cycle_inputs(ws_root, inv_slug)
         plan = de.execute_plan(_cycle_with_evidence(ws_root, inv_slug, inv, studies), inv)
         target = None
-        target_slug = None
+        target_slug = target_op = None
         for p in plan:
-            if p["action_type"] not in _ADVANCE_OPS or p["source"] in seen:
+            if p["action_type"] not in _ADVANCE_OPS or p["source"] in seen \
+                    or (p["action_type"], p["source"]) in gated_ops:
                 continue
             if p["consequence"] not in ("simulation", "simulation+study"):
                 continue                            # review-tier (e.g. revise_model) stays gated
@@ -1220,26 +1224,34 @@ def advance_cycle(ws_root: Path | str, inv_slug: str, *, autonomous: bool = Fals
                 continue
             rr = run_readiness(spec, ws_root)
             if rr["ready"]:
-                target, target_slug = p["source"], slug
+                target, target_slug, target_op = p["source"], slug, p["action_type"]
                 break
             needs_build.append({"study": slug, "gaps": rr["gaps"]})
             seen.add(p["source"])
         if target is None:
             break                                   # no runnable test op left
-        seen.add(target)
-        seen_slugs.add(target_slug)
         if not autonomous:
+            seen.add(target)
+            seen_slugs.add(target_slug)
             ran.append({"target": target, "status": "would-run (pass --autonomous to execute)"})
             break
         sdir = _study_dir_on_disk(ws_root, inv_slug, target_slug)
         before_runs = _run_names(sdir)
-        rec = execute_action(ws_root, inv_slug, autonomous=True, runner=runner, target=target)
+        rec = execute_action(ws_root, inv_slug, autonomous=True, runner=runner, target=target,
+                             action=target_op)
+        if rec["status"] == "gated":
+            gated_ops.add((target_op, target))
+        else:
+            seen.add(target)
         if rec["status"] == "executed":
             _post_run_sync(sdir, before_runs)
         ran.append({"target": target, "status": rec["status"],
                     "outcome": (rec.get("outcome") or {}).get("detail")})
+        if rec["status"] == "gated":
+            continue            # a gated op neither stops the loop nor claims its study
+        seen_slugs.add(target_slug)   # only a dispatched target claims its study
         if rec["status"] != "executed":
-            break
+            break               # hard failure
     _, inv2, st2 = load_cycle_inputs(ws_root, inv_slug)
     after = de.closure(_cycle_with_evidence(ws_root, inv_slug, inv2, st2), inv2)["open_items"]
     return {"runs": ran, "needs_build": needs_build,
