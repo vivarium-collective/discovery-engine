@@ -187,6 +187,11 @@ def declare_viz(ws_root: Path | str, inv_slug: str, target: str, declare: dict,
                 if isinstance(e, dict) and e.get("name") == name), None)
     if ent is None:
         raise ValueError(f"{study} declares no visualization named {name!r}")
+    from .viz_freshness import BROKEN_STUB, normalize_entry
+    if normalize_entry(dict(ent))["kind"] != BROKEN_STUB:
+        raise ValueError(f"{target} is not a broken stub — --declare only repairs a figure with "
+                         "no renderable identity; re-author a healthy entry through the normal "
+                         "study authoring path")
     for k, v in declare.items():
         ent[k] = list(v) if k == "requires" else v
     ent.pop("rendered", None)
@@ -1031,6 +1036,15 @@ def execute_action(ws_root: Path | str, inv_slug: str, *, autonomous: bool = Fal
                 latest = viz_inventory(ws_root, inv_slug, {vstudy: studies[vstudy]})[vstudy]["_latest"]
                 command = render_command(vstudy, vname, str(ws_root))
                 rec["command"] = command
+                _out_rel = normalize_entry(entry)["output"]
+                chart = (sdir / _out_rel) if (sdir and _out_rel) else None
+
+                def _snap():
+                    if chart is None or not chart.is_file():
+                        return None
+                    return (chart.stat().st_mtime_ns, chart.read_bytes())
+                import time as _time
+                before_snap, t0 = _snap(), _time.time()
                 try:
                     if render_hook is not None:
                         out = render_hook(sdir, entry, latest) or {}
@@ -1038,10 +1052,21 @@ def execute_action(ws_root: Path | str, inv_slug: str, *, autonomous: bool = Fal
                         out = (runner or _default_runner)(command, ws_root) or {}
                 except Exception as e:  # noqa: BLE001 -- a crashing renderer is a failed render
                     out = {"ok": False, "detail": f"render raised {type(e).__name__}: {e}"}
-                chart = (sdir / normalize_entry(entry)["output"]) if sdir else None
-                if out.get("ok") and not (chart and chart.is_file()):
-                    out = {**out, "ok": False,
-                           "detail": f"render reported ok but wrote no figure at {chart}"}
+                if out.get("ok"):
+                    # Never launder a stale figure as fresh: `ok` counts only if the figure
+                    # actually CHANGED, or the hook stamped valid meta for the latest run
+                    # during this render. Otherwise the render produced nothing -> failed.
+                    from .viz_freshness import read_meta
+                    after = _snap()
+                    changed = after is not None and after != before_snap
+                    m = read_meta(chart) if after is not None else None
+                    stamped = bool(after is not None and m and latest
+                                   and out.get("source_run_id") == latest.get("run_id")
+                                   and m.get("source_run_id") == latest.get("run_id")
+                                   and (m.get("rendered_at") or 0) >= t0)
+                    if not (changed or stamped):
+                        out = {**out, "ok": False,
+                               "detail": f"render reported ok but produced no new figure at {chart}"}
                 rec["outcome"] = out
                 rec["status"] = "executed" if out.get("ok") else "failed"
                 if rec["status"] == "executed":

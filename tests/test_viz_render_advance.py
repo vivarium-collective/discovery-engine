@@ -159,3 +159,54 @@ def test_declare_cli(tmp_path, monkeypatch):
     assert rc == 0
     ent = yaml.safe_load((sd / "study.yaml").read_text())["visualizations"][0]
     assert ent["address"] == "local:p.E" and ent["requires"] == ["a", "b"]
+
+
+def _stale_b(tmp_path, monkeypatch):
+    ws, sd = _ws(tmp_path, monkeypatch, VIS[1:2], files=("viz/b.html",))
+    import os
+    os.utime(sd / "viz" / "b.html", (1.0, 1.0))
+    return ws, sd
+
+
+def test_ok_but_unchanged_stale_figure_is_not_laundered(tmp_path, monkeypatch):
+    ws, sd = _stale_b(tmp_path, monkeypatch)
+    calls = []
+    res = D.advance_cycle(ws, "inv", autonomous=True, render_hook=_hook("nothing", calls))
+    assert calls == ["b"] and [r["status"] for r in res["runs"]] == ["failed"]
+    assert (sd / "viz" / "b.html").read_text() == "<html>old</html>"
+    assert read_meta(sd / "viz" / "b.html") is None
+    assert [i["kind"] for i in _items(ws)] == ["viz_stale"]
+
+
+def test_prestamped_item_not_redispatched_by_advance(tmp_path, monkeypatch):
+    ws, sd = _ws(tmp_path, monkeypatch, VIS[1:2], files=("viz/b.html",))
+    import os
+    os.utime(sd / "viz" / "b.html", (1.0, 1.0))
+    # stamped against latest run but rendered_at predates completion -> still stale
+    stamp_meta(sd / "viz" / "b.html", source_run_id="r1", generation_id=None,
+               rendered_at=1.0, command="x")
+    assert [i["kind"] for i in _items(ws)] == ["viz_stale"]
+    calls = []
+    res = D.advance_cycle(ws, "inv", autonomous=True, render_hook=_hook("stamp", calls))
+    assert calls == [] and res["runs"] == []
+
+
+def test_hook_exception_is_failed_gated_no_figure(tmp_path, monkeypatch):
+    ws, sd = _ws(tmp_path, monkeypatch, VIS[:1])
+    calls = []
+
+    def boom(sdir, entry, latest):
+        calls.append(entry["name"])
+        raise RuntimeError("renderer crashed")
+    res = D.advance_cycle(ws, "inv", autonomous=True, render_hook=boom)
+    assert calls == ["a"]                       # gated, not retried
+    assert [r["status"] for r in res["runs"]] == ["failed"]
+    assert "RuntimeError" in res["runs"][0]["outcome"]
+    assert not (sd / "viz" / "a.html").exists()
+
+
+def test_declare_refuses_healthy_entry(tmp_path, monkeypatch):
+    ws, sd = _ws(tmp_path, monkeypatch, [{"name": "h", "address": "local:p.H"}])
+    with pytest.raises(ValueError, match="not a broken stub"):
+        D.declare_viz(ws, "inv", "fig:s5/h", {"address": "local:p.Z"}, "why")
+    assert yaml.safe_load((sd / "study.yaml").read_text())["visualizations"][0]["address"] == "local:p.H"
