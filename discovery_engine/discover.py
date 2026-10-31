@@ -730,23 +730,14 @@ def run_readiness(study_spec: dict, ws_root: Path | str | None = None) -> dict:
     # on eukaryogenesis: all 5 baseline composites were ModuleNotFoundError while readiness said
     # ready). Resolve WITHOUT executing composite code (find_spec), and only when the workspace
     # package is importable at all, so a missing package isn't misread as a missing model.
-    import importlib.util as _ilu
+    from .model_architect import _top_importable, resolve_composite
     composite_missing: str | None = None
     _baseline = study_spec.get("baseline") or []
     comp = (_baseline[0].get("composite")
             if _baseline and isinstance(_baseline[0], dict) else None) or study_spec.get("composite")
     if comp and isinstance(comp, str) and "." in comp:
-        top, module = comp.split(".")[0], comp.rsplit(".", 1)[0]
-        try:
-            top_ok = _ilu.find_spec(top) is not None
-        except Exception:  # noqa: BLE001 — a broken intermediate package isn't our assessment
-            top_ok = False
-        if top_ok:
-            try:
-                if _ilu.find_spec(module) is None:
-                    composite_missing = comp
-            except Exception:  # noqa: BLE001 — module (or intermediate) not importable → not built
-                composite_missing = comp
+        if _top_importable(comp) and not resolve_composite(comp, ws_root)["resolves"]:
+            composite_missing = comp
 
     gaps: list[str] = []
     if composite_missing and not already_run:

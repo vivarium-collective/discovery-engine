@@ -14,6 +14,7 @@ composite" — ``validate_coupling`` flags mixed formalisms with no coupling con
 from __future__ import annotations
 
 import hashlib
+import importlib.util
 import json
 import re
 from typing import Any
@@ -63,7 +64,35 @@ def _tokens(s: Any) -> set[str]:
     return set(t for t in re.split(r"[^a-z0-9]+", str(s or "").lower()) if len(t) > 2)
 
 
-def build_catalog(studies: dict) -> list[dict]:
+def _top_importable(composite: str) -> bool:
+    """True when the composite's top-level package can be located (find_spec only)."""
+    try:
+        return importlib.util.find_spec(composite.split(".")[0]) is not None
+    except Exception:  # noqa: BLE001 — a broken intermediate package isn't resolvable
+        return False
+
+
+def resolve_composite(composite: str, ws_root) -> dict:
+    """Does this composite's module exist? Pure: ``importlib.util.find_spec`` only, never
+    imports composite code. ``composite`` is a dotted ``pkg.module.name`` path; the module is
+    everything before the last dot. ``ws_root`` is accepted for API symmetry (resolution uses
+    the current environment's import path)."""
+    out = {"resolves": False, "module": None, "spec_path": None}
+    if not composite or not isinstance(composite, str) or "." not in composite:
+        return out
+    module = composite.rsplit(".", 1)[0]
+    if not _top_importable(composite):
+        return out
+    try:
+        spec = importlib.util.find_spec(module)
+    except Exception:  # noqa: BLE001 — module (or intermediate) not importable
+        return out
+    if spec is None:
+        return out
+    return {"resolves": True, "module": module, "spec_path": getattr(spec, "origin", None)}
+
+
+def build_catalog(studies: dict, ws_root=None) -> list[dict]:
     """Derive a capability catalog from the campaign's study arms. One component per
     (study, composite): its capability signature is the composite-name tokens plus
     the study's topic/concept/title tokens plus its declared observables."""
@@ -98,6 +127,8 @@ def build_catalog(studies: dict) -> list[dict]:
             "fidelity": fids[0] if fids else None, "fidelities": fids,
             "capability": sorted(e["_cap"]), "observables": sorted(e["_obs"]),
         })
+        if ws_root is not None:
+            catalog[-1].update(resolve_composite(comp, ws_root))
     return catalog
 
 

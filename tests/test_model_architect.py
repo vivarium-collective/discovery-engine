@@ -59,3 +59,28 @@ def test_search_ranks_providers():
     found = M.search_components(
         M.ModelBuildRequest(question_id="A", required_mechanisms=["exchange"]), M.build_catalog(_studies()))
     assert found["exchange"] and found["exchange"][0]["_match"] >= 1
+
+
+def test_resolve_composite_true_and_false(tmp_path):
+    ok = M.resolve_composite("discovery_engine.model_architect.build_catalog", tmp_path)
+    assert ok["resolves"] is True
+    assert ok["module"] == "discovery_engine.model_architect"
+    assert ok["spec_path"] and ok["spec_path"].endswith("model_architect.py")
+    bad = M.resolve_composite("discovery_engine.no_such_mod.thing", tmp_path)
+    assert bad["resolves"] is False
+    assert bad["spec_path"] is None
+    assert M.resolve_composite("nonexistent_pkg_xyz.mod.f", tmp_path)["resolves"] is False
+
+
+def test_build_catalog_with_ws_root_marks_components(tmp_path):
+    studies = {"s": {"baseline": [{"composite": "discovery_engine.model_architect.build_catalog"}],
+                     "variants": [{"composite": "nonexistent_pkg_xyz.mod.f"}]}}
+    cat = {c["composite"]: c for c in M.build_catalog(studies, tmp_path)}
+    assert cat["discovery_engine.model_architect.build_catalog"]["resolves"] is True
+    assert cat["discovery_engine.model_architect.build_catalog"]["module"] == "discovery_engine.model_architect"
+    assert cat["nonexistent_pkg_xyz.mod.f"]["resolves"] is False
+
+
+def test_build_catalog_without_ws_root_unchanged():
+    for c in M.build_catalog(_studies()):
+        assert not ({"resolves", "module", "spec_path"} & set(c))
