@@ -59,14 +59,15 @@ def select_for_launch(suggestions: list[dict], *, autonomy: str = HUMAN_IN_THE_L
 
 def _inherit_arm(parent_spec: dict, model_change: dict | None) -> list[dict]:
     """The seeded study's baseline: the parent's baseline composite, with the
-    proposal's ``model_change`` param overrides applied — run-ready by construction."""
+    proposal's ``model_change`` ``params``/``composite`` overrides applied — run-ready by construction."""
     base = next((a for a in (parent_spec.get("baseline") or []) if isinstance(a, dict)), None)
     if not base or not base.get("composite"):
         return []
     params = dict(base.get("params") or {})
     for k, v in ((model_change or {}).get("params") or {}).items():
         params[k] = v
-    arm = {"name": "baseline", "composite": base["composite"], "params": params}
+    composite = (model_change or {}).get("composite") or base["composite"]
+    arm = {"name": "baseline", "composite": composite, "params": params}
     if (model_change or {}).get("note") or (model_change or {}).get("notes"):
         arm["note"] = model_change.get("note") or model_change.get("notes")
     return [arm]

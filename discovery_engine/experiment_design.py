@@ -142,3 +142,56 @@ def design_discriminating_study(inv_spec: dict, study_slug: str,
     }
     design["control_issues"] = validate_controls(design, required_controls)
     return design
+
+
+def materialize_design(design: dict, parent_spec: dict, inv_spec: dict,
+                       model_version: dict | None = None) -> dict:
+    """Turn a discriminating ``design`` into a child study spec. Pure (no I/O, inputs
+    untouched); the caller writes it (``_write_seeded_study``).
+
+    Baseline comes from ``build_seeded_study``; ``model_version`` (``{composite, params}``,
+    e.g. from ``model_architect.model_version``) becomes its ``model_change``. One
+    ``variants[]`` arm per intervention: when every ``when`` key is a parameter already on the
+    parent's baseline, the conditions become ``params`` overrides; otherwise the arm is marked
+    ``needs_author`` (a non-parameter condition such as a structure needs hand authoring).
+    Control interventions are flagged ``control: true``. Child ``hypotheses[]`` carry the
+    design's predictions and ``origin: {kind: design, ref: design id}``."""
+    import copy
+    from .study_seeding import build_seeded_study
+
+    design, parent_spec, inv_spec = (copy.deepcopy(x) for x in (design, parent_spec, inv_spec))
+    new_slug = f"{design.get('study') or 'study'}-discriminating"
+    mc = None
+    if model_version:
+        mc = {k: model_version[k] for k in ("composite", "params") if model_version.get(k)}
+    study = build_seeded_study(parent_spec, inv_spec, new_slug=new_slug, model_change=mc or None,
+                               title=f"Discriminating design for {design.get('study')}")
+    base = next((a for a in study.get("baseline") or [] if isinstance(a, dict)), {})
+    base_params = base.get("params") or {}
+
+    controls = [(c.get("hypothesis"), tuple(sorted((c.get("when") or {}).items())))
+                for c in design.get("controls") or []]
+    variants = []
+    for i, iv in enumerate(design.get("interventions") or []):
+        when = iv.get("when") or {}
+        key = (iv.get("hypothesis"), tuple(sorted(when.items())))
+        arm: dict = {"name": f"arm-{i + 1}-{iv.get('hypothesis')}", "base": "baseline",
+                     "hypothesis": iv.get("hypothesis"), "when": dict(when)}
+        if when and all(k in base_params for k in when):
+            arm["params"] = dict(when)
+        else:
+            arm["needs_author"] = True
+        if key in controls:
+            arm["control"] = True
+        variants.append(arm)
+    study["variants"] = variants
+
+    by_hyp: dict = {}
+    for p in design.get("predictions") or []:
+        by_hyp.setdefault(p.get("hypothesis_id"), []).append(p)
+    study["hypotheses"] = [
+        {"id": f"{hid}@{new_slug}", "study": new_slug, "status": "open", "predictions": preds,
+         "origin": {"kind": "design", "ref": design.get("id")}}
+        for hid, preds in by_hyp.items()]
+    study["design"] = {"id": design.get("id"), "decision_criterion": design.get("decision_criterion")}
+    return study
