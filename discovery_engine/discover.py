@@ -184,6 +184,159 @@ def review_revision(inv_path: Path | str, proposal_id: str, event: str, rational
     return prop
 
 
+def _complement_band(band) -> dict | None:
+    """The band disjoint from a numeric ``{low, high}`` pass band, or None when it can't be derived."""
+    if not isinstance(band, dict):
+        return None
+    lo, hi = band.get("low"), band.get("high")
+    num = lambda v: isinstance(v, (int, float)) and not isinstance(v, bool)  # noqa: E731
+    if num(lo) and lo > 0:
+        return {"op": "<", "value": lo}
+    if num(hi):
+        return {"op": ">", "value": hi}
+    return None
+
+
+def _pick_candidate(prop: dict, change_index: int | None) -> dict | None:
+    cands = [c for c in (prop.get("candidate_changes") or []) if isinstance(c, dict)]
+
+    def derived(c):
+        if c.get("kind") == "composite":
+            return bool(c.get("replace_with"))
+        if c.get("kind") == "param":
+            return bool(c.get("name")) and bool(c.get("to"))
+        return False
+    if change_index is not None:
+        return cands[change_index] if 0 <= change_index < len(cands) else None
+    return next((c for c in cands if derived(c)), None)
+
+
+def apply_revision(ws_root: Path | str, inv_slug: str, proposal_id: str,
+                   change_index: int | None = None) -> dict:
+    """Turn an APPROVED model-revision proposal into a child study + model version +
+    discriminable hypotheses (decision §4 "Apply"). Never edits the parent study.
+
+    Refuses (writes nothing; ``status: needs_build`` + ``mechanism``) unless the candidate
+    composite resolves and the child is run-ready. Engine-written hypotheses / finding stubs
+    carry ``origin`` and ``statement: null`` — the engine never writes prose."""
+    from . import evaluation as _ev
+    from . import study_refinement as _sr
+    from . import study_seeding as _ss
+    from .model_architect import model_version, resolve_composite
+
+    ws = Path(ws_root)
+    inv_path, inv_spec, studies = load_cycle_inputs(ws, inv_slug)
+    prop = next((p for p in inv_spec.get("revision_proposals") or []
+                 if isinstance(p, dict) and p.get("id") == proposal_id), None)
+    if prop is None:
+        raise ValueError(f"unknown revision proposal {proposal_id!r} in {inv_path}")
+    if prop.get("status", "proposed") != "approved":
+        raise ValueError(f"proposal {proposal_id!r} is {prop.get('status', 'proposed')!r}; "
+                         "only an 'approved' proposal can be applied")
+    src = prop.get("source") or {}
+    parent_slug = src.get("study")
+    parent = studies.get(parent_slug)
+    if not isinstance(parent, dict):
+        raise ValueError(f"proposal source study {parent_slug!r} not found")
+    cand = _pick_candidate(prop, change_index)
+    if cand is None:
+        return {"status": "needs_build", "study_path": None, "model_version": None,
+                "mechanism": "no fully-derived candidate change — a human must author the mechanism "
+                             "(/viva-expert) before this proposal can be applied"}
+
+    base = next((a for a in parent.get("baseline") or [] if isinstance(a, dict)), {})
+    new_slug = f"{parent_slug}-rev-{str(proposal_id).rsplit(':', 1)[-1]}"
+    mc: dict = {"ref": proposal_id, "note": f"revision {proposal_id}"}
+    if cand["kind"] == "composite":
+        mc["composite"] = cand["replace_with"]
+        composite = cand["replace_with"]
+    elif cand["kind"] == "param":
+        mc["params"] = {cand["name"]: cand["to"][0]}
+        composite = base.get("composite")
+    else:
+        return {"status": "needs_build", "study_path": None, "model_version": None,
+                "mechanism": f"candidate kind {cand['kind']!r} is not derivable; needs an author"}
+
+    if not resolve_composite(composite, ws)["resolves"]:
+        return {"status": "needs_build", "study_path": None, "model_version": None,
+                "mechanism": f"composite {composite!r} does not resolve in this environment — "
+                             "BUILD route: wrap/build it (/viva-expert), then re-apply"}
+
+    child = _ss.build_seeded_study(parent, inv_spec, new_slug=new_slug, finding_id=src.get("finding"),
+                                   model_change=mc)
+    child["model_change"] = {**(child.get("model_change") or {}), **mc}
+    if cand["kind"] == "param":
+        refined, _ = _sr.refine_study(child, needs=[{"kind": _sr.SWEEP}], sweep_param=cand["name"],
+                                      sweep_values=list(cand["to"]))
+        child.update({k: refined[k] for k in ("variants",) if k in refined})
+    pg = dict(child.get("pipeline_gate") or {})
+    pg["prerequisites"] = [*(pg.get("prerequisites") or []),
+                           {"study": parent_slug, "relation": "alternative-to"}]
+    child["pipeline_gate"] = pg
+    test = prop.get("discriminating_test") or {}
+    obs = src.get("observable")
+    if test.get("behavior_test"):
+        child["findings"] = [{"id": f"f-{new_slug}-{test['behavior_test']}",
+                              "statement": None,
+                              "evidence": {"from_test": test["behavior_test"]},
+                              "origin": {"kind": "revision", "ref": proposal_id}}]
+    gaps = _ss.is_run_ready(child)
+    if gaps:
+        return {"status": "needs_build", "study_path": None, "model_version": None,
+                "mechanism": "child study not run-ready: " + "; ".join(gaps)}
+
+    origin = {"kind": "revision", "ref": proposal_id}
+    hyps: list[dict] = []
+    band = test.get("pass_if")
+    other = _complement_band(band)
+    if obs and isinstance(band, dict) and other:
+        hyps = [
+            {"id": f"h-{new_slug}-formalism-artifact", "study": new_slug,
+             "statement": None, "predictions": [{"observable": obs, "expected": dict(band)}],
+             "status": "open", "origin": dict(origin)},
+            {"id": f"h-{new_slug}-real-divergence", "study": new_slug,
+             "statement": None, "predictions": [{"observable": obs, "expected": other}],
+             "status": "open", "origin": dict(origin)},
+        ]
+    elif obs and isinstance(band, dict):
+        hyps = [{"id": f"h-{new_slug}-formalism-artifact", "study": new_slug, "statement": None,
+                 "predictions": [{"observable": obs, "expected": dict(band)}],
+                 "status": "open", "origin": dict(origin)}]
+
+    params = dict(base.get("params") or {})
+    params.update(mc.get("params") or {})
+    parent_mv = prop.get("affected_model_version")
+    mv = model_version(composite, params, parent_ids=[parent_mv] if parent_mv else [], origin=origin)
+    invalidated = _ev.invalidate_dependents({"kind": "model", "id": parent_slug}, inv_spec, studies)
+
+    path = _write_seeded_study(ws, inv_slug, new_slug, child)
+    y = _ruamel()
+    with inv_path.open(encoding="utf-8") as fh:
+        doc = y.load(fh)
+    if hyps:
+        if not isinstance(doc.get("hypotheses"), list):
+            doc["hypotheses"] = []
+        doc["hypotheses"].extend(hyps)
+    if not isinstance(doc.get("model_versions"), list):
+        doc["model_versions"] = []
+    if not any(isinstance(m, dict) and m.get("id") == mv["id"] for m in doc["model_versions"]):
+        doc["model_versions"].append(mv)
+    for p in doc.get("revision_proposals") or []:
+        if isinstance(p, dict) and p.get("id") == proposal_id:
+            p["status"] = "applied"
+            hist = p.get("history")
+            if not isinstance(hist, list):
+                hist = p["history"] = []
+            hist.append({"at": _dt.datetime.now(_dt.timezone.utc).isoformat(timespec="seconds"),
+                         "event": "applied", "by": "human", "child_study": new_slug,
+                         "model_version": mv["id"]})
+    with inv_path.open("w", encoding="utf-8") as fh:
+        y.dump(doc, fh)
+    return {"status": "applied", "study_path": str(path), "study": new_slug,
+            "model_version": mv["id"], "hypotheses": [h["id"] for h in hyps],
+            "invalidated": invalidated}
+
+
 # ---------------------------------------------------------------------------
 # run_cycle — one invocation = one turn of the discovery cycle
 # ---------------------------------------------------------------------------
@@ -1643,13 +1796,15 @@ def main(argv: list[str] | None = None) -> int:
     p_res.add_argument("--rationale", required=True, help="why the item is discharged (the adjudication / bridge)")
     p_res.add_argument("--by", default=None, help="the artifact that resolves it (e.g. study#finding)")
 
-    p_rev = sub.add_parser("revise", help="approve or reject a model-revision proposal (rp:…)")
+    p_rev = sub.add_parser("revise", help="approve, reject, or apply a model-revision proposal (rp:…)")
     p_rev.add_argument("investigation", help="investigation slug")
     p_rev.add_argument("proposal", help="the proposal id (rp:…)")
     g_rev = p_rev.add_mutually_exclusive_group(required=True)
     g_rev.add_argument("--approve", action="store_true")
     g_rev.add_argument("--reject", action="store_true")
-    p_rev.add_argument("--rationale", required=True, help="why (recorded in the proposal history)")
+    g_rev.add_argument("--apply", action="store_true", help="apply an approved proposal: child study + model version")
+    p_rev.add_argument("--change", type=int, default=None, help="candidate change index (default: first derived)")
+    p_rev.add_argument("--rationale", default=None, help="why (required for --approve/--reject)")
 
     args = parser.parse_args(argv)
     ws = Path(args.workspace).resolve()
@@ -1713,6 +1868,19 @@ def main(argv: list[str] | None = None) -> int:
         inv_path = investigations_dir(ws) / args.investigation / "investigation.yaml"
         if not inv_path.exists():
             parser.error(f"no investigation.yaml at {inv_path}")
+        if args.apply:
+            try:
+                res = apply_revision(ws, args.investigation, args.proposal, args.change)
+            except ValueError as e:
+                parser.error(str(e))
+            if res["status"] != "applied":
+                print(f"needs_build {args.proposal}  — {res['mechanism']}")
+                return 1
+            print(f"applied {args.proposal}  -> {res['study']} ({res['model_version']})")
+            print(f"  run it: discover advance {args.investigation}")
+            return 0
+        if not (args.rationale or "").strip():
+            parser.error("--rationale is required for --approve/--reject")
         try:
             prop = review_revision(inv_path, args.proposal,
                                    "approved" if args.approve else "rejected", args.rationale)
