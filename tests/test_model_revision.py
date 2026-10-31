@@ -206,3 +206,23 @@ def test_discriminating_test_pass_if_is_a_copy():
     p = _run(s)[0]
     p["discriminating_test"]["pass_if"]["low"] = 99
     assert s["s3"]["behavior_tests"][0]["pass_if"]["low"] == 0.3
+
+
+def _contested_eval(s):
+    return {"s3": {"status": "contested", "observable": "enclosure_probability",
+                   "model_version": _mvs(s)[0]["id"],
+                   "hypotheses": [{"id": "ha", "support": {"net": -3}}]}}
+
+
+def test_cap_kind_order_overrides_raw_scale_anomaly_beats_contested():
+    s = _studies({"measure": "enclosure_probability", "observed": 0.5, "from_test": "enclosure_prob_in_band"})
+    inv = _anomaly_inv()
+    assert H.anomalies(inv, list(s.values()))
+    ps = propose_model_revisions(inv, s, _contested_eval(s), {}, _mvs(s), _catalog(), now=NOW)
+    assert len(ps) == 1 and ps[0]["source"]["kind"] == "anomaly"  # contested |net|=3 > anomaly 0 on raw scale
+
+
+def test_cap_kind_order_overrides_raw_scale_disagreement_beats_contested():
+    s = _studies()  # disagreement, spread 0.59 < contested |net| 3
+    ps = propose_model_revisions(_inv(), s, _contested_eval(s), {}, _mvs(s), _catalog(), now=NOW)
+    assert len(ps) == 1 and ps[0]["source"]["kind"] == "model_disagreement"
