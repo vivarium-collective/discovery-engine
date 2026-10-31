@@ -280,10 +280,19 @@ def discovery_delta(inv_spec: dict, studies: dict, evidence_state: dict | None =
         "prev_fingerprint": prev.get("fingerprint") if prev else None,
         "changed": changed,
         "new_model_versions": new_mvs,
-        "proposals": {"opened": [], "applied": [], "evaluated": []},
+        "proposals": _proposal_buckets(inv_spec),
         "unchanged": bool(prev is not None and prev.get("fingerprint") == fp
                           and not changed and not new_mvs),
     }
+
+
+def _proposal_buckets(inv_spec: dict) -> dict:
+    out = {"opened": [], "applied": [], "evaluated": []}
+    key = {"proposed": "opened", "applied": "applied", "evaluated": "evaluated"}
+    for p in _as_list((inv_spec or {}).get("revision_proposals")):
+        if isinstance(p, dict) and key.get(p.get("status", "proposed")):
+            out[key[p.get("status", "proposed")]].append(p.get("id"))
+    return out
 
 
 def _fingerprint(cmp: dict, n_anoms: int) -> str:

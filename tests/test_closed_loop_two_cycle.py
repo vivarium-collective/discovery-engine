@@ -79,7 +79,7 @@ def _cycle(ws):
     return ip, inv, studies, evs, discover.run_cycle(inv, studies, evidence_state=evs)
 
 
-def test_closed_loop_two_cycle(tmp_path):
+def _through_advance(tmp_path):
     ip, sp = _ws(tmp_path)
 
     # ---- cycle 1: the disagreement yields exactly one revision proposal on the frontier
@@ -124,10 +124,11 @@ def test_closed_loop_two_cycle(tmp_path):
     assert stub["evidence"].get("observed") is not None               # quantitative slot filled
     assert stub["provenance"]["run_ids"] and stub["provenance"]["model_version"] == new_mv
 
-    # ---- the alternative-to challenge edge does NOT self-clear: it still blocks closure
-    _, inv, studies, evs, cyc = _cycle(tmp_path)
-    assert de.closure(cyc, inv)["open_challenges"] >= 1 and not de.closure(cyc, inv)["closed"]
+    return dict(ip=ip, sp=sp, ws=ws, prev=prev, child_slug=child_slug, new_mv=new_mv, run=run, stub=stub)
 
+
+def _adjudicate(tmp_path, k):
+    sp, ws, child_slug, run, stub = k["sp"], k["ws"], k["child_slug"], k["run"], k["stub"]
     # ---- explicit adjudication: the child's graded run settles the 2D/3D gap (authored acts)
     parent = load_yaml(sp)
     pev = parent["findings"][0]["evidence"]
@@ -139,9 +140,22 @@ def test_closed_loop_two_cycle(tmp_path):
                           "--rationale", "child run lands in the 3D band; gap was a formalism artefact",
                           "--by", f"{child_slug}#{stub['id']}"]) == 0
 
+
+def test_closed_loop_two_cycle(tmp_path):
+    k = _through_advance(tmp_path)
+    ip, prev, child_slug, new_mv = k["ip"], k["prev"], k["child_slug"], k["new_mv"]
+    # ---- the alternative-to challenge edge does NOT self-clear: it still blocks closure
+    _, inv, studies, evs, cyc = _cycle(tmp_path)
+    assert de.closure(cyc, inv)["open_challenges"] >= 1 and not de.closure(cyc, inv)["closed"]
+
+    _adjudicate(tmp_path, k)
+
     # ---- cycle 2
     ip, inv, studies, evs, cyc = _cycle(tmp_path)
+    discover.persist_cycle(ip, inv, cyc, studies=studies, evidence_state=evs)
+    inv = load_yaml(ip)
     delta = ev.discovery_delta(inv, studies, evs, prev=prev)
+    assert delta["proposals"]["evaluated"] == [load_yaml(ip)["revision_proposals"][0]["id"]]
     named = {c["study"]: c for c in delta["changed"]}
     assert child_slug in named and named[child_slug]["model_version_to"] == new_mv
     assert new_mv in delta["new_model_versions"] and not delta["unchanged"]
@@ -167,16 +181,44 @@ def test_closed_loop_two_cycle(tmp_path):
     assert [p["status"] for p in load_yaml(ip)["revision_proposals"]] == ["evaluated"]
 
 
-def test_evaluated_persists_when_gap_stands():
+
+
+def test_persist_between_advance_and_adjudication_not_terminally_failed(tmp_path):
+    """Normal operator flow: a cycle is persisted after the graded run but BEFORE the authored
+    adjudication. The still-live gap must NOT be recorded as `persists`; the proposal stays
+    `applied` and ends `evaluated:resolved` once adjudicated."""
+    k = _through_advance(tmp_path)
+    ip = k["ip"]
+    _, inv, studies, evs, cyc = _cycle(tmp_path)
+    discover.persist_cycle(ip, inv, cyc, studies=studies, evidence_state=evs)
+    mid = load_yaml(ip)["revision_proposals"][0]
+    assert mid["status"] == "applied" and not mid.get("evaluated")
+    _adjudicate(tmp_path, k)
+    _, inv, studies, evs, cyc = _cycle(tmp_path)
+    discover.persist_cycle(ip, inv, cyc, studies=studies, evidence_state=evs)
+    end = load_yaml(ip)["revision_proposals"][0]
+    assert end["status"] == "evaluated" and end["evaluated"]["outcome"] == "resolved"
+
+
+def test_evaluated_persists_only_when_run_reproduces_gap():
     studies = {"s3": {"name": "s3", "findings": [{"id": "f", "evidence": {
                    "measure": "obs.val", "by_topology": {"2d": 0.12, "3d": 0.71}}}]},
-               "kid": {"name": "kid", "runs": [{"name": "r", "computed_outcomes": {"t": {}}}]}}
+               "kid": {"name": "kid", "runs": [{"name": "r", "computed_outcomes": {"t": {}}}],
+                       "findings": [{"evidence": {"from_test": "t", "observed": 0.1}}]},
+               "kid2": {"name": "kid2", "runs": [{"name": "r", "computed_outcomes": {"t": {}}}],
+                        "findings": [{"evidence": {"from_test": "t", "observed": 0.5}}]}}
+    band = {"low": 0.3, "high": 0.8}
     inv = {"revision_proposals": [
         {"id": "rp:a", "status": "applied", "source": {"study": "s3", "observable": "obs.val"},
+         "discriminating_test": {"pass_if": band},
          "history": [{"event": "applied", "child_study": "kid"}]},
         {"id": "rp:b", "status": "applied", "source": {"study": "s3", "observable": "obs.val"},
-         "history": [{"event": "applied", "child_study": "unrun"}]}]}
+         "history": [{"event": "applied", "child_study": "unrun"}]},
+        {"id": "rp:c", "status": "applied", "source": {"study": "s3", "observable": "obs.val"},
+         "discriminating_test": {"pass_if": band},
+         "history": [{"event": "applied", "child_study": "kid2"}]}]}
     assert discover._evaluate_applied_proposals(inv, studies, "fp") == ["rp:a"]
-    a, b = inv["revision_proposals"]
+    a, b, c = inv["revision_proposals"]
+    assert c["status"] == "applied"        # graded, gap live, in-band result: undecided, not failed
     assert a["status"] == "evaluated" and a["evaluated"]["outcome"] == "persists"
-    assert b["status"] == "applied" and "evaluated" not in b       # no graded run yet -> untouched
+    assert b["status"] == "applied" and not b.get("evaluated")       # no graded run yet -> untouched

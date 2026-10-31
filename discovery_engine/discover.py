@@ -611,12 +611,19 @@ def persist_cycle(inv_path: Path | str, inv_spec: dict, result: dict, *, studies
 
 
 def _evaluate_applied_proposals(on_disk: dict, studies: dict, fingerprint: str | None) -> list[str]:
-    """Close the feedback loop (decision §3.4/§4): an ``applied`` proposal whose child study has
-    a code-graded run (``computed_outcomes``) is ``evaluated`` -- ``resolved`` when its source
-    disagreement is no longer live in the disagreement map (the finding was adjudicated),
-    ``persists`` when the discriminating run left the gap standing. Writes
-    ``evaluated: {cycle_fingerprint, outcome}``, sets ``status: evaluated`` and appends a history
-    event. Idempotent (only ``applied`` rows move); mutates ``on_disk``; returns evaluated ids."""
+    """Close the feedback loop (decision §3.4/§4): move an ``applied`` proposal to ``evaluated``
+    ONLY once the discriminating disposition is DECIDED. Requires the child to have a code-graded
+    run (``computed_outcomes``), then:
+
+    * ``resolved`` -- the source disagreement is no longer live (adjudicated / settled);
+    * ``persists`` -- the child's measured value (``evidence.observed``) lies OUTSIDE the
+      proposal's discriminating band, i.e. the new arm genuinely REPRODUCED the gap;
+    * otherwise (graded but the gap is not yet adjudicated and the result does not reproduce it)
+      the proposal stays ``applied`` and is re-evaluated on a later cycle -- a revision that
+      later succeeds is never terminally marked failed.
+
+    Writes ``evaluated: {cycle_fingerprint, outcome}``, ``status: evaluated`` and a history
+    event. Mutates ``on_disk``; returns evaluated ids."""
     from . import evaluation as _ev
     done: list[str] = []
     live = None
@@ -625,14 +632,20 @@ def _evaluate_applied_proposals(on_disk: dict, studies: dict, fingerprint: str |
             continue
         child = next((e.get("child_study") for e in reversed(p.get("history") or [])
                       if isinstance(e, dict) and e.get("event") == "applied"), None)
-        runs = (studies.get(child) or {}).get("runs") if child else None
+        cspec = studies.get(child) if child else None
+        runs = (cspec or {}).get("runs")
         if not any(isinstance(r, dict) and r.get("computed_outcomes") for r in runs or []):
             continue  # the discriminating run has not happened / been graded yet
         if live is None:
             live = [(r.get("study"), r.get("observable"))
                     for r in _ev.model_disagreement_map(on_disk, studies) if r.get("disagreement")]
         src = p.get("source") or {}
-        outcome = "persists" if (src.get("study"), src.get("observable")) in live else "resolved"
+        if (src.get("study"), src.get("observable")) not in live:
+            outcome = "resolved"
+        elif _reproduces_gap(p, cspec):
+            outcome = "persists"
+        else:
+            continue  # undecided: awaiting adjudication
         p["evaluated"] = {"cycle_fingerprint": fingerprint, "outcome": outcome}
         p["status"] = "evaluated"
         hist = p.get("history") if isinstance(p.get("history"), list) else []
@@ -641,6 +654,25 @@ def _evaluate_applied_proposals(on_disk: dict, studies: dict, fingerprint: str |
         p["history"] = hist
         done.append(p.get("id"))
     return done
+
+
+def _reproduces_gap(prop: dict, child: dict | None) -> bool:
+    """True iff the child's discriminating finding has a numeric ``observed`` that falls outside
+    the proposal's ``discriminating_test.pass_if`` ``{low, high}`` band (the gap is reproduced).
+    False when anything is missing -- undecided is never read as failure."""
+    band = (prop.get("discriminating_test") or {}).get("pass_if")
+    if not isinstance(band, dict):
+        return False
+    num = lambda v: isinstance(v, (int, float)) and not isinstance(v, bool)  # noqa: E731
+    lo, hi = band.get("low"), band.get("high")
+    if not (num(lo) or num(hi)):
+        return False
+    for f in (child or {}).get("findings") or []:
+        ev_ = f.get("evidence") if isinstance(f, dict) else None
+        if isinstance(ev_, dict) and ev_.get("from_test") and num(ev_.get("observed")):
+            o = ev_["observed"]
+            return (num(lo) and o < lo) or (num(hi) and o > hi)
+    return False
 
 
 def project_model_versions(studies: dict, existing: list | None = None) -> list[dict]:
