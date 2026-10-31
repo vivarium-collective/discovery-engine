@@ -1051,7 +1051,7 @@ def snapshot_validations(ws_root: Path | str, slug: str) -> dict:
     clobbered and writes only this regenerable cache."""
     from .validation import snapshot_of
     inv_path, inv_spec, studies = load_cycle_inputs(ws_root, slug)
-    snap = snapshot_of(_cycle_with_evidence(ws_root, inv_slug, inv_spec, studies)["validations"])
+    snap = snapshot_of(run_cycle(inv_spec, studies)["validations"])
     path = Path(inv_path)
     on_disk = load_yaml_mapping(path) if path.exists() else dict(inv_spec)
     on_disk["validation_snapshot"] = snap
