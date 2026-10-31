@@ -279,7 +279,8 @@ def apply_revision(ws_root: Path | str, inv_slug: str, proposal_id: str,
     if test.get("behavior_test"):
         child["findings"] = [{"id": f"f-{new_slug}-{test['behavior_test']}",
                               "statement": None,
-                              "evidence": {"from_test": test["behavior_test"]},
+                              "evidence": {"from_test": test["behavior_test"],
+                                           **({"measure": obs} if obs else {})},
                               "origin": {"kind": "revision", "ref": proposal_id}}]
     gaps = _ss.is_run_ready(child)
     if gaps:
@@ -602,8 +603,44 @@ def persist_cycle(inv_path: Path | str, inv_spec: dict, result: dict, *, studies
         on_disk["revision_proposals"] = have
     on_disk["cycle_state"] = build_cycle_state(result, inv_spec, model_versions=mvs, studies=studies,
                                                evidence_state=evidence_state)
+    if studies is not None:
+        _evaluate_applied_proposals(on_disk, studies,
+                                    (on_disk["cycle_state"].get("evaluation_snapshot") or {}).get("fingerprint"))
     save_yaml_atomic(path, on_disk)
     return on_disk["cycle_state"]
+
+
+def _evaluate_applied_proposals(on_disk: dict, studies: dict, fingerprint: str | None) -> list[str]:
+    """Close the feedback loop (decision §3.4/§4): an ``applied`` proposal whose child study has
+    a code-graded run (``computed_outcomes``) is ``evaluated`` -- ``resolved`` when its source
+    disagreement is no longer live in the disagreement map (the finding was adjudicated),
+    ``persists`` when the discriminating run left the gap standing. Writes
+    ``evaluated: {cycle_fingerprint, outcome}``, sets ``status: evaluated`` and appends a history
+    event. Idempotent (only ``applied`` rows move); mutates ``on_disk``; returns evaluated ids."""
+    from . import evaluation as _ev
+    done: list[str] = []
+    live = None
+    for p in on_disk.get("revision_proposals") or []:
+        if not isinstance(p, dict) or p.get("status") != "applied":
+            continue
+        child = next((e.get("child_study") for e in reversed(p.get("history") or [])
+                      if isinstance(e, dict) and e.get("event") == "applied"), None)
+        runs = (studies.get(child) or {}).get("runs") if child else None
+        if not any(isinstance(r, dict) and r.get("computed_outcomes") for r in runs or []):
+            continue  # the discriminating run has not happened / been graded yet
+        if live is None:
+            live = [(r.get("study"), r.get("observable"))
+                    for r in _ev.model_disagreement_map(on_disk, studies) if r.get("disagreement")]
+        src = p.get("source") or {}
+        outcome = "persists" if (src.get("study"), src.get("observable")) in live else "resolved"
+        p["evaluated"] = {"cycle_fingerprint": fingerprint, "outcome": outcome}
+        p["status"] = "evaluated"
+        hist = p.get("history") if isinstance(p.get("history"), list) else []
+        hist.append({"at": _dt.datetime.now(_dt.timezone.utc).isoformat(timespec="seconds"),
+                     "event": "evaluated", "by": "engine", "outcome": outcome})
+        p["history"] = hist
+        done.append(p.get("id"))
+    return done
 
 
 def project_model_versions(studies: dict, existing: list | None = None) -> list[dict]:
