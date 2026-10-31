@@ -42,6 +42,7 @@ from .argument_store import derive_argument, merge_argument
 from .investigation_import import investigations_dir, studies_dir
 from .knowledge_store import canonical_verdict, derive_knowledge, merge_knowledge
 from .narrative import audit, narrate
+from .run_command import run_command
 from .study_io import atomic_write, load_yaml, load_yaml_mapping, save_yaml_atomic
 from .synthesis import open_calls, synthesize_gates
 from .validation import ValidationContext, run_validators
@@ -1042,7 +1043,7 @@ def run_readiness(study_spec: dict, ws_root: Path | str | None = None) -> dict:
     # measure's path / its derived-scalar computer) is explicit, not a silent SKIP.
     unevaluable: list[str] = []
     # Derived measures whose computer is NOT registered in this env → they will grade SKIP even
-    # after a run (observed: island/colony/eukaryogenesis tracked runs graded SKIP because the run
+    # after a run (observed: several tracked runs graded SKIP because the run
     # env-worker imported a stale venv without the merged `register_derived_scalars` evaluators).
     unresolved_measures: list[str] = []
     for t in tests:
@@ -1064,7 +1065,7 @@ def run_readiness(study_spec: dict, ws_root: Path | str | None = None) -> dict:
     # gates need (they are in the run store) — even when its declared `observables:` list is
     # empty, as it routinely is. Readiness must then distinguish "already produced the
     # readouts" from "never run and can't"; a static-only `missing` check otherwise reports
-    # every already-run study as un-runnable (observed on genesis: all 21 run studies).
+    # every already-run study as un-runnable (observed on a real workspace: all 21 run studies).
     runs = study_spec.get("runs") or []
     assessed = bool(study_spec.get("verdict") or study_spec.get("conclusion_verdict")
                     or any(isinstance(r, dict) and r.get("outcomes") for r in runs))
@@ -1078,7 +1079,7 @@ def run_readiness(study_spec: dict, ws_root: Path | str | None = None) -> dict:
 
     # A declared visualization is useless until it is RENDERED to studies/<slug>/viz/*.html — the
     # workbench's study-charts endpoint AND the study report both glob that directory, so a
-    # declared-but-unrendered viz shows "No figures yet" (a silent gap; observed on eukaryogenesis,
+    # declared-but-unrendered viz shows "No figures yet" (a silent gap; observed on a real workspace,
     # where all 5 studies declared a viz but rendered none). Verify the figure exists on disk.
     viz_rendered = has_viz
     if has_viz and ws_root is not None:
@@ -1092,7 +1093,7 @@ def run_readiness(study_spec: dict, ws_root: Path | str | None = None) -> dict:
 
     # Does the baseline composite (the MODEL) actually resolve? A study whose composite does not
     # exist cannot run, yet observable/emitter/etc. checks would otherwise call it ready (observed
-    # on eukaryogenesis: all 5 baseline composites were ModuleNotFoundError while readiness said
+    # on a real workspace: all 5 baseline composites were ModuleNotFoundError while readiness said
     # ready). Resolve WITHOUT executing composite code (find_spec), and only when the workspace
     # package is importable at all, so a missing package isn't misread as a missing model.
     from .model_architect import _top_importable, resolve_composite
@@ -1368,7 +1369,7 @@ def build_completion_map(ws_root: Path | str, inv_slug: str) -> dict:
     suggestions = [s for s in (cyc.get("suggestions") or []) if s.get("status") == "awaiting_expert"]
     # Presentation readiness ⊥ scientific closure (P1): an investigation can be CLOSED (every
     # acceptance criterion met) while still not PUBLISHABLE — a member study's figures, evaluators,
-    # or contracts haven't materialized (observed on eukaryogenesis: closed-ish arc, empty viz
+    # or contracts haven't materialized (observed on a real workspace: closed-ish arc, empty viz
     # tabs). `publishable` is every member study `complete` (composite resolves + viz rendered +
     # measures resolvable + emitter/tests/contracts); `not_publishable` names what each is missing.
     study_completion: dict = {}
@@ -2181,7 +2182,7 @@ def main(argv: list[str] | None = None) -> int:
                 return 1
             path = _write_seeded_study(ws, args.investigation, args.slug, study)
             print(f"  wrote {path}")
-            print(f"  run it: discover advance {args.investigation}  (or vivarium-workbench run study {args.slug})")
+            print(f"  run it: discover advance {args.investigation}  (or {run_command(args.slug, str(ws))})")
         return 0
 
     if args.cmd == "refine-study":

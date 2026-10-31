@@ -629,7 +629,7 @@ CHECKS = (
     # Band provenance (stage 3a): expert-sourced bands should carry structured cites
     "band_test_missing_cites",
     "band_cites_unknown_bib_key",
-    # Derive-on-read status drift (v2ecoli round-2 #2)
+    # Derive-on-read status drift (status-drift lesson)
     "status_out_of_date_vs_runs",
     # Forward-drift: declares done/passed but records no runs (dnaa-replication
     # 2026-05-31 — reviewer couldn't tell if studies had actually run)
@@ -711,7 +711,7 @@ CHECKS = (
     # Otherwise the workbench viewer shows composite defaults, not a
     # reproducible spec, and a Run won't reproduce the study.
     "baseline_config_carry",
-    # Campaign quality bar + enrichment-plan design principles (viva-genesis):
+    # Campaign quality bar + enrichment-plan design principles (campaign lessons):
     # provenance on every quantitative claim; phase-maps-not-single-runs for a
     # Decision view; authored vs derived confidence reconciliation.
     "finding_missing_cites",
@@ -2099,7 +2099,7 @@ def _runs_db_rows(ws_root: Path, slug: str) -> list[dict]:
 
 
 def _check_status_out_of_date_vs_runs(ctx: _LintContext) -> None:
-    """v2ecoli round-2 friction #2: a report shipped a "planning" status after
+    """Integration friction: a report shipped a "planning" status after
     all studies had executed. Derive the observable status from runs.db and
     flag any stored axis (or a legacy planning headline) that contradicts it,
     so the drift is caught pre-publication instead of by the expert.
@@ -2129,7 +2129,7 @@ def _check_status_claims_done_but_no_runs_recorded(ctx: _LintContext) -> None:
     report renders the study as "pending / not run" even though its headline
     says passed.
 
-    This is the gap a reviewer hit on v2ecoli dnaa-replication (Rashmi,
+    This is the gap a reviewer hit on a workspace investigation (Rashmi,
     2026-05-31): "I think the first study is passed. But I am not sure whether
     it ran the simulations or not. Tests still show pending." The two
     foundational studies declared ``status: completed`` / ``gate_status:
@@ -3997,7 +3997,7 @@ def _check_baseline_config_carry(ctx: _LintContext) -> None:
 
 # ---------------------------------------------------------------------------
 # Campaign quality bar + enrichment-plan design principles
-# (viva-genesis lessons, 2026-10 — see feedback_campaign_build_quality_bar +
+# (campaign lessons, 2026-10 — see feedback_campaign_build_quality_bar +
 # the Scientific Enrichment Plan §14 design principles).
 # ---------------------------------------------------------------------------
 
@@ -4258,7 +4258,7 @@ _CHECK_FUNCTIONS = (
     # Reproducibility — baseline must resolve to a real run-config (not bare
     # composite defaults / {seed, cache_dir}); config_file ⊕ params ⊕ runtime.
     _check_baseline_config_carry,
-    # Campaign quality bar + enrichment-plan design principles (viva-genesis):
+    # Campaign quality bar + enrichment-plan design principles (campaign lessons):
     # (b) a quantitative finding with no provenance;
     # (a) a Decision view that is a single run, not a phase map;
     # (d) authored confidence that diverges from derive_confidence.

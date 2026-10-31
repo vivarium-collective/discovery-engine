@@ -10,9 +10,9 @@ schema (axes regrouped by slugged group, group verdict = worst axis).
 
 Generic — no organism/sim_data imports. The verdict vocabulary (RANK/COLOR/GLYPH)
 comes from ``discovery_engine.test_vocab``, the single home for it. This is the
-shared slice of what used to live in ``v2ecoli.library.report_card``; the
+shared slice of what used to live in a workspace report-card module; the
 organism-specific card assembly (vector merges, rich plotted renderers) stays in
-v2ecoli.
+the workspace.
 """
 from __future__ import annotations
 

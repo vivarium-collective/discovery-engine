@@ -1,6 +1,6 @@
 """Derive a study's status from execution state (don't trust hand-set fields).
 
-v2ecoli round-2 integration friction #2 (2026-05-22): a report shipped
+Integration friction (2026-05-22): a report shipped
 ``status: planning-with-baseline-confirmed`` and a "for expert review prior to
 execution" tagline *after all 8 studies had executed with verdicts*. The
 expert and the user caught it — no check did. The authored status string had

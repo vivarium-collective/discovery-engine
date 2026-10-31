@@ -1,7 +1,7 @@
 """Select which investigations an importing workspace carries from an upstream repo.
 
-A workspace that imports another repo as a dependency (e.g. sms-ecoli importing
-v2ecoli) often carries a **subset** of that repo's investigations under its own
+A workspace that imports another repo as a dependency (e.g. a downstream workspace importing
+an upstream one) often carries a **subset** of that repo's investigations under its own
 investigations dir — seeded from upstream, then hand-maintained. This module makes
 that selection explicit and enforceable, so a new upstream investigation does not
 silently flow in.
@@ -20,8 +20,8 @@ Two accepted shapes for ``imported_investigations``:
 
     # full — guard + additive sync:
     imported_investigations:
-      from: v2ecoli                                 # uv.lock package whose pinned rev is the source
-      git: https://github.com/vivarium-collective/v2ecoli.git
+      from: upstream_pkg                               # uv.lock package whose pinned rev is the source
+      git: https://github.com/example-org/upstream_pkg.git
       subtree: workspace/investigations             # where investigations live upstream (default)
       allow:
         - colonies

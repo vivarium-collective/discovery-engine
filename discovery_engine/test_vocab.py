@@ -3,7 +3,7 @@
 Canonical verdicts are ``within_tol | drift | mismatch | ungraded``; this module
 owns them plus the alias-normalization, worst-of rollup, and the two projection
 maps (agent semantics and four-value display) that were previously duplicated
-across v2ecoli.library.report_card, workbench study_spec/study_page/conclusion_card.
+across workspace report-card modules, workbench study_spec/study_page/conclusion_card.
 Pure stdlib; no process_bigraph / vivarium_workbench import.
 """
 from __future__ import annotations

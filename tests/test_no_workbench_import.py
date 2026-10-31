@@ -1,5 +1,5 @@
 """discovery_engine is a standalone library: it must never import the
-vivarium_workbench / vivarium_dashboard packages (the dependency direction is
+vivarium_workbench / vivarium_dashboard / viva_superpowers packages (the dependency direction is
 one-way, workbench -> discovery_engine). Compute that needs the workbench
 belongs in the workbench, reached via its HTTP API or a CLI verb."""
 from __future__ import annotations
@@ -7,7 +7,7 @@ from __future__ import annotations
 import ast
 import pathlib
 
-FORBIDDEN = ("vivarium_workbench", "vivarium_dashboard")
+FORBIDDEN = ("vivarium_workbench", "vivarium_dashboard", "viva_superpowers")
 
 
 def _is_forbidden(name: str) -> bool:

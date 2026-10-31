@@ -214,7 +214,7 @@ def _workspace_evaluator_packages(ws_root: Any) -> list[str]:
 
     * the **name-derived slug** (``viva_<name>`` / ``pbg_<name>``) — where
       ``build_core`` lives for a viva-template workspace whose package differs
-      from its simulation package (e.g. v2ecoli: package_path = ``v2ecoli`` but
+      from its simulation package (e.g. package_path = ``<pkg>`` but
       the workspace package is ``viva_<name>``), and
     * workspace.yaml **``package_path``** — the workspace's own package for the
       common case where the package IS the package_path (e.g. multiscale-BATS,
