@@ -344,7 +344,8 @@ def apply_revision(ws_root: Path | str, inv_slug: str, proposal_id: str,
 # ---------------------------------------------------------------------------
 
 def run_cycle(inv_spec: dict, studies_by_slug: dict[str, dict], *,
-              evidence_state: dict | None = None, catalog: list | None = None) -> dict:
+              evidence_state: dict | None = None, catalog: list | None = None,
+              viz_state: dict | None = None, viz_catalog: list | None = None) -> dict:
     """Project one full discovery cycle over an investigation + its studies.
 
     Pure: no disk I/O. Each derived projection is merged over its authored block
@@ -367,7 +368,8 @@ def run_cycle(inv_spec: dict, studies_by_slug: dict[str, dict], *,
     # typed (type, scope) validation records; the frontier projects the failing ones
     # and invariants() checks execution ⊥ scientific-judgment across them.
     ctx = ValidationContext(inv_spec=inv_spec, studies=studies_by_slug,
-                            argument=argument, narrative=narrative, audit=gaps)
+                            argument=argument, narrative=narrative, audit=gaps,
+                            viz_state=viz_state or {}, viz_catalog=viz_catalog or [])
 
     bundle = {
         "knowledge": knowledge,
@@ -409,8 +411,10 @@ def _cycle_with_evidence(ws_root, inv_slug, inv_spec, studies) -> dict:
     ev = _ei.reconcile_evidence_state(
         inv_spec, studies, _load_runs_by_study(Path(ws_root), inv_slug, studies))
     from .model_architect import build_catalog
+    viz = viz_inventory(ws_root, inv_slug, studies)  # the one impure viz harvest
     return run_cycle(inv_spec, studies, evidence_state=ev,
-                     catalog=build_catalog(studies, ws_root))  # resolved: enables composite swaps
+                     catalog=build_catalog(studies, ws_root),  # resolved: enables composite swaps
+                     viz_state=viz, viz_catalog=None)  # workbench catalog supplied by a later task
 
 
 # ---------------------------------------------------------------------------
@@ -1523,6 +1527,47 @@ def _load_runs_by_study(ws: Path, inv_slug: str, studies: dict) -> dict[str, lis
                 break
         runs_by_study[slug] = runs
     return runs_by_study
+
+
+def viz_inventory(ws_root, inv_slug: str, studies: dict) -> dict:
+    """IMPURE (the one disk read the viz loop adds): per study, a row per declared
+    ``visualizations[]`` entry ``{path, exists, meta, mtime, content_hash}``, plus
+    ``_latest`` (latest run ``{run_id, completed_at}`` or None) and ``_orphans``
+    (``viz/*.html`` on disk but not declared). Fed to ``run_cycle`` as data."""
+    from .viz_freshness import _hash, normalize_entry, read_meta
+    ws = Path(ws_root)
+    runs_by = _load_runs_by_study(ws, inv_slug, studies)
+    out: dict = {}
+    for slug, spec in studies.items():
+        sdir = studies_dir(ws) / slug
+        nested = investigations_dir(ws) / inv_slug / "studies" / slug
+        if not sdir.is_dir() and nested.is_dir():
+            sdir = nested
+        rows: dict = {}
+        declared: set[str] = set()
+        for entry in (spec or {}).get("visualizations") or []:
+            ns = normalize_entry(entry)
+            if not ns["name"] or not ns["output"]:
+                continue
+            declared.add(ns["output"])
+            chart = sdir / ns["output"]
+            if chart.is_file():
+                rows[ns["name"]] = {"path": ns["output"], "exists": True,
+                                    "meta": read_meta(chart),
+                                    "mtime": chart.stat().st_mtime,
+                                    "content_hash": _hash(chart)}
+            else:
+                rows[ns["name"]] = {"path": ns["output"], "exists": False,
+                                    "meta": None, "mtime": None, "content_hash": None}
+        runs = runs_by.get(slug) or []
+        rows["_latest"] = ({"run_id": runs[0].get("run_id"),
+                            "completed_at": runs[0].get("completed_at")} if runs else None)
+        vdir = sdir / "viz"
+        rows["_orphans"] = sorted(
+            f"viz/{f.name}" for f in vdir.glob("*.html")
+            if f.is_file() and f"viz/{f.name}" not in declared) if vdir.is_dir() else []
+        out[slug] = rows
+    return out
 
 
 def _slugs_on_disk(*dirs: Path) -> list[str]:

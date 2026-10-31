@@ -115,6 +115,8 @@ class ValidationContext:
     argument: dict = field(default_factory=dict)
     narrative: dict = field(default_factory=dict)
     audit: list = field(default_factory=list)
+    viz_state: dict = field(default_factory=dict)    # harvested viz_inventory (data)
+    viz_catalog: list = field(default_factory=list)  # workbench catalog (data)
 
 
 #: the default process-wide registry (adapters below register into it).
