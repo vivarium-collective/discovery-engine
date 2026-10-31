@@ -389,7 +389,7 @@ def project_model_versions(studies: dict, existing: list | None = None) -> list[
                 old = prior.get(mv["id"]) or {}
                 row = out[mv["id"]] = {
                     "id": mv["id"], "composite": mv["composite"], "params": mv["params"],
-                    "parent_ids": list(old.get("parent_ids") or mv["parent_ids"]),
+                    "parent_ids": list(mv["parent_ids"]),  # projection: always recomputed
                     "origin": old.get("origin") or mv["origin"],
                     "bound_to": [],
                     "resolves": bool(resolve_composite(mv["composite"], None)["resolves"]),

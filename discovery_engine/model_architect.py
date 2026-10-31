@@ -271,7 +271,9 @@ def bind_model_versions(studies: dict) -> dict:
         for name in base_names:
             comp, params = raw[name]
             if comp:
-                out[name] = model_version(comp, params, parent_ids=parent_ids, origin=origin)
+                mv = model_version(comp, params, parent_ids=(), origin=origin)
+                # never a self-referencing lineage edge (child identical to parent)
+                out[name] = {**mv, "parent_ids": [p for p in parent_ids if p != mv["id"]]}
         for i, arm in enumerate(_arms(spec, "variants")):
             name = str(arm.get("name") or f"variant{i}")
             ref = arm.get("base")

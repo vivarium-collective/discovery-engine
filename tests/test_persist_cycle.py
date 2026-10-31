@@ -64,3 +64,18 @@ def test_persist_without_studies_leaves_model_versions_alone(tmp_path):
     save_yaml_atomic(p, inv)
     discover.persist_cycle(p, inv, discover.run_cycle(inv, {}))
     assert "model_versions" not in load_yaml(p)
+
+
+def test_parent_ids_regenerated_when_lineage_changes(tmp_path):
+    p = tmp_path / "investigation.yaml"
+    inv = {"question": "Q?", "studies": ["a", "c", "b"]}
+    save_yaml_atomic(p, inv)
+    studies = _studies()
+    studies["c"] = {"name": "c", "baseline": [{"name": "baseline", "composite": C, "params": {"d": 3}}]}
+    discover.persist_cycle(p, inv, discover.run_cycle(inv, studies), studies=studies)
+    ids = {m["bound_to"][0]["study"]: m["id"] for m in load_yaml(p)["model_versions"]}
+    assert [m for m in load_yaml(p)["model_versions"] if m["id"] == ids["b"]][0]["parent_ids"] == [ids["a"]]
+    studies["b"]["seeded_from"] = {"study": "c"}
+    discover.persist_cycle(p, inv, discover.run_cycle(inv, studies), studies=studies)
+    mv = [m for m in load_yaml(p)["model_versions"] if m["id"] == ids["b"]][0]
+    assert mv["parent_ids"] == [ids["c"]]

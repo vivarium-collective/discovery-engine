@@ -63,3 +63,30 @@ def test_backcompat_no_provenance(tmp_path):
     f = {"id": "f", "evidence": {"from_test": "t"}}
     _fill_finding(f, {"name": "t"}, None, "r1", [], model_version=None)
     assert "model_version" not in f.get("provenance", {})
+
+
+def test_seeded_child_identical_to_parent_has_no_self_parent():
+    s = _studies()
+    s["child"]["baseline"][0]["params"] = {"d": 0.1}  # same composite+params as parent
+    out = M.bind_model_versions(s)
+    cb = out["child"]["baseline"]
+    assert cb["id"] == out["parent"]["baseline"]["id"]
+    assert cb["id"] not in cb["parent_ids"]
+
+
+def test_backcompat_no_provenance_end_to_end(tmp_path):
+    from discovery_engine.finding_observations import populate_finding_observations
+    from discovery_engine.study_io import load_yaml
+    d = tmp_path / "s"
+    d.mkdir()
+    (d / "study.yaml").write_text(
+        "name: s\n"
+        "baseline:\n- {name: baseline, composite: %s, params: {d: 1}}\n"
+        "behavior_tests:\n- {name: t1, pass_if: {low: 0, high: 2}}\n"
+        "runs:\n- name: r1\n  status: completed\n"
+        "  computed_outcomes: {t1: {measured_value: 1.0}}\n"
+        "findings:\n- id: f\n  statement: x\n  evidence: {from_test: t1}\n" % C)
+    assert "provenance" not in load_yaml(d / "study.yaml")["findings"][0]
+    assert populate_finding_observations(d)["filled"] == 1
+    prov = load_yaml(d / "study.yaml")["findings"][0]["provenance"]
+    assert prov["model_version"].startswith("mv:") and prov["run_ids"] == ["r1"]
