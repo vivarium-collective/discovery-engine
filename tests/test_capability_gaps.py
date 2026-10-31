@@ -9,6 +9,7 @@ from discovery_engine.capability_gaps import (
     close_built_capability_gaps,
     propose_capability_gaps,
     reject_capability_gap,
+    required_mechanisms_from_spec,
 )
 
 # A tool-catalog of built capabilities (capability = tokenized slug). The recovery
@@ -95,3 +96,17 @@ def test_reject_is_terminal():
     # a rejected gap is not re-emitted
     inv2 = {**INV, "capability_gaps": [g]}
     assert propose_capability_gaps(inv2, TOOL_CATALOG, REQ) == []
+
+
+def test_required_mechanisms_drawn_from_spec():
+    # Domain-general: no explicit mechanisms -> drawn from the investigation contract.
+    inv = {"name": "discovery-sbml-recovery",
+           "required_mechanisms": ["rate-law-fitter", "non-recoverability-detector"]}
+    gaps = propose_capability_gaps(inv, TOOL_CATALOG)
+    assert [g["mechanism"] for g in gaps] == ["non-recoverability-detector"]
+
+
+def test_required_mechanisms_union_of_spec_and_studies():
+    inv = {"name": "x", "required_mechanisms": ["a"]}
+    studies = {"s1": {"required_mechanisms": ["b", "a"]}, "s2": {"required_mechanisms": ["c"]}}
+    assert required_mechanisms_from_spec(inv, studies) == ["a", "b", "c"]

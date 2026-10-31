@@ -61,16 +61,42 @@ def _build_gap(mechanism: str, inv_slug: str, route_info: dict, source: dict, no
     }
 
 
-def propose_capability_gaps(inv_spec: dict, catalog: list[dict], required_mechanisms: list[str],
-                            *, source_by_mech: dict | None = None, now: str | None = None) -> list[dict]:
+def required_mechanisms_from_spec(inv_spec: dict, studies: dict | None = None) -> list[str]:
+    """Domain-general source of required mechanisms — the investigation CONTRACT, not
+    a hardcoded tool list (mirrors how viz_proposals draws observables from the spec's
+    gates/hypotheses). Union of ``inv_spec['required_mechanisms']`` and each study's
+    ``required_mechanisms``, de-duplicated in declaration order. A biological-composite
+    workspace gets the same loop for free — it declares its mechanisms in the spec and
+    they resolve against whatever catalog is injected."""
+    reqs = list((inv_spec or {}).get("required_mechanisms") or [])
+    for s in (studies or {}).values():
+        if isinstance(s, dict):
+            reqs += list(s.get("required_mechanisms") or [])
+    seen: set = set()
+    out: list[str] = []
+    for m in reqs:
+        if m and m not in seen:
+            seen.add(m)
+            out.append(m)
+    return out
+
+
+def propose_capability_gaps(inv_spec: dict, catalog: list[dict], required_mechanisms: list[str] | None = None,
+                            *, studies: dict | None = None, source_by_mech: dict | None = None,
+                            now: str | None = None) -> list[dict]:
     """Emit ``CapabilityGap`` records for every required mechanism whose acquisition
-    route is BUILD (no catalog component provides it). Content-addressed + idempotent:
-    an id already on ``inv_spec['capability_gaps']`` with a non-``proposed`` status is
-    not re-emitted (rejected/built terminal; accepted persisted)."""
+    route is BUILD (no catalog component provides it). Required mechanisms come from
+    the investigation spec/contract by default (``required_mechanisms_from_spec``);
+    pass ``required_mechanisms`` explicitly only to override. Resolution runs against
+    the injected ``catalog`` (a tool-catalog OR model_architect's composite
+    build_catalog). Content-addressed + idempotent: an id already on
+    ``inv_spec['capability_gaps']`` with a non-``proposed`` status is not re-emitted."""
     inv_spec = inv_spec or {}
     now = now or _now()
     inv_slug = inv_spec.get("name", "")
     source_by_mech = source_by_mech or {}
+    if required_mechanisms is None:
+        required_mechanisms = required_mechanisms_from_spec(inv_spec, studies)
     done = {p.get("id") for p in inv_spec.get("capability_gaps") or []
             if isinstance(p, dict) and p.get("status", "proposed") != "proposed"}
 
