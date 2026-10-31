@@ -1306,7 +1306,7 @@ def _http_error(url, code, payload):
 
 def test_dashboard_render_error_flags_spec_error(tmp_path, monkeypatch):
     """A 500 whose error names InvestigationSpecError → returns the message."""
-    import discovery_engine.server_preflight as _sp
+    import discovery_engine.integration.server_preflight as _sp
     monkeypatch.setattr(_sp, "read_server_url", lambda root=".": "http://localhost:0")
 
     def boom(req, timeout=None):
@@ -1321,7 +1321,7 @@ def test_dashboard_render_error_flags_spec_error(tmp_path, monkeypatch):
 
 def test_dashboard_render_error_ignores_non_spec_500(tmp_path, monkeypatch):
     """A 500 from some other loader/enrichment failure is NOT a render block."""
-    import discovery_engine.server_preflight as _sp
+    import discovery_engine.integration.server_preflight as _sp
     monkeypatch.setattr(_sp, "read_server_url", lambda root=".": "http://localhost:0")
 
     def boom(req, timeout=None):
@@ -1331,7 +1331,7 @@ def test_dashboard_render_error_ignores_non_spec_500(tmp_path, monkeypatch):
 
 
 def test_dashboard_render_error_skips_when_no_server(tmp_path, monkeypatch):
-    import discovery_engine.server_preflight as _sp
+    import discovery_engine.integration.server_preflight as _sp
     monkeypatch.setattr(_sp, "read_server_url", lambda root=".": None)
     assert _rl._dashboard_render_error(tmp_path, "s1") is None
 

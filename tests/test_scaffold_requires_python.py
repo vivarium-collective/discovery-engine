@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import tomllib
 
-from discovery_engine.scaffold import (
+from discovery_engine.integration.scaffold import (
     _inplace_merge_requires_python,
     _requires_python_floor,
     _template_requires_python,

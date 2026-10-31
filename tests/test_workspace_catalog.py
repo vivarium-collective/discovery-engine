@@ -1,4 +1,4 @@
-"""Tests for discovery_engine.workspace_catalog."""
+"""Tests for discovery_engine.integration.workspace_catalog."""
 from __future__ import annotations
 import json
 import os
@@ -29,12 +29,12 @@ def workspace_dir(tmp_path):
 
 
 def test_list_returns_empty_when_no_catalog(pbg_home):
-    from discovery_engine.workspace_catalog import list_workspaces
+    from discovery_engine.integration.workspace_catalog import list_workspaces
     assert list_workspaces() == []
 
 
 def test_add_inserts_entry(pbg_home, workspace_dir):
-    from discovery_engine.workspace_catalog import add, list_workspaces
+    from discovery_engine.integration.workspace_catalog import add, list_workspaces
     entry = add(workspace_dir)
     assert entry["name"] == "my-workspace"
     assert entry["package"] == "pbg_myworkspace"
@@ -44,7 +44,7 @@ def test_add_inserts_entry(pbg_home, workspace_dir):
 
 
 def test_add_is_idempotent_by_path(pbg_home, workspace_dir):
-    from discovery_engine.workspace_catalog import add, list_workspaces
+    from discovery_engine.integration.workspace_catalog import add, list_workspaces
     e1 = add(workspace_dir)
     e2 = add(workspace_dir)
     assert e1 == e2
@@ -52,7 +52,7 @@ def test_add_is_idempotent_by_path(pbg_home, workspace_dir):
 
 
 def test_add_rejects_non_workspace(pbg_home, tmp_path):
-    from discovery_engine.workspace_catalog import add
+    from discovery_engine.integration.workspace_catalog import add
     bogus = tmp_path / "not-a-workspace"
     bogus.mkdir()
     with pytest.raises(ValueError, match="no workspace.yaml"):
@@ -60,7 +60,7 @@ def test_add_rejects_non_workspace(pbg_home, tmp_path):
 
 
 def test_add_explicit_name_overrides_yaml(pbg_home, workspace_dir):
-    from discovery_engine.workspace_catalog import add
+    from discovery_engine.integration.workspace_catalog import add
     entry = add(workspace_dir, name="explicit", package="pbg_explicit")
     assert entry["name"] == "explicit"
     assert entry["package"] == "pbg_explicit"
@@ -70,7 +70,7 @@ def test_add_reads_package_path_key(pbg_home, tmp_path):
     """A workspace.yaml using the canonical top-level `package_path` key
     (what the schema defines and the scaffolder writes) must populate the
     catalog entry's package — not store null. Regression for #356."""
-    from discovery_engine.workspace_catalog import add
+    from discovery_engine.integration.workspace_catalog import add
     ws = tmp_path / "pp-workspace"
     ws.mkdir()
     (ws / "workspace.yaml").write_text(
@@ -82,7 +82,7 @@ def test_add_reads_package_path_key(pbg_home, tmp_path):
 
 def test_add_prefers_package_path_over_legacy_package(pbg_home, tmp_path):
     """When both keys are present, the canonical `package_path` wins."""
-    from discovery_engine.workspace_catalog import add
+    from discovery_engine.integration.workspace_catalog import add
     ws = tmp_path / "both-workspace"
     ws.mkdir()
     (ws / "workspace.yaml").write_text(
@@ -93,20 +93,20 @@ def test_add_prefers_package_path_over_legacy_package(pbg_home, tmp_path):
 
 
 def test_forget_removes_entry(pbg_home, workspace_dir):
-    from discovery_engine.workspace_catalog import add, forget, list_workspaces
+    from discovery_engine.integration.workspace_catalog import add, forget, list_workspaces
     add(workspace_dir)
     assert forget(workspace_dir) is True
     assert list_workspaces() == []
 
 
 def test_forget_missing_returns_false(pbg_home, tmp_path):
-    from discovery_engine.workspace_catalog import forget
+    from discovery_engine.integration.workspace_catalog import forget
     # path that was never added (and need not exist on disk)
     assert forget(tmp_path / "never-added") is False
 
 
 def test_register_server_writes_file(pbg_home, workspace_dir):
-    from discovery_engine.workspace_catalog import register_server
+    from discovery_engine.integration.workspace_catalog import register_server
     fpath = register_server(
         name="my-workspace", path=workspace_dir,
         pid=os.getpid(), port=8731,
@@ -123,7 +123,7 @@ def test_register_server_writes_file(pbg_home, workspace_dir):
 
 
 def test_name_collision_uses_hash_suffix(pbg_home, tmp_path):
-    from discovery_engine.workspace_catalog import register_server
+    from discovery_engine.integration.workspace_catalog import register_server
     # Two workspaces with the same name but different paths.
     w1 = tmp_path / "w1" / "shared-name"; w1.mkdir(parents=True)
     w2 = tmp_path / "w2" / "shared-name"; w2.mkdir(parents=True)
@@ -135,7 +135,7 @@ def test_name_collision_uses_hash_suffix(pbg_home, tmp_path):
 
 
 def test_find_running_returns_entry_if_pid_alive(pbg_home, workspace_dir):
-    from discovery_engine.workspace_catalog import register_server, find_running
+    from discovery_engine.integration.workspace_catalog import register_server, find_running
     register_server(
         name="my-workspace", path=workspace_dir,
         pid=os.getpid(),  # this process is alive
@@ -148,7 +148,7 @@ def test_find_running_returns_entry_if_pid_alive(pbg_home, workspace_dir):
 
 def test_find_running_returns_none_if_pid_dead(pbg_home, workspace_dir):
     import subprocess as _sp
-    from discovery_engine.workspace_catalog import register_server, find_running
+    from discovery_engine.integration.workspace_catalog import register_server, find_running
     # Spawn a real subprocess, wait for it to exit, then use its confirmed-dead PID.
     proc = _sp.Popen([sys.executable, "-c", "pass"])
     proc.wait()
@@ -161,7 +161,7 @@ def test_find_running_returns_none_if_pid_dead(pbg_home, workspace_dir):
 
 
 def test_unregister_server_removes_file(pbg_home, workspace_dir):
-    from discovery_engine.workspace_catalog import register_server, unregister_server, find_entry
+    from discovery_engine.integration.workspace_catalog import register_server, unregister_server, find_entry
     register_server("my-workspace", workspace_dir, os.getpid(), 8731, "http://127.0.0.1:8731")
     assert find_entry(workspace_dir) is not None
     assert unregister_server(workspace_dir) is True
@@ -170,7 +170,7 @@ def test_unregister_server_removes_file(pbg_home, workspace_dir):
 
 def test_concurrent_add_same_path_dedups(pbg_home, tmp_path):
     """Many threads adding the SAME path → exactly one catalog entry."""
-    from discovery_engine.workspace_catalog import add, list_workspaces
+    from discovery_engine.integration.workspace_catalog import add, list_workspaces
 
     ws = tmp_path / "concurrent"
     ws.mkdir()
@@ -199,7 +199,7 @@ def test_concurrent_add_different_paths_all_survive(pbg_home, tmp_path):
     entry to their local copy, both write back. The second write erases the
     first thread's entry. With flock, all N entries survive.
     """
-    from discovery_engine.workspace_catalog import add, list_workspaces
+    from discovery_engine.integration.workspace_catalog import add, list_workspaces
 
     N = 12
     workspaces = []
@@ -231,7 +231,7 @@ def test_concurrent_add_different_paths_all_survive(pbg_home, tmp_path):
 def test_concurrent_register_server_same_name_different_paths(pbg_home, tmp_path):
     """Two workspaces with same name registering concurrently must end up
     with distinct files (one base, one hash-suffixed) — neither lost."""
-    from discovery_engine.workspace_catalog import register_server
+    from discovery_engine.integration.workspace_catalog import register_server
 
     w1 = tmp_path / "a" / "shared-name"; w1.mkdir(parents=True)
     w2 = tmp_path / "b" / "shared-name"; w2.mkdir(parents=True)
@@ -265,7 +265,7 @@ def test_concurrent_register_server_same_name_different_paths(pbg_home, tmp_path
 def test_cli_add_and_list(pbg_home, workspace_dir):
     env = {**os.environ, "PBG_HOME": str(pbg_home)}
     out = subprocess.check_output(
-        [sys.executable, "-m", "discovery_engine.workspace_catalog",
+        [sys.executable, "-m", "discovery_engine.integration.workspace_catalog",
          "add", "--path", str(workspace_dir)],
         env=env,
     )
@@ -273,7 +273,7 @@ def test_cli_add_and_list(pbg_home, workspace_dir):
     assert entry["name"] == "my-workspace"
 
     listed = subprocess.check_output(
-        [sys.executable, "-m", "discovery_engine.workspace_catalog", "list"],
+        [sys.executable, "-m", "discovery_engine.integration.workspace_catalog", "list"],
         env=env,
     )
     parsed = json.loads(listed)
@@ -287,12 +287,12 @@ def test_cli_add_and_list(pbg_home, workspace_dir):
 
 
 def test_list_servers_returns_empty_when_no_dir(pbg_home):
-    from discovery_engine.workspace_catalog import list_servers
+    from discovery_engine.integration.workspace_catalog import list_servers
     assert list_servers() == []
 
 
 def test_list_servers_augments_with_file_and_alive(pbg_home, workspace_dir):
-    from discovery_engine.workspace_catalog import register_server, list_servers
+    from discovery_engine.integration.workspace_catalog import register_server, list_servers
     register_server("my-workspace", workspace_dir, os.getpid(), 8731,
                     "http://127.0.0.1:8731")
     entries = list_servers()
@@ -304,7 +304,7 @@ def test_list_servers_augments_with_file_and_alive(pbg_home, workspace_dir):
 
 def test_list_servers_marks_dead_pid(pbg_home, workspace_dir):
     import subprocess as _sp
-    from discovery_engine.workspace_catalog import register_server, list_servers
+    from discovery_engine.integration.workspace_catalog import register_server, list_servers
     proc = _sp.Popen([sys.executable, "-c", "pass"])
     proc.wait()
     register_server("my-workspace", workspace_dir, proc.pid, 8731,
@@ -315,7 +315,7 @@ def test_list_servers_marks_dead_pid(pbg_home, workspace_dir):
 
 
 def test_find_duplicates_for_path_returns_only_same_path(pbg_home, tmp_path):
-    from discovery_engine.workspace_catalog import (
+    from discovery_engine.integration.workspace_catalog import (
         register_server, find_duplicates_for_path,
     )
     w1 = tmp_path / "w1"; w1.mkdir()
@@ -334,7 +334,7 @@ def test_find_duplicates_for_path_returns_only_same_path(pbg_home, tmp_path):
 
 def test_cleanup_orphans_removes_dead_pid_records(pbg_home, workspace_dir):
     import subprocess as _sp
-    from discovery_engine.workspace_catalog import (
+    from discovery_engine.integration.workspace_catalog import (
         register_server, cleanup_orphans, list_servers,
     )
     proc = _sp.Popen([sys.executable, "-c", "pass"])
@@ -355,7 +355,7 @@ def test_cleanup_orphans_removes_dead_pid_records(pbg_home, workspace_dir):
 
 
 def test_cleanup_orphans_removes_missing_path_records(pbg_home, tmp_path):
-    from discovery_engine.workspace_catalog import (
+    from discovery_engine.integration.workspace_catalog import (
         register_server, cleanup_orphans, list_servers,
     )
     gone = tmp_path / "will-be-gone"
@@ -373,7 +373,7 @@ def test_cleanup_orphans_removes_missing_path_records(pbg_home, tmp_path):
 
 
 def test_cleanup_orphans_is_noop_when_clean(pbg_home, workspace_dir):
-    from discovery_engine.workspace_catalog import (
+    from discovery_engine.integration.workspace_catalog import (
         register_server, cleanup_orphans,
     )
     register_server("alive", workspace_dir, os.getpid(), 9004,
@@ -384,7 +384,7 @@ def test_cleanup_orphans_is_noop_when_clean(pbg_home, workspace_dir):
 
 
 def test_remove_server_file_rejects_path_outside_servers_dir(pbg_home, tmp_path):
-    from discovery_engine.workspace_catalog import remove_server_file
+    from discovery_engine.integration.workspace_catalog import remove_server_file
     bogus = tmp_path / "elsewhere.json"
     bogus.write_text("{}")
     # Path is outside ~/.pbg/servers/ → must refuse and return False.
@@ -393,7 +393,7 @@ def test_remove_server_file_rejects_path_outside_servers_dir(pbg_home, tmp_path)
 
 
 def test_remove_server_file_removes_valid_record(pbg_home, workspace_dir):
-    from discovery_engine.workspace_catalog import (
+    from discovery_engine.integration.workspace_catalog import (
         register_server, remove_server_file, list_servers,
     )
     fpath = register_server("rm-me", workspace_dir, os.getpid(), 9005,
@@ -406,7 +406,7 @@ def test_remove_server_file_removes_valid_record(pbg_home, workspace_dir):
 
 def test_cli_list_servers_and_cleanup(pbg_home, workspace_dir):
     import subprocess as _sp
-    from discovery_engine.workspace_catalog import register_server
+    from discovery_engine.integration.workspace_catalog import register_server
 
     proc = _sp.Popen([sys.executable, "-c", "pass"])
     proc.wait()
@@ -415,7 +415,7 @@ def test_cli_list_servers_and_cleanup(pbg_home, workspace_dir):
 
     env = {**os.environ, "PBG_HOME": str(pbg_home)}
     listed = subprocess.check_output(
-        [sys.executable, "-m", "discovery_engine.workspace_catalog", "list-servers"],
+        [sys.executable, "-m", "discovery_engine.integration.workspace_catalog", "list-servers"],
         env=env,
     )
     parsed = json.loads(listed)
@@ -423,7 +423,7 @@ def test_cli_list_servers_and_cleanup(pbg_home, workspace_dir):
     assert parsed[0]["_alive"] is False
 
     cleaned = subprocess.check_output(
-        [sys.executable, "-m", "discovery_engine.workspace_catalog",
+        [sys.executable, "-m", "discovery_engine.integration.workspace_catalog",
          "cleanup-servers"],
         env=env,
     )
