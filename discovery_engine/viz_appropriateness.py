@@ -28,13 +28,21 @@ OK, MISPLACED_SCOPE, UNTIED = "ok", "misplaced_scope", "untied"
 STUDY, INVESTIGATION, UNKNOWN = "study", "investigation", "unknown"
 
 # A viz whose input ports include the full arm set is a cross-arm comparison
-# (investigation-scope), not a view of one study's own trajectory.
-_CROSS_ARM_PORTS = {"arms", "labels"}
+# (investigation-scope), not a view of one study's own trajectory. Only ``arms`` is a
+# reliable signal: ``labels`` alone is carried by per-study multi-curve viz too (a
+# convergence sweep labels its intervals), so it would false-positive on them.
+_CROSS_ARM_PORTS = {"arms"}
 
 
-def viz_scope(inputs_schema: dict | None) -> str:
-    """Derive a viz's scope from its declared input ports. ``None`` (uninspectable
-    class) → UNKNOWN, so an unresolved viz never raises a false scope alarm."""
+def viz_scope(inputs_schema: dict | None, declared: str | None = None) -> str:
+    """A viz's scope. An explicit ``scope:`` on the entry wins (the escape hatch for
+    cross-arm viz fed PRE-AGGREGATED data — e.g. a tradeoff map taking ``points``, a
+    decision table taking ``rows`` — whose ports carry no ``arms`` to derive from).
+    Otherwise derive from the input ports; ``None`` (uninspectable class) → UNKNOWN, so
+    an unresolved viz never raises a false scope alarm."""
+    d = str(declared or "").strip().lower()
+    if d in (STUDY, INVESTIGATION):
+        return d
     if inputs_schema is None:
         return UNKNOWN
     ports = {str(p).strip().lower() for p in inputs_schema.keys()}
@@ -51,7 +59,7 @@ def _covers(entry: dict) -> list:
 def classify_viz(entry: dict, inputs_schema: dict | None, *, is_member_study: bool = True) -> dict:
     """Pure per-viz verdict: ``ok`` or a list of issues (``misplaced_scope`` / ``untied``)."""
     entry = entry or {}
-    scope = viz_scope(inputs_schema)
+    scope = viz_scope(inputs_schema, entry.get("scope"))
     covers = _covers(entry)
     issues = []
     if scope == INVESTIGATION and is_member_study:
@@ -86,7 +94,7 @@ def duplicated_cross_arm(studies: dict,
         if not isinstance(sp, dict):
             continue
         for e in sp.get("visualizations") or []:
-            if isinstance(e, dict) and viz_scope(scope_of(e.get("address"))) == INVESTIGATION:
+            if isinstance(e, dict) and viz_scope(scope_of(e.get("address")), e.get("scope")) == INVESTIGATION:
                 key = e.get("address") or e.get("name")
                 if key:
                     seen.setdefault(key, []).append(slug)
