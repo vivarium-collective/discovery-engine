@@ -18,10 +18,11 @@ Per-tab basis (the generalization of a chart's ``source_run_id``):
   * Narrative    — a content fingerprint of the member studies' claims/findings the
     prose was authored against (stamped on ``executive.narrative_basis``), vs current.
 
-Wiring (for the engine owner): call ``investigation_freshness`` where the investigation
-summary is built so each top tab carries its state; call ``renew_executive`` from
-``persist_cycle`` beside ``_renew_executive_decisions`` (it supersets it) so an
-accepted refresh stamps the narrative + (rationale-gated) accepts the computed verdict.
+Wiring: call ``investigation_freshness`` where the investigation summary is built so
+each top tab carries its state. ``persist_cycle`` calls ``renew_executive`` (mechanical
+decisions reconcile ONLY). The narrative stamp is ``stamp_narrative`` -- a SEPARATE,
+rationale-gated human action; persist must never call it, or the Narrative tab could
+never expire and prose the author never re-read would be falsely certified.
 """
 from __future__ import annotations
 
@@ -41,12 +42,13 @@ def _studies_map(studies: dict | None) -> dict:
 
 
 def narrative_basis(studies: dict | None) -> str:
-    """Content fingerprint of what the narrative prose is authored against — each
-    member study's one-line claim + verdict + finding count. Changes when the studies'
-    conclusions change, which is exactly when Background/Narrative/Biology go stale."""
+    """Content fingerprint of what the narrative prose is authored against -- each
+    member study's claim, verdict, and the full claims/findings content (not a count).
+    Deterministic: rows sorted, no clock/uuid."""
     sm = _studies_map(studies)
     rows = sorted(
-        (slug, sp.get("claim") or "", sp.get("verdict") or "", len(sp.get("findings") or []))
+        (slug, sp.get("claim") or "", sp.get("verdict") or "",
+         sp.get("claims") or [], sp.get("findings") or [])
         for slug, sp in sm.items()
     )
     return _hash8(rows)
@@ -56,10 +58,24 @@ def _resolved_targets(inv_spec: dict) -> set:
     return {r.get("target") for r in (inv_spec.get("resolutions") or []) if isinstance(r, dict)}
 
 
+def _norm(v) -> str:
+    return str(v or "").strip().lower()
+
+
 def classify_verdict(inv_spec: dict, computed_verdict_status: str | None) -> dict:
-    """Derived: EXPIRED when the authored verdict_status diverges from the computed one."""
-    authored = (inv_spec.get("executive") or {}).get("verdict_status")
-    if computed_verdict_status and authored and authored != computed_verdict_status:
+    """Derived: EXPIRED when the authored verdict diverges from the computed one, using
+    the engine's normalized divergence (``executive.computed_acceptance.
+    diverges_from_authored`` if present, else strip+lower compare like
+    ``investigation_status``)."""
+    ex = inv_spec.get("executive") or {}
+    authored = ex.get("verdict_status")
+    acc = ex.get("computed_acceptance")
+    if isinstance(acc, dict) and acc.get("diverges_from_authored") is not None:
+        diverges = bool(acc["diverges_from_authored"])
+    else:
+        diverges = bool(_norm(authored) and _norm(computed_verdict_status)
+                        and _norm(authored) != _norm(computed_verdict_status))
+    if diverges:
         return {
             "state": EXPIRED,
             "authored": authored,
@@ -104,23 +120,23 @@ def investigation_freshness(inv_spec: dict, studies: dict | None, *,
     """Per-tab freshness for the investigation top tabs — rendered ON each tab, not just
     as a global badge. Pure + non-blocking."""
     inv_spec = inv_spec or {}
-    return {
+    tabs = {
         "verdict": classify_verdict(inv_spec, computed_verdict_status),
         "decisions": classify_decisions(inv_spec),
         "narrative": classify_narrative(inv_spec, studies),
-        "any_expired": any(
-            c["state"] == EXPIRED for c in (
-                classify_verdict(inv_spec, computed_verdict_status),
-                classify_decisions(inv_spec),
-                classify_narrative(inv_spec, studies),
-            )
-        ),
     }
+    return {**tabs, "any_expired": any(c["state"] == EXPIRED for c in tabs.values())}
 
 
-def stamp_narrative(inv_spec: dict, studies: dict | None) -> dict:
-    """Record the current narrative basis (the refresh/accept action for the Narrative
-    tabs). Mirrors viz_freshness.stamp_meta."""
+def stamp_narrative(inv_spec: dict, studies: dict | None, *, rationale: str | None,
+                    by: str | None) -> dict:
+    """Accept-gated refresh of the Narrative tab: record the current basis. Requires a
+    non-blank rationale (a human re-read the prose) and real studies. Mirrors
+    viz_freshness.stamp_meta, but is NEVER called at persist time."""
+    if not (rationale or "").strip():
+        raise ValueError("stamp_narrative requires a non-empty rationale")
+    if not _studies_map(studies):
+        raise ValueError("stamp_narrative requires member studies (refusing an empty basis)")
     ex = inv_spec.setdefault("executive", {})
     ex["narrative_basis"] = narrative_basis(studies)
     return inv_spec
@@ -128,39 +144,22 @@ def stamp_narrative(inv_spec: dict, studies: dict | None) -> dict:
 
 def renew_executive(on_disk: dict, studies: dict | None = None, *,
                     computed_verdict_status: str | None = None,
-                    accept_verdict_rationale: str | None = None) -> dict:
-    """Supersets ``_renew_executive_decisions``: reconcile resolved decisions AND
-    (rationale-gated) accept the computed verdict AND stamp the narrative basis.
+                    accept_verdict_rationale: str | None = None,
+                    by: str | None = "accept") -> dict:
+    """Persist-time renew: the mechanical decisions reconciliation (delegates to
+    ``_renew_executive_decisions``) plus an OPTIONAL rationale-gated verdict acceptance.
+    It never stamps the narrative (see ``stamp_narrative``); ``studies`` is accepted for
+    interface symmetry and may be None."""
+    from .discover import _renew_executive_decisions  # lazy: discover imports this module
 
-    Never overwrites authored prose without a rationale: the verdict is only accepted
-    when ``accept_verdict_rationale`` is given (the Verdict tab's accept action). The
-    decisions reconciliation + narrative stamp are the mechanical refresh."""
     ex = on_disk.get("executive")
     if not isinstance(ex, dict):
         return on_disk
-    # --- decisions: move cycle-resolved out of the open list (mirrors existing renew) ---
-    decisions = ex.get("decisions_needed") or []
-    resolved = _resolved_targets(on_disk)
-
-    def _q(d):
-        return d.get("question") if isinstance(d, dict) else d
-
-    newly = [d for d in decisions if _q(d) in resolved]
-    if newly:
-        archived = list(ex.get("decisions_resolved") or [])
-        seen = {_q(d) for d in archived}
-        for d in newly:
-            if _q(d) not in seen:
-                archived.append(d)
-                seen.add(_q(d))
-        ex["decisions_needed"] = [d for d in decisions if _q(d) not in resolved]
-        ex["decisions_resolved"] = archived
-    # --- verdict: accept the computed status only with a rationale (never silent) ---
-    if accept_verdict_rationale and computed_verdict_status:
+    _renew_executive_decisions(on_disk)
+    rationale = (accept_verdict_rationale or "").strip()
+    if rationale and computed_verdict_status:
         ex.setdefault("verdict_history", []).append(
             {"from": ex.get("verdict_status"), "to": computed_verdict_status,
-             "rationale": accept_verdict_rationale, "by": "accept"})
+             "rationale": rationale, "by": by or "accept"})
         ex["verdict_status"] = computed_verdict_status
-    # --- narrative: stamp the current basis (refresh) ---
-    ex["narrative_basis"] = narrative_basis(studies)
     return on_disk
