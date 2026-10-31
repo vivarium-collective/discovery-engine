@@ -2,7 +2,7 @@
 
 Reconciles the overlapping ``frontier`` / ``opportunities`` / ``suggest_studies`` /
 ``next_action`` surfaces behind one CandidateAction record, classified **REPAIR**,
-**RESOLVE**, or **EXTEND**, and ordered by scientific value with prerequisite
+**REVISE**, **RESOLVE**, or **EXTEND**, and ordered by scientific value with prerequisite
 dependencies. The engine can then explain why a hypothesis-discriminating study
 outranks a generic missing-test task, *while still scheduling the prerequisite
 evidence repairs first*.
@@ -20,16 +20,17 @@ the investigation spec, and the Phase-A evidence state. It performs no I/O.
 from __future__ import annotations
 
 
-from .discovery_engine import opportunities
+from .discovery_engine import execute_plan, opportunities
 from .hypotheses import discriminating_hypotheses
 from .evidence_integrity import CONTRADICTED, PROVISIONAL, UNSUPPORTED
 
 REPAIR = "repair"
 RESOLVE = "resolve"
+REVISE = "revise"
 EXTEND = "extend"
 
 _UNVERIFIED = (PROVISIONAL, UNSUPPORTED, CONTRADICTED)
-_KIND_RANK = {REPAIR: 0, RESOLVE: 1, EXTEND: 2}
+_KIND_RANK = {REPAIR: 0, REVISE: 1, RESOLVE: 2, EXTEND: 3}
 
 
 def _slug(target: str) -> str:
@@ -45,6 +46,8 @@ def classify_action(op: dict, evidence_by_study: dict, disc: dict) -> tuple[str,
     ev_status = (evidence_by_study.get(slug) or {}).get("status")
     op_type = op.get("action_type")
 
+    if op_type == "revise_model":
+        return REVISE, ("review a proposed model revision: " + (op.get("question") or "the model is inadequate here"))
     if op_type in ("test", "branch") and discriminable:
         tail = (f" (evidence currently {ev_status}; needs a registered run)"
                 if ev_status in _UNVERIFIED else "")
@@ -76,11 +79,14 @@ def plan_candidate_actions(cycle_result: dict, inv_spec: dict, evidence_state: d
         r0 = {"id": "R0", "kind": REPAIR, "target": "investigation",
               "question": "register runs + provenance for the preliminary findings",
               "discriminates": [], "value": 1.0, "discrimination": 0.0, "depends_on": [],
+              "consequence": "simulation", "command": None, "auto_safe": False,
               "rationale": f"{n_unverified} finding(s) lack a resolvable registered run "
                            "(Phase A): repair execution/provenance before promoting any to evidence"}
         actions.append(r0)
 
+    plan_by_id = {p["id"]: p for p in execute_plan(cycle_result, inv_spec)}
     for op in opportunities(cycle_result, inv_spec):
+        ex = plan_by_id.get(op.get("id")) or {}
         kind, rationale = classify_action(op, evidence_by_study, disc)
         slug = _slug(op.get("source"))
         d = disc.get(slug) or {}
@@ -94,6 +100,8 @@ def plan_candidate_actions(cycle_result: dict, inv_spec: dict, evidence_state: d
             "value": (op.get("value") or {}).get("score", 0.0),
             "discrimination": (op.get("value") or {}).get("discriminate", 0.0),
             "depends_on": depends, "rationale": rationale,
+            "consequence": ex.get("consequence", "unknown"), "command": ex.get("command"),
+            "auto_safe": ex.get("auto_safe", False),
         })
     return actions
 

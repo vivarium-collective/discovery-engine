@@ -160,7 +160,8 @@ def record_resolution(inv_path: Path | str, kind: str, target: str, rationale: s
 # run_cycle — one invocation = one turn of the discovery cycle
 # ---------------------------------------------------------------------------
 
-def run_cycle(inv_spec: dict, studies_by_slug: dict[str, dict]) -> dict:
+def run_cycle(inv_spec: dict, studies_by_slug: dict[str, dict], *,
+              evidence_state: dict | None = None) -> dict:
     """Project one full discovery cycle over an investigation + its studies.
 
     Pure: no disk I/O. Each derived projection is merged over its authored block
@@ -195,6 +196,20 @@ def run_cycle(inv_spec: dict, studies_by_slug: dict[str, dict]) -> dict:
     }
     # Suggestions for new studies (the branch op, made first-class + expert-gated).
     bundle["suggestions"] = suggest_studies(bundle, inv_spec, studies_by_slug)
+    # Closed-loop feedback (pure): the raw signals and the typed revision proposals they
+    # yield, so the frontier can raise them as non-blocking items.
+    from . import evaluation as _ev
+    from .hypotheses import anomalies as _anoms
+    from .model_architect import build_catalog
+    from .model_revision import propose_model_revisions
+    mvs = project_model_versions(studies_by_slug, inv_spec.get("model_versions"))
+    evaluation = _ev.compare_hypotheses(inv_spec, studies_by_slug, evidence_state)
+    bundle["signals"] = {
+        "model_disagreements": _ev.model_disagreement_map(inv_spec, studies_by_slug),
+        "anomalies": _anoms(inv_spec or {}, _ev._keyed_specs(studies_by_slug)),
+    }
+    bundle["revision_proposals"] = propose_model_revisions(
+        inv_spec, studies_by_slug, evaluation, evidence_state, mvs, build_catalog(studies_by_slug))
     return bundle
 
 
@@ -381,6 +396,16 @@ def persist_cycle(inv_path: Path | str, inv_spec: dict, result: dict, *, studies
     if mvs is not None:
         _validate_extensions({"model_versions": mvs})
         on_disk["model_versions"] = mvs
+    new = [p for p in result.get("revision_proposals") or [] if isinstance(p, dict)]
+    if new:
+        have = [r for r in on_disk.get("revision_proposals") or []]
+        ids = {r.get("id") for r in have if isinstance(r, dict)}
+        for p in new:
+            if p.get("id") not in ids:  # content-addressed id: existing rows keep status/history
+                have.append(p)
+                ids.add(p.get("id"))
+        _validate_extensions({"revision_proposals": have})
+        on_disk["revision_proposals"] = have
     on_disk["cycle_state"] = build_cycle_state(result, inv_spec, model_versions=mvs, studies=studies,
                                                evidence_state=evidence_state)
     save_yaml_atomic(path, on_disk)

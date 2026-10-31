@@ -44,6 +44,11 @@ _PRIORITY = {
     "validation_finding": 45,      # a registered validator (RFC-0007) reported a failing check
     "pending_gate": 42,            # an acceptance gate met by verdict only — behavior unrun
     "open_question": 40,           # an unassessed / inconclusive claim
+    # Closed-loop feedback (NON-blocking, never in _CLOSURE_BLOCKING): a model revision
+    # the engine proposed, or the raw signal behind one.
+    "revision_proposed": 58,       # a ModelRevisionProposal awaiting review
+    "model_disagreement": 48,      # arms disagree on an observable (no proposal yet)
+    "anomaly": 48,                 # an observation outside every live hypothesis band
 }
 # Recommended operation per item kind (the RFC-0005 op that resolves it).
 _OP = {
@@ -56,6 +61,9 @@ _OP = {
     "validation_finding": "revise",      # act on the validator's recommendation, then resolve
     "pending_gate": "test",              # run the gate's behavior — it is met by verdict only
     "open_question": "test",             # evaluate the claim
+    "revision_proposed": "revise_model",  # review/apply the proposed model revision
+    "model_disagreement": "revise_model",
+    "anomaly": "revise_model",
 }
 # open_calls kinds map straight onto frontier kinds.
 _CALL_KIND = {"narrative_gap": "narrative_gap", "decision": "open_decision",
@@ -183,6 +191,36 @@ def frontier(cycle_result: dict, inv_spec: dict) -> list[dict]:
         add("stale_validation", s["target"],
             f"validation '{s['validator_id']}' on {s['target']} is {s['change']} since the "
             f"accepted snapshot — re-validate")
+
+    # 6. closed-loop feedback (non-blocking). One revision_proposed per OPEN proposal; the
+    #    on-disk status (a human approved/rejected it) wins over the freshly-derived copy.
+    #    A raw anomaly / model_disagreement is emitted only when no proposal (of ANY status,
+    #    so a rejected one is not re-raised forever) already covers its study+observable.
+    disk = {p.get("id"): p for p in inv_spec.get("revision_proposals") or [] if isinstance(p, dict)}
+    proposals = [p for p in cycle_result.get("revision_proposals") or [] if isinstance(p, dict)]
+    covered: set = set()
+    for p in list(disk.values()) + proposals:
+        src = p.get("source") or {}
+        covered.add((src.get("study"), src.get("observable")))
+    for p in proposals:
+        status = (disk.get(p.get("id")) or p).get("status", "proposed")
+        if status not in ("proposed", "approved"):
+            continue
+        src = p.get("source") or {}
+        add("revision_proposed", p.get("id"),
+            f"revise {p.get('affected_model_version') or 'model'}: {p.get('inadequacy') or src.get('kind')} "
+            f"({src.get('study')}/{src.get('observable')})")
+    sig = cycle_result.get("signals") or {}
+    for r in sig.get("model_disagreements") or []:
+        if not r.get("disagreement") or (r.get("study"), r.get("observable")) in covered:
+            continue
+        add("model_disagreement", f"{r.get('study')}:{r.get('observable')}",
+            f"arms disagree on {r.get('observable')} in {r.get('study')} (spread {r.get('spread')})")
+    for a in sig.get("anomalies") or []:
+        if (a.get("study"), a.get("observable")) in covered:
+            continue
+        add("anomaly", f"{a.get('study')}:{a.get('observable')}",
+            a.get("proposed_question") or f"{a.get('observable')} outside every live hypothesis band")
 
     items.sort(key=lambda x: (-x["priority"], str(x["kind"]), str(x["target"])))
     return items
@@ -408,10 +446,10 @@ _CLOSURE_BLOCKING = ("unaddressed_criterion", "narrative_gap", "open_challenge")
 # Information potential by action: evidence-generating acts (run a test, open a study)
 # can teach something new; reconciling/adjudicating resolves bookkeeping.
 _OPP_INFO = {"test": 1.0, "branch": 1.0, "steer": 0.5, "synthesize": 0.3,
-             "reconcile": 0.3, "revise": 0.3, "revalidate": 0.3}
+             "reconcile": 0.3, "revise": 0.3, "revalidate": 0.3, "revise_model": 0.6}
 # Cost by action: a new study + simulation is dear; a reconcile is cheap.
 _OPP_COST = {"branch": 1.0, "test": 0.6, "steer": 0.3, "synthesize": 0.2,
-             "reconcile": 0.2, "revise": 0.2, "revalidate": 0.2}
+             "reconcile": 0.2, "revise": 0.2, "revalidate": 0.2, "revise_model": 0.4}
 
 
 def _opp_impact(target: str, edges: list) -> float:
@@ -520,6 +558,9 @@ def _executor_for(op: str, target: str) -> dict:
                 "command": f"<address the validator's recommendation>; "
                            f"discover resolve <inv> validation_finding {target} --rationale '…'",
                 "consequence": "review", "auto_safe": False}
+    if op == "revise_model":
+        return {"executor": "discover revise", "command": f"discover revise <inv> {target} --apply",
+                "consequence": "review", "auto_safe": False}
     if op == "steer":
         return {"executor": "expert", "command": None, "consequence": "human-only", "auto_safe": False}
     if op == "synthesize":
@@ -537,7 +578,7 @@ def execute_plan(cycle_result: dict, inv_spec: dict) -> list[dict]:
     out: list[dict] = []
     for o in opportunities(cycle_result, inv_spec):
         ex = _executor_for(o["action_type"], o["source"])
-        out.append({"source": o["source"], "action_type": o["action_type"],
+        out.append({"id": o["id"], "source": o["source"], "action_type": o["action_type"],
                     "score": o["value"]["score"], "state": "proposed", **ex})
     return out
 
