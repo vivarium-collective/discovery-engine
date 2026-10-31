@@ -1,4 +1,4 @@
-"""Investigation-level narrative freshness (PROTOTYPE, review-only).
+"""Investigation-level narrative freshness.
 
 The generalization of ``viz_freshness`` from figures to investigation-level
 artifacts (verdict / decisions / narrative). A chart is stale when its stamped
@@ -18,11 +18,13 @@ Per-tab basis (the generalization of a chart's ``source_run_id``):
   * Narrative    — a content fingerprint of the member studies' claims/findings the
     prose was authored against (stamped on ``executive.narrative_basis``), vs current.
 
-Wiring: call ``investigation_freshness`` where the investigation summary is built so
-each top tab carries its state. ``persist_cycle`` calls ``renew_executive`` (mechanical
-decisions reconcile ONLY). The narrative stamp is ``stamp_narrative`` -- a SEPARATE,
-rationale-gated human action; persist must never call it, or the Narrative tab could
-never expire and prose the author never re-read would be falsely certified.
+Wiring: ``discover.build_cycle_state`` / ``persist_cycle`` attach
+``investigation_freshness`` to ``cycle_state.freshness`` so each top tab carries its
+state. ``persist_cycle`` does the mechanical decisions reconcile ONLY
+(``_renew_executive_decisions``). The narrative stamp is ``stamp_narrative`` -- reached
+through the accept-gated ``discover.refresh_narrative`` (rationale required); persist must
+never call it, or the Narrative tab could never expire and prose the author never re-read
+would be falsely certified. The verdict accept is ``discover.accept_verdict``.
 """
 from __future__ import annotations
 
@@ -128,6 +130,11 @@ def investigation_freshness(inv_spec: dict, studies: dict | None, *,
     return {**tabs, "any_expired": any(c["state"] == EXPIRED for c in tabs.values())}
 
 
+def _now() -> str:
+    import datetime as _dt
+    return _dt.datetime.now(_dt.timezone.utc).isoformat(timespec="seconds")
+
+
 def stamp_narrative(inv_spec: dict, studies: dict | None, *, rationale: str | None,
                     by: str | None) -> dict:
     """Accept-gated refresh of the Narrative tab: record the current basis. Requires a
@@ -138,7 +145,10 @@ def stamp_narrative(inv_spec: dict, studies: dict | None, *, rationale: str | No
     if not _studies_map(studies):
         raise ValueError("stamp_narrative requires member studies (refusing an empty basis)")
     ex = inv_spec.setdefault("executive", {})
-    ex["narrative_basis"] = narrative_basis(studies)
+    basis = narrative_basis(studies)
+    ex["narrative_basis"] = basis
+    ex.setdefault("narrative_history", []).append(
+        {"basis": basis, "rationale": rationale.strip(), "by": by or "human", "at": _now()})
     return inv_spec
 
 
@@ -160,6 +170,6 @@ def renew_executive(on_disk: dict, studies: dict | None = None, *,
     if rationale and computed_verdict_status:
         ex.setdefault("verdict_history", []).append(
             {"from": ex.get("verdict_status"), "to": computed_verdict_status,
-             "rationale": rationale, "by": by or "accept"})
+             "rationale": rationale, "by": by or "accept", "at": _now()})
         ex["verdict_status"] = computed_verdict_status
     return on_disk

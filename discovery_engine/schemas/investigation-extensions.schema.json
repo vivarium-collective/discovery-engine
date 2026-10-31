@@ -50,9 +50,22 @@
       }
     },
     "revision_proposals": {"type": "array", "items": {"type": "object"}},
+    "executive": {
+      "type": "object",
+      "properties": {
+        "narrative_basis": {"type": "string"},
+        "verdict_history": {"type": "array", "items": {"type": "object", "properties": {
+          "from": {}, "to": {"type": "string"}, "rationale": {"type": "string", "minLength": 1},
+          "by": {"type": "string"}, "at": {"type": "string"}}}},
+        "narrative_history": {"type": "array", "items": {"type": "object", "properties": {
+          "basis": {"type": "string"}, "rationale": {"type": "string", "minLength": 1},
+          "by": {"type": "string"}, "at": {"type": "string"}}}}
+      }
+    },
     "cycle_state": {
       "type": "object",
       "properties": {
+        "freshness": {"type": "object"},
         "evaluation_snapshot": {"type": "object"},
         "model_versions": {"type": "array", "items": {"type": "string"}}
       }
