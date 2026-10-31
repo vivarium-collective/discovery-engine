@@ -157,6 +157,30 @@ def record_resolution(inv_path: Path | str, kind: str, target: str, rationale: s
     return spec["resolutions"][-1]
 
 
+def review_revision(inv_path: Path | str, proposal_id: str, event: str, rationale: str,
+                    by: str = "human") -> dict:
+    """Approve or reject a model-revision proposal: set its ``status`` and append a
+    ``{at, event, by, rationale}`` event to its ``history``. That is the ONLY mutation (no
+    verdict / evidence / finding change). A rationale is required; an unknown id errors."""
+    if event not in ("approved", "rejected"):
+        raise ValueError(f"event must be 'approved' or 'rejected', got {event!r}")
+    if not (rationale or "").strip():
+        raise ValueError("a rationale is required — a decision on a revision documents why")
+    path = Path(inv_path)
+    spec = load_yaml_mapping(path)
+    props = spec.get("revision_proposals") or []
+    prop = next((p for p in props if isinstance(p, dict) and p.get("id") == proposal_id), None)
+    if prop is None:
+        raise ValueError(f"unknown revision proposal {proposal_id!r} in {path}")
+    prop["status"] = event
+    hist = list(prop.get("history") or [])
+    hist.append({"at": _dt.datetime.now(_dt.timezone.utc).isoformat(timespec="seconds"),
+                 "event": event, "by": by, "rationale": rationale})
+    prop["history"] = hist
+    save_yaml_atomic(path, spec)
+    return prop
+
+
 # ---------------------------------------------------------------------------
 # run_cycle — one invocation = one turn of the discovery cycle
 # ---------------------------------------------------------------------------
@@ -705,6 +729,17 @@ def execute_action(ws_root: Path | str, inv_slug: str, *, autonomous: bool = Fal
                           f"[ai-driven · maximize-discovery] chose {pick}. {why}", by="discovery-ai")
         rec["status"] = "executed"
         rec["outcome"] = {"ok": True, "detail": f"ai-decided: {pick}", "rationale": why}
+    elif top["action_type"] == "revise_model" and decider is not None and autonomous \
+            and str(top["source"]).startswith("rp:"):
+        # AI decider approves a model-revision proposal (history is the only mutation).
+        detail = next((i["rationale"] for i in de.frontier(cyc, inv_spec)
+                       if i["kind"] == "revision_proposed" and i["target"] == top["source"]), top["source"])
+        choice = decider(top["source"], detail) or {}
+        why = choice.get("rationale") or ""
+        review_revision(inv_path, top["source"], "approved",
+                        f"[ai-driven] {why}".strip(), by="discovery-ai")
+        rec["status"] = "executed"
+        rec["outcome"] = {"ok": True, "detail": f"ai-approved: {top['source']}", "rationale": why}
     else:  # review / human-only with no decider
         rec["status"] = "gated-human"
         rec["outcome"] = {"ok": None, "detail": f"{top['consequence']} — needs a human decision"}
@@ -1594,6 +1629,14 @@ def main(argv: list[str] | None = None) -> int:
     p_res.add_argument("--rationale", required=True, help="why the item is discharged (the adjudication / bridge)")
     p_res.add_argument("--by", default=None, help="the artifact that resolves it (e.g. study#finding)")
 
+    p_rev = sub.add_parser("revise", help="approve or reject a model-revision proposal (rp:…)")
+    p_rev.add_argument("investigation", help="investigation slug")
+    p_rev.add_argument("proposal", help="the proposal id (rp:…)")
+    g_rev = p_rev.add_mutually_exclusive_group(required=True)
+    g_rev.add_argument("--approve", action="store_true")
+    g_rev.add_argument("--reject", action="store_true")
+    p_rev.add_argument("--rationale", required=True, help="why (recorded in the proposal history)")
+
     args = parser.parse_args(argv)
     ws = Path(args.workspace).resolve()
 
@@ -1650,6 +1693,18 @@ def main(argv: list[str] | None = None) -> int:
         print(f"resolved [{rec['kind']}] {rec['target']}"
               + (f"  (by {rec['by']})" if rec.get("by") else "")
               + f"  — {rec['rationale']}")
+        return 0
+
+    if args.cmd == "revise":
+        inv_path = investigations_dir(ws) / args.investigation / "investigation.yaml"
+        if not inv_path.exists():
+            parser.error(f"no investigation.yaml at {inv_path}")
+        try:
+            prop = review_revision(inv_path, args.proposal,
+                                   "approved" if args.approve else "rejected", args.rationale)
+        except ValueError as e:
+            parser.error(str(e))
+        print(f"{prop['status']} {prop['id']}  — {args.rationale}")
         return 0
 
     if args.cmd == "crank":
