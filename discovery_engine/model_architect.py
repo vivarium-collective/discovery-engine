@@ -219,3 +219,73 @@ def model_version(composite: str, params: dict, *, parent_ids=(), origin=None) -
                                        sort_keys=True).encode()).hexdigest()[:16]
     return {"id": f"mv:{digest}", "composite": composite, "params": dict(params or {}),
             "parent_ids": list(parent_ids), "origin": origin}
+
+
+_ORIGIN_KINDS = ("authored", "seeded", "refined", "revision")
+
+
+def _study_origin(spec: dict) -> tuple[dict, str | None]:
+    """(origin, parent study slug) for a study's baseline arm."""
+    sf, rf, mc = spec.get("seeded_from"), spec.get("refined_from"), spec.get("model_change")
+    if isinstance(mc, dict) and str(mc.get("ref") or "").startswith("rp:"):
+        return {"kind": "revision", "ref": mc["ref"]}, None
+    if isinstance(sf, dict) and sf.get("study"):
+        return {"kind": "seeded", "ref": sf["study"]}, sf["study"]
+    if isinstance(rf, dict) and rf.get("study"):
+        return {"kind": "refined", "ref": rf["study"]}, rf["study"]
+    return {"kind": "authored"}, None
+
+
+def bind_model_versions(studies: dict) -> dict:
+    """Bind every baseline + variant arm to a content-addressed model version.
+    Pure. Returns ``{slug: {arm: model_version_dict}}`` (baseline arms first).
+    A variant ``base:`` arm inherits that arm's composite and overlays its own params;
+    a variant's parent is its study's baseline mv; a seeded/refined study's baseline
+    takes the parent study's baseline mv as its parent."""
+    studies = studies or {}
+    memo: dict[str, dict] = {}
+
+    def _arms(spec, key):
+        return [a for a in _as_list(spec.get(key)) if isinstance(a, dict)]
+
+    def _bind(slug: str, stack: tuple = ()) -> dict:
+        if slug in memo:
+            return memo[slug]
+        spec = studies.get(slug)
+        if not isinstance(spec, dict) or slug in stack:
+            return {}
+        origin, parent_slug = _study_origin(spec)
+        parent_ids: list[str] = []
+        if parent_slug and parent_slug in studies:
+            pb = _bind(parent_slug, stack + (slug,))
+            if pb:
+                parent_ids = [next(iter(pb.values()))["id"]]
+        raw: dict[str, tuple[str, dict]] = {}  # arm -> (composite, params)
+        base_names = []
+        for i, arm in enumerate(_arms(spec, "baseline")):
+            name = str(arm.get("name") or ("baseline" if i == 0 else f"baseline{i}"))
+            raw[name] = (arm.get("composite"), dict(arm.get("params") or {}))
+            base_names.append(name)
+        first_base = base_names[0] if base_names else None
+        out: dict[str, dict] = {}
+        for name in base_names:
+            comp, params = raw[name]
+            if comp:
+                out[name] = model_version(comp, params, parent_ids=parent_ids, origin=origin)
+        for i, arm in enumerate(_arms(spec, "variants")):
+            name = str(arm.get("name") or f"variant{i}")
+            ref = arm.get("base")
+            src = raw.get(ref) if ref in raw else (raw.get(first_base) if ref else None)
+            comp = arm.get("composite") or (src[0] if src else None)
+            if not comp or "." not in str(comp):
+                continue
+            params = {**(src[1] if src else {}), **(arm.get("params") or {})}
+            raw[name] = (comp, params)
+            anchor = out.get(ref) or (out.get(first_base) if first_base else None)
+            mv = model_version(comp, params, parent_ids=[], origin={"kind": "authored"})
+            pids = [anchor["id"]] if anchor and anchor["id"] != mv["id"] else []
+            out[name] = {**mv, "parent_ids": pids}
+        memo[slug] = out
+        return out
+
+    return {slug: _bind(slug) for slug in studies if isinstance(studies[slug], dict)}

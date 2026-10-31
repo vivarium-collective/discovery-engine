@@ -187,6 +187,7 @@ def _fill_finding(
     measured_value: Any,
     run_name: str,
     readouts: list[dict],
+    model_version: str | None = None,
 ) -> bool:
     """Fill absent code-owned slots on a ruamel CommentedMap finding.
 
@@ -268,6 +269,11 @@ def _fill_finding(
         prov["run_ids"] = [run_name]
         changed = True
 
+    # provenance.model_version (fill-absent-only; nothing when the arm's mv is unknown)
+    if model_version and "model_version" not in prov:
+        prov["model_version"] = model_version
+        changed = True
+
     # --- calibration_anchor (measured side only) -------------------------
     if "calibration_anchor" in rt_finding:
         anchor = rt_finding["calibration_anchor"]
@@ -284,6 +290,18 @@ def _fill_finding(
                         changed = True
 
     return changed
+
+
+def _canonical_arm_mv_id(spec: dict, run: dict, slug: str) -> str | None:
+    """mv id of the canonical run's arm (its ``variant`` label, else the baseline); None if unknown."""
+    try:
+        from .model_architect import bind_model_versions
+        arms = bind_model_versions({slug: spec}).get(slug) or {}
+    except Exception:  # noqa: BLE001 — a malformed arm must never break finding fill
+        return None
+    label = run.get("variant")
+    mv = arms.get(label) if label else (next(iter(arms.values()), None))
+    return mv["id"] if mv else None
 
 
 # ---------------------------------------------------------------------------
@@ -331,6 +349,8 @@ def populate_finding_observations(study_dir: Path | str) -> dict:
     # Skip stub computed_outcomes (store_unresolved etc.)
     if isinstance(computed, dict) and "_status" in computed:
         computed = {}
+
+    mv_id = _canonical_arm_mv_id(spec, run, study_dir.name)
 
     # ruamel round-trip load for comment-preserving writes
     ryaml = YAML()
@@ -381,7 +401,8 @@ def populate_finding_observations(study_dir: Path | str) -> dict:
             skipped += 1
             continue
 
-        changed = _fill_finding(rt_finding, test, measured_value, run_name, readouts)
+        changed = _fill_finding(rt_finding, test, measured_value, run_name, readouts,
+                                model_version=mv_id)
         if changed:
             filled += 1
 

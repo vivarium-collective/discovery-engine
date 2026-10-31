@@ -1,0 +1,42 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "investigation.yaml closed-loop extension blocks",
+  "type": "object",
+  "properties": {
+    "model_versions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "composite", "params", "parent_ids", "origin"],
+        "properties": {
+          "id": {"type": "string", "pattern": "^mv:[0-9a-f]{16}$"},
+          "composite": {"type": "string"},
+          "params": {"type": "object"},
+          "parent_ids": {"type": "array", "items": {"type": "string", "pattern": "^mv:[0-9a-f]{16}$"}},
+          "origin": {
+            "type": "object",
+            "required": ["kind"],
+            "properties": {
+              "kind": {"enum": ["authored", "seeded", "refined", "revision"]},
+              "ref": {"type": "string"}
+            }
+          },
+          "bound_to": {
+            "type": "array",
+            "items": {"type": "object", "required": ["study", "arm"],
+                      "properties": {"study": {"type": "string"}, "arm": {"type": "string"}}}
+          },
+          "resolves": {"type": "boolean"}
+        }
+      }
+    },
+    "revision_proposals": {"type": "array", "items": {"type": "object"}},
+    "cycle_state": {
+      "type": "object",
+      "properties": {
+        "evaluation_snapshot": {"type": "object"},
+        "model_versions": {"type": "array", "items": {"type": "string"}}
+      }
+    }
+  }
+}

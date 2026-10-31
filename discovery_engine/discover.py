@@ -305,7 +305,7 @@ def _study_path(ws_root: Path | str, slug: str, study: str) -> Path:
 # persist_cycle — regenerable cache, authored blocks untouched
 # ---------------------------------------------------------------------------
 
-def build_cycle_state(result: dict, inv_spec: dict) -> dict:
+def build_cycle_state(result: dict, inv_spec: dict, *, model_versions: list | None = None) -> dict:
     """Project a **slim, actionable** summary of the cycle — the few dozen lines a
     human, the dashboard, or the next cycle actually needs, instead of the full
     regenerable projection. Carries the cycle's *outputs* that previously never fed
@@ -325,7 +325,7 @@ def build_cycle_state(result: dict, inv_spec: dict) -> dict:
         census[st] = census.get(st, 0) + 1
     sugg = result.get("suggestions") or []
     from .validation import stale_records
-    return {
+    state = {
         "generated_at": _dt.datetime.now(_dt.timezone.utc).isoformat(timespec="seconds"),
         "closed": clo["closed"],
         "frontier_size": clo["open_items"],
@@ -347,9 +347,12 @@ def build_cycle_state(result: dict, inv_spec: dict) -> dict:
         "drift": {"divergences": sum(1 for i in frontier if i["kind"] == "divergence"),
                   "stale_validations": len(stale_records(recs, inv_spec.get("validation_snapshot")))},
     }
+    if model_versions is not None:
+        state["model_versions"] = [m["id"] for m in model_versions]
+    return state
 
 
-def persist_cycle(inv_path: Path | str, inv_spec: dict, result: dict) -> dict:
+def persist_cycle(inv_path: Path | str, inv_spec: dict, result: dict, *, studies: dict | None = None) -> dict:
     """Write the slim ``cycle_state`` summary into investigation.yaml.
 
     Re-reads the on-disk spec (so concurrent authored edits are never clobbered),
@@ -364,9 +367,44 @@ def persist_cycle(inv_path: Path | str, inv_spec: dict, result: dict) -> dict:
     for dead in (*_RETIRED_INV_CACHES, *_DEPRECATED_INV_FIELDS):
         on_disk.pop(dead, None)  # retire bloat caches + deprecated fields (0 readers)
     _renew_executive_decisions(on_disk)  # move resolved decisions out of the open list
-    on_disk["cycle_state"] = build_cycle_state(result, inv_spec)
+    mvs = project_model_versions(studies, on_disk.get("model_versions")) if studies is not None else None
+    if mvs is not None:
+        _validate_extensions({"model_versions": mvs})
+        on_disk["model_versions"] = mvs
+    on_disk["cycle_state"] = build_cycle_state(result, inv_spec, model_versions=mvs)
     save_yaml_atomic(path, on_disk)
     return on_disk["cycle_state"]
+
+
+def project_model_versions(studies: dict, existing: list | None = None) -> list[dict]:
+    """Regenerable ``model_versions[]``: a projection of the bound arms. ``bound_to`` and
+    ``resolves`` are recomputed; ``origin`` is the one non-derivable field, kept from disk once written."""
+    from .model_architect import bind_model_versions, resolve_composite
+    prior = {m.get("id"): m for m in (existing or []) if isinstance(m, dict)}
+    out: dict[str, dict] = {}
+    for slug, arms in bind_model_versions(studies).items():
+        for arm, mv in arms.items():
+            row = out.get(mv["id"])
+            if row is None:
+                old = prior.get(mv["id"]) or {}
+                row = out[mv["id"]] = {
+                    "id": mv["id"], "composite": mv["composite"], "params": mv["params"],
+                    "parent_ids": list(old.get("parent_ids") or mv["parent_ids"]),
+                    "origin": old.get("origin") or mv["origin"],
+                    "bound_to": [],
+                    "resolves": bool(resolve_composite(mv["composite"], None)["resolves"]),
+                }
+            row["bound_to"].append({"study": slug, "arm": arm})
+    return list(out.values())
+
+
+def _validate_extensions(block: dict) -> None:
+    """Validate the new investigation blocks against the bundled JSON Schema (write boundary only)."""
+    import json
+    import jsonschema
+    schema = json.loads((Path(__file__).parent / "schemas" / "investigation-extensions.schema.json")
+                        .read_text(encoding="utf-8"))
+    jsonschema.validate(json.loads(json.dumps(block, default=str)), schema)
 
 
 def _renew_executive_decisions(on_disk: dict) -> None:
@@ -1514,7 +1552,7 @@ def main(argv: list[str] | None = None) -> int:
         result = run_cycle(inv_spec, studies)
         print(summarize(result))
         if args.cmd == "cycle" and not args.no_write:
-            persist_cycle(inv_path, inv_spec, result)
+            persist_cycle(inv_path, inv_spec, result, studies=studies)
             print(f"persisted cycle_state -> {inv_path}")
         return 0
 
