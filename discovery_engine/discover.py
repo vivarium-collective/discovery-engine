@@ -118,7 +118,8 @@ EPISTEMIC_RELATIONS = ("builds-on", "tests", "refutes", "alternative-to", "motiv
 # The frontier-item kinds a resolution can discharge (mirror discovery_engine priorities).
 RESOLUTION_KINDS = ("unaddressed_criterion", "open_challenge", "narrative_gap",
                     "open_decision", "divergence", "open_question",
-                    "validation_finding", "stale_validation", "pending_gate")
+                    "validation_finding", "stale_validation", "pending_gate",
+                    "revision_proposed", "model_disagreement", "anomaly")
 
 
 def add_resolution(inv_spec: dict, kind: str, target: str, rationale: str,
@@ -204,13 +205,26 @@ def run_cycle(inv_spec: dict, studies_by_slug: dict[str, dict], *,
     from .model_revision import propose_model_revisions
     mvs = project_model_versions(studies_by_slug, inv_spec.get("model_versions"))
     evaluation = _ev.compare_hypotheses(inv_spec, studies_by_slug, evidence_state)
+    from .model_revision import _contradicted_studies
+    bad = _contradicted_studies(evidence_state, evaluation)  # evidence problem -> REPAIR, not revise
     bundle["signals"] = {
-        "model_disagreements": _ev.model_disagreement_map(inv_spec, studies_by_slug),
-        "anomalies": _anoms(inv_spec or {}, _ev._keyed_specs(studies_by_slug)),
+        "model_disagreements": [r for r in _ev.model_disagreement_map(inv_spec, studies_by_slug)
+                                if r.get("study") not in bad],
+        "anomalies": [a for a in _anoms(inv_spec or {}, _ev._keyed_specs(studies_by_slug))
+                      if a.get("study") not in bad],
     }
     bundle["revision_proposals"] = propose_model_revisions(
         inv_spec, studies_by_slug, evaluation, evidence_state, mvs, build_catalog(studies_by_slug))
     return bundle
+
+
+def _cycle_with_evidence(ws_root, inv_slug, inv_spec, studies) -> dict:
+    """run_cycle with the Phase-A evidence state computed FIRST, so contradicted
+    (evidence-problem) studies are known to the revision proposer and the frontier."""
+    from . import evidence_integrity as _ei
+    ev = _ei.reconcile_evidence_state(
+        inv_spec, studies, _load_runs_by_study(Path(ws_root), inv_slug, studies))
+    return run_cycle(inv_spec, studies, evidence_state=ev)
 
 
 # ---------------------------------------------------------------------------
@@ -635,7 +649,7 @@ def execute_action(ws_root: Path | str, inv_slug: str, *, autonomous: bool = Fal
     happened."""
     from . import discovery_engine as de
     inv_path, inv_spec, studies = load_cycle_inputs(ws_root, inv_slug)
-    cyc = run_cycle(inv_spec, studies)
+    cyc = _cycle_with_evidence(ws_root, inv_slug, inv_spec, studies)
     before = de.closure(cyc, inv_spec)["open_items"]
     plan = de.execute_plan(cyc, inv_spec)
     if not plan:
@@ -699,7 +713,7 @@ def execute_action(ws_root: Path | str, inv_slug: str, *, autonomous: bool = Fal
         _append_executed(inv_path, rec)
         _, inv2, studies2 = load_cycle_inputs(ws_root, inv_slug)
         rec["frontier_before"] = before
-        rec["frontier_after"] = de.closure(run_cycle(inv2, studies2), inv2)["open_items"]
+        rec["frontier_after"] = de.closure(_cycle_with_evidence(ws_root, inv_slug, inv2, studies2), inv2)["open_items"]
     return rec
 
 
@@ -877,10 +891,10 @@ def advance_cycle(ws_root: Path | str, inv_slug: str, *, autonomous: bool = Fals
     needs_build: list[dict] = []
     seen: set = set()
     _, inv0, st0 = load_cycle_inputs(ws_root, inv_slug)
-    before = de.closure(run_cycle(inv0, st0), inv0)["open_items"]
+    before = de.closure(_cycle_with_evidence(ws_root, inv_slug, inv0, st0), inv0)["open_items"]
     for _ in range(max_runs):
         _, inv, studies = load_cycle_inputs(ws_root, inv_slug)
-        plan = de.execute_plan(run_cycle(inv, studies), inv)
+        plan = de.execute_plan(_cycle_with_evidence(ws_root, inv_slug, inv, studies), inv)
         target = None
         for p in plan:
             if p["action_type"] != "test" or p["source"] in seen:
@@ -913,7 +927,7 @@ def advance_cycle(ws_root: Path | str, inv_slug: str, *, autonomous: bool = Fals
         if rec["status"] != "executed":
             break
     _, inv2, st2 = load_cycle_inputs(ws_root, inv_slug)
-    after = de.closure(run_cycle(inv2, st2), inv2)["open_items"]
+    after = de.closure(_cycle_with_evidence(ws_root, inv_slug, inv2, st2), inv2)["open_items"]
     return {"runs": ran, "needs_build": needs_build,
             "frontier_before": before, "frontier_after": after}
 
@@ -938,7 +952,7 @@ def build_completion_map(ws_root: Path | str, inv_slug: str) -> dict:
     closure, suggestions, and the execution plan into one map."""
     from . import discovery_engine as de
     _, inv_spec, studies = load_cycle_inputs(ws_root, inv_slug)
-    cyc = run_cycle(inv_spec, studies)
+    cyc = _cycle_with_evidence(ws_root, inv_slug, inv_spec, studies)
     clo = de.closure(cyc, inv_spec)
     front = de.frontier(cyc, inv_spec)
     plan = de.execute_plan(cyc, inv_spec)
@@ -1037,7 +1051,7 @@ def snapshot_validations(ws_root: Path | str, slug: str) -> dict:
     clobbered and writes only this regenerable cache."""
     from .validation import snapshot_of
     inv_path, inv_spec, studies = load_cycle_inputs(ws_root, slug)
-    snap = snapshot_of(run_cycle(inv_spec, studies)["validations"])
+    snap = snapshot_of(_cycle_with_evidence(ws_root, inv_slug, inv_spec, studies)["validations"])
     path = Path(inv_path)
     on_disk = load_yaml_mapping(path) if path.exists() else dict(inv_spec)
     on_disk["validation_snapshot"] = snap
@@ -1585,7 +1599,7 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.cmd in ("cycle", "status"):
         inv_path, inv_spec, studies = load_cycle_inputs(ws, args.investigation)
-        result = run_cycle(inv_spec, studies)
+        result = _cycle_with_evidence(ws, args.investigation, inv_spec, studies)
         print(summarize(result))
         if args.cmd == "cycle" and not args.no_write:
             from . import evidence_integrity as _ei
@@ -1641,7 +1655,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.cmd == "crank":
         from . import discovery_engine
         _, inv_spec, studies = load_cycle_inputs(ws, args.investigation)
-        result = run_cycle(inv_spec, studies)
+        result = _cycle_with_evidence(ws, args.investigation, inv_spec, studies)
         print(discovery_engine.summarize(discovery_engine.crank(result, inv_spec)))
         return 0
 
@@ -1654,21 +1668,21 @@ def main(argv: list[str] | None = None) -> int:
     if args.cmd == "diagnose":
         from . import discovery_engine
         _, inv_spec, studies = load_cycle_inputs(ws, args.investigation)
-        result = run_cycle(inv_spec, studies)
+        result = _cycle_with_evidence(ws, args.investigation, inv_spec, studies)
         diag = discovery_engine.diagnose(result, inv_spec)
         print(discovery_engine.summarize_diagnosis(diag))
         return 0
 
     if args.cmd == "suggest":
         _, inv_spec, studies = load_cycle_inputs(ws, args.investigation)
-        result = run_cycle(inv_spec, studies)
+        result = _cycle_with_evidence(ws, args.investigation, inv_spec, studies)
         print(summarize_suggestions(result["suggestions"]))
         return 0
 
     if args.cmd == "opportunities":
         from . import discovery_engine
         _, inv_spec, studies = load_cycle_inputs(ws, args.investigation)
-        result = run_cycle(inv_spec, studies)
+        result = _cycle_with_evidence(ws, args.investigation, inv_spec, studies)
         opps = discovery_engine.opportunities(result, inv_spec)
         print(discovery_engine.summarize_opportunities(opps))
         return 0
@@ -1692,7 +1706,7 @@ def main(argv: list[str] | None = None) -> int:
         _, inv_spec, studies = load_cycle_inputs(ws, args.investigation)
         runs_by_study = _load_runs_by_study(ws, args.investigation, studies)
         ev_state = _ei.reconcile_evidence_state(inv_spec, studies, runs_by_study)
-        result = run_cycle(inv_spec, studies)
+        result = run_cycle(inv_spec, studies, evidence_state=ev_state)
         portfolio = _ca.select_portfolio(_ca.plan_candidate_actions(result, inv_spec, ev_state))
         print(_summarize_portfolio(portfolio))
         return 0
@@ -1793,7 +1807,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.cmd == "execute":
         from . import discovery_engine
         _, inv_spec, studies = load_cycle_inputs(ws, args.investigation)
-        plan = discovery_engine.execute_plan(run_cycle(inv_spec, studies), inv_spec)
+        plan = discovery_engine.execute_plan(_cycle_with_evidence(ws, args.investigation, inv_spec, studies), inv_spec)
         print(discovery_engine.summarize_execute_plan(plan))
         autonomous = args.autonomous or args.ai_decide
         if (args.execute or autonomous) and plan:

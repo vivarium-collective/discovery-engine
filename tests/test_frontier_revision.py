@@ -129,3 +129,31 @@ def test_persist_appends_idempotently_and_preserves_status(tmp_path):
     discover.persist_cycle(p, inv, res2, studies=studies)
     rows = load_yaml(p)["revision_proposals"]
     assert len(rows) == 1 and rows[0]["status"] == "approved" and len(rows[0]["history"]) == 2
+
+
+_NEW = {"revision_proposed", "anomaly", "model_disagreement"}
+
+
+def test_contradicted_study_spawns_no_revise_items_via_ledger(monkeypatch):
+    inv = {"studies": ["s3"], "hypotheses": []}
+    ev = {"ledger": [{"study": "s3", "status": "contradicted"}], "by_study": {}, "summary": {}}
+    res = discover.run_cycle(inv, _studies(), evidence_state=ev)
+    assert res["revision_proposals"] == []
+    assert res["signals"] == {"model_disagreements": [], "anomalies": []}
+    assert not _NEW & _kinds(de.frontier(res, inv))
+    # control: without the evidence state the same study does spawn one
+    assert discover.run_cycle(inv, _studies())["revision_proposals"]
+
+
+def test_contradicted_study_spawns_no_revise_items_via_evaluation(monkeypatch):
+    from discovery_engine import evaluation as E
+    monkeypatch.setattr(E, "compare_hypotheses", lambda *a, **k: {"s3": {"status": "contradicted"}})
+    inv = {"studies": ["s3"], "hypotheses": []}
+    res = discover.run_cycle(inv, _studies())
+    assert res["revision_proposals"] == [] and res["signals"]["model_disagreements"] == []
+    assert not _NEW & _kinds(de.frontier(res, inv))
+
+
+def test_new_kinds_are_resolvable():
+    for k in _NEW:
+        assert k in discover.RESOLUTION_KINDS
