@@ -52,6 +52,8 @@ _PRIORITY = {
     "anomaly": 48,                 # an observation outside every live hypothesis band
     # Visualization loop (NON-blocking): a declared figure that is broken/missing/stale.
     "viz_broken": 47, "viz_missing": 46, "viz_proposed": 44, "viz_stale": 38,
+    # Viz appropriateness (NON-blocking, review tier): a figure shown where it does not belong.
+    "viz_misplaced": 37, "viz_duplicated": 36, "viz_untied": 35,
     # Capability-gap loop (NON-blocking): a required mechanism no catalog component provides.
     "capability_gap": 43,
 }
@@ -71,6 +73,7 @@ _OP = {
     "anomaly": "revise_model",
     "viz_broken": "refine_viz", "viz_missing": "build_viz",
     "viz_proposed": "build_viz", "viz_stale": "refine_viz",
+    "viz_misplaced": "relocate_viz", "viz_duplicated": "relocate_viz", "viz_untied": "relocate_viz",
     "capability_gap": "build_process",
 }
 # open_calls kinds map straight onto frontier kinds.
@@ -276,6 +279,25 @@ def frontier(cycle_result: dict, inv_spec: dict) -> list[dict]:
         add("viz_proposed", p.get("id"),
             f"propose {sug.get('form')} for {src.get('observable')} in {p.get('study')} "
             f"({src.get('kind')}; {'needs_author' if sug.get('needs_author') else 'derivable'})")
+
+    # 8b. viz appropriateness (non-blocking, REVIEW tier, never auto-executed). Only OPEN issues
+    #     project; `not_assessed` (scope unresolved / headless) is inert. `untied` is behind the
+    #     `cycle_flags.viz_untied` rollout flag (off by default) so legacy studies are not flooded.
+    va = cycle_result.get("viz_appropriateness") or {}
+    untied_on = bool(((inv_spec or {}).get("cycle_flags") or {}).get("viz_untied"))
+    _va_kind = {"misplaced_scope": "viz_misplaced", "untied": "viz_untied"}
+    for study, rows in sorted((va.get("per_study") or {}).items()):
+        for row in rows:
+            ref = row.get("name") or row.get("address")
+            for iss in row.get("issues") or []:
+                kind = _va_kind.get(iss.get("kind"))
+                if kind is None or not ref or (kind == "viz_untied" and not untied_on):
+                    continue
+                add(kind, f"fig:{study}/{ref}", iss.get("detail") or kind)
+    for d in va.get("duplicated_cross_arm") or []:
+        add("viz_duplicated", f"xviz:{d.get('address')}",
+            f"cross-arm viz {d.get('address')} declared on {d.get('count')} studies "
+            f"({', '.join(d.get('studies') or [])}) - keep one at the investigation/synthesis level")
 
     # 9. capability gaps (non-blocking, review tier): a `proposed` one awaits accept/reject, an
     #    `accepted` one awaits its build; `needs_author` (a human must author the mechanism) and
@@ -525,11 +547,11 @@ _CLOSURE_BLOCKING = ("unaddressed_criterion", "narrative_gap", "open_challenge")
 # can teach something new; reconciling/adjudicating resolves bookkeeping.
 _OPP_INFO = {"test": 1.0, "branch": 1.0, "steer": 0.5, "synthesize": 0.3,
              "reconcile": 0.3, "revise": 0.3, "revalidate": 0.3, "revise_model": 0.6,
-             "build_viz": 0.4, "refine_viz": 0.2, "build_process": 0.4}
+             "build_viz": 0.4, "refine_viz": 0.2, "relocate_viz": 0.1, "build_process": 0.4}
 # Cost by action: a new study + simulation is dear; a reconcile is cheap.
 _OPP_COST = {"branch": 1.0, "test": 0.6, "steer": 0.3, "synthesize": 0.2,
              "reconcile": 0.2, "revise": 0.2, "revalidate": 0.2, "revise_model": 0.4,
-             "build_viz": 0.3, "refine_viz": 0.2, "build_process": 0.5}
+             "build_viz": 0.3, "refine_viz": 0.2, "relocate_viz": 0.2, "build_process": 0.5}
 
 
 def _opp_impact(target: str, edges: list) -> float:
@@ -629,6 +651,10 @@ def _executor_for(op: str, target: str, kind: str | None = None) -> dict:
                     "consequence": "review", "auto_safe": False}
         return {"executor": "discover viz",
                 "command": f"discover viz <inv> {t} --accept|--reject",
+                "consequence": "review", "auto_safe": False}
+    if op == "relocate_viz":
+        return {"executor": "discover viz",
+                "command": f"discover viz <inv> {target} --declare scope=… covers=… --rationale '…'",
                 "consequence": "review", "auto_safe": False}
     if op == "build_process":
         return {"executor": "discover gap", "command": f"discover gap <inv> --accept|--reject {target}",

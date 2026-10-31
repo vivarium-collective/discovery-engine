@@ -88,6 +88,17 @@
       "type": "object",
       "properties": {
         "freshness": {"type": "object"},
+        "viz_appropriateness": {
+          "type": "object",
+          "properties": {
+            "misplaced": {"type": "integer", "minimum": 0},
+            "untied": {"type": "integer", "minimum": 0},
+            "duplicated": {"type": "integer", "minimum": 0},
+            "not_assessed": {"type": "integer", "minimum": 0},
+            "any_issue": {"type": "boolean"},
+            "untied_surfaced": {"type": "boolean"}
+          }
+        },
         "evaluation_snapshot": {"type": "object"},
         "model_versions": {"type": "array", "items": {"type": "string"}}
       }
