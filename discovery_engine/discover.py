@@ -1074,6 +1074,108 @@ def run_readiness(study_spec: dict, ws_root: Path | str | None = None) -> dict:
             "has_tests": has_tests, "has_contracts": has_contracts}
 
 
+_ADVANCE_OPS = ("test", "branch", "revise_model")
+
+
+def _advance_study_for(source, inv_spec: dict, studies: dict) -> str | None:
+    """The on-disk study an advance op would run, or None (gated). ``rp:`` targets resolve
+    only via an APPLIED proposal's recorded child study; others name a study directly."""
+    src = str(source)
+    if src.startswith("rp:"):
+        prop = next((p for p in inv_spec.get("revision_proposals") or []
+                     if isinstance(p, dict) and p.get("id") == src), None)
+        if not prop or prop.get("status") != "applied":
+            return None
+        child = next((h.get("child_study") for h in reversed(prop.get("history") or [])
+                      if isinstance(h, dict) and h.get("event") == "applied" and h.get("child_study")), None)
+        return child if child in studies else None
+    slug = src.split(":", 1)[1] if src.startswith("claim:") else src
+    return slug if slug in studies else None
+
+
+def _arm_mvs(slug: str, spec: dict) -> dict:
+    from .model_architect import bind_model_versions
+    try:
+        return bind_model_versions({slug: spec}).get(slug) or {}
+    except Exception:  # noqa: BLE001 -- a malformed arm must not break advance
+        return {}
+
+
+def _run_mv_id(run: dict, arms: dict) -> str | None:
+    """A run's model-version id: the id stamped at run time, else (legacy run) derived from
+    its recorded params + its arm's composite."""
+    from .model_architect import model_version
+    if run.get("model_version"):
+        return str(run["model_version"])
+    arm = arms.get(run.get("variant")) if run.get("variant") else next(iter(arms.values()), None)
+    if not arm:
+        return None
+    params = run.get("params")
+    return model_version(arm["composite"], params if isinstance(params, dict) and params
+                         else arm["params"])["id"]
+
+
+def _has_run_at_current_mv(slug: str, spec: dict) -> bool:
+    """True iff some run's mv equals the CURRENT mv of that run's arm. Studies whose arms
+    can't be bound keep the legacy rule (any run => already ran)."""
+    runs = [r for r in spec.get("runs") or [] if isinstance(r, dict)]
+    if not runs:
+        return False
+    arms = _arm_mvs(slug, spec)
+    if not arms:
+        return True
+    for r in runs:
+        arm = arms.get(r.get("variant")) if r.get("variant") else next(iter(arms.values()))
+        if arm and _run_mv_id(r, arms) == arm["id"]:
+            return True
+    return False
+
+
+def _study_dir_on_disk(ws_root, inv_slug: str, slug: str) -> Path | None:
+    for base in (studies_dir(Path(ws_root)), investigations_dir(Path(ws_root)) / inv_slug / "studies"):
+        if (base / slug / "study.yaml").exists():
+            return base / slug
+    return None
+
+
+def _run_names(sdir) -> set:
+    if sdir is None:
+        return set()
+    return {r.get("name") for r in load_yaml_mapping(sdir / "study.yaml").get("runs") or []
+            if isinstance(r, dict)}
+
+
+def _post_run_sync(sdir, before_runs: set) -> None:
+    """Best-effort: sync the study's runs.db into study.yaml (idempotent; fills
+    computed_outcomes) when the runner left it unsynced, then stamp each new run with the
+    model version it ran so a later in-place composite change is detected as stale."""
+    if sdir is None:
+        return
+    try:
+        spec = load_yaml_mapping(sdir / "study.yaml")
+        new = [r for r in spec.get("runs") or [] if isinstance(r, dict) and r.get("name") not in before_runs]
+        if not new or not all(r.get("computed_outcomes") for r in new):
+            from . import study_outcomes
+            study_outcomes.sync(sdir)
+        from io import StringIO
+        arms = _arm_mvs(sdir.name, load_yaml_mapping(sdir / "study.yaml"))
+        y = _ruamel()
+        doc = y.load((sdir / "study.yaml").read_text(encoding="utf-8"))
+        changed = False
+        for r in doc.get("runs") or []:
+            if isinstance(r, dict) and r.get("name") not in before_runs and "model_version" not in r:
+                arm = arms.get(r.get("variant")) if r.get("variant") else next(iter(arms.values()), None)
+                if arm:
+                    r["model_version"] = arm["id"]
+                    changed = True
+        if changed:
+            buf = StringIO()
+            y.dump(doc, buf)
+            (sdir / "study.yaml").write_text(buf.getvalue(), encoding="utf-8")
+    except Exception:  # noqa: BLE001 -- sync is best-effort, never fails an advance
+        pass
+
+
 def advance_cycle(ws_root: Path | str, inv_slug: str, *, autonomous: bool = False,
                   runner=None, max_runs: int = 12) -> dict:
     """The cycle's ADVANCE phase — build-if-needed and RUN the open questions, so turning
@@ -1098,22 +1200,27 @@ def advance_cycle(ws_root: Path | str, inv_slug: str, *, autonomous: bool = Fals
         _, inv, studies = load_cycle_inputs(ws_root, inv_slug)
         plan = de.execute_plan(_cycle_with_evidence(ws_root, inv_slug, inv, studies), inv)
         target = None
+        target_slug = None
         for p in plan:
-            if p["action_type"] != "test" or p["source"] in seen:
+            if p["action_type"] not in _ADVANCE_OPS or p["source"] in seen:
                 continue
-            slug = p["source"].split(":", 1)[1] if str(p["source"]).startswith("claim:") else p["source"]
-            spec = studies.get(slug)
+            # test ops name a study; branch / revise_model run ONLY when they resolve to an
+            # on-disk study (the proposal was already APPLIED). An unapplied / review-tier
+            # proposal resolves to nothing and stays gated.
+            slug = _advance_study_for(p["source"], inv, studies)
+            spec = studies.get(slug) if slug else None
             if not isinstance(spec, dict):
                 continue
-            if spec.get("runs"):
-                # already ran: a lingering open_question / pending_gate here means the gate
-                # SKIP'd or the verdict is only-by-roll-up — re-running won't resolve it (the
-                # behavior test / evaluation needs attention, not another sim). Don't loop on it.
+            if _has_run_at_current_mv(slug, spec):
+                # already ran this exact model version: a lingering open_question /
+                # pending_gate means the gate SKIP'd or the verdict is only-by-roll-up --
+                # re-running the same model won't resolve it. A revised study (new file, new
+                # mv) or a composite raised in place (stale run mv) is NOT skipped.
                 seen.add(p["source"])
                 continue
             rr = run_readiness(spec, ws_root)
             if rr["ready"]:
-                target = p["source"]
+                target, target_slug = p["source"], slug
                 break
             needs_build.append({"study": slug, "gaps": rr["gaps"]})
             seen.add(p["source"])
@@ -1123,7 +1230,16 @@ def advance_cycle(ws_root: Path | str, inv_slug: str, *, autonomous: bool = Fals
         if not autonomous:
             ran.append({"target": target, "status": "would-run (pass --autonomous to execute)"})
             break
-        rec = execute_action(ws_root, inv_slug, autonomous=True, runner=runner, target=target)
+        sdir = _study_dir_on_disk(ws_root, inv_slug, target_slug)
+        before_runs = _run_names(sdir)
+        if any(p["source"] == target and p["action_type"] == "test" for p in plan):
+            rec = execute_action(ws_root, inv_slug, autonomous=True, runner=runner, target=target)
+        else:
+            command = f"vivarium-workbench run study {target_slug} --workspace {ws_root}"
+            out = (runner or _default_runner)(command, ws_root)
+            rec = {"status": "executed" if out.get("ok") else "failed", "outcome": out}
+        if rec["status"] == "executed":
+            _post_run_sync(sdir, before_runs)
         ran.append({"target": target, "status": rec["status"],
                     "outcome": (rec.get("outcome") or {}).get("detail")})
         if rec["status"] != "executed":
