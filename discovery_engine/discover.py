@@ -1207,8 +1207,7 @@ def _summarize_model_build(request: dict, catalog: list, routes: dict, mv: dict)
     lines.append("  coupling validation: OK" if not issues else "  coupling checks:")
     for i in issues:
         lines.append(f"    ⚑ {i}")
-    lines.append(f"  model version: {mv['id']}  (executable_digest {mv['executable_digest']}, "
-                 f"validation {mv['validation']['status']} — {', '.join(mv['validation']['required'])})")
+    lines.append(f"  model version: {mv['id']}  (composite {mv['composite']})")
     return "\n".join(lines)
 
 
@@ -1659,7 +1658,7 @@ def main(argv: list[str] | None = None) -> int:
         req = _ma.ModelBuildRequest(question_id=args.question, required_mechanisms=args.mechanism,
                                     required_observables=args.observable or None)
         routes = _ma.choose_acquisition_route(req, catalog)
-        mv = _ma.model_version(req, routes)
+        mv = _ma.model_version(_ma.routes_composite(routes), {})
         print(_summarize_model_build(req, catalog, routes, mv))
         return 0
 

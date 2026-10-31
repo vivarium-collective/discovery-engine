@@ -198,22 +198,24 @@ def validate_coupling(routes: dict, catalog: list[dict]) -> list[str]:
     return issues
 
 
-def model_version(request: dict, routes: dict, *, parameterization: dict | None = None,
-                  parent_ids: list[str] | None = None) -> dict:
-    """An immutable, content-addressed ModelVersion over the chosen components."""
-    components = {m: r.get("component") for m, r in routes.items()}
-    payload = {"question_id": request.get("question_id"), "components": components,
-               "parameterization": parameterization or {}, "parent_ids": sorted(parent_ids or [])}
-    digest = hashlib.sha256(json.dumps(payload, sort_keys=True).encode()).hexdigest()[:16]
-    return {
-        "id": f"mv:{request.get('question_id')}:{digest}",
-        "parent_ids": sorted(parent_ids or []),
-        "components": components,
-        "component_digests": {m: (hashlib.sha256(str(c).encode()).hexdigest()[:12] if c else None)
-                              for m, c in components.items()},
-        "parameterization": parameterization or {},
-        "dependencies": sorted(c for c in components.values() if c),
-        "executable_digest": digest,
-        "validation": {"required": request.get("validation", []), "status": "pending"},
-        "coupling_issues": validate_coupling(routes, []),
-    }
+_MV_DENYLIST = {"seed", "seeds", "emitter", "out_dir", "n_steps"}
+
+
+def _canonical_params(params: dict | None) -> dict:
+    """Drop non-semantic run knobs (a seed is a replicate of the SAME model) and sort."""
+    return {k: params[k] for k in sorted(params or {}) if k not in _MV_DENYLIST}
+
+
+def routes_composite(routes: dict) -> str:
+    """A stable composite identifier for a routed set of components."""
+    return "+".join(sorted(str(r.get("component") or f"build:{m}") for m, r in routes.items()))
+
+
+def model_version(composite: str, params: dict, *, parent_ids=(), origin=None) -> dict:
+    """Content-addressed model identity: composite + canonical params. Pure.
+    Validation is a property of evidence under a model (recorded on findings), not of the mv."""
+    canon = _canonical_params(params)
+    digest = hashlib.sha256(json.dumps({"composite": composite, "params": canon},
+                                       sort_keys=True).encode()).hexdigest()[:16]
+    return {"id": f"mv:{digest}", "composite": composite, "params": dict(params or {}),
+            "parent_ids": list(parent_ids), "origin": origin}

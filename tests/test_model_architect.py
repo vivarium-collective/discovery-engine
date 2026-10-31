@@ -44,15 +44,35 @@ def test_coupling_flags_mixed_fidelity_and_build():
     assert any("build" in i.lower() for i in issues)      # growth must be built
 
 
-def test_model_version_is_content_addressed_and_stable():
-    req = M.ModelBuildRequest(question_id="A", required_mechanisms=["exchange"])
-    routes = M.choose_acquisition_route(req, M.build_catalog(_studies()))
-    mv1 = M.model_version(req, routes)
-    mv2 = M.model_version(req, routes)
-    assert mv1["id"] == mv2["id"] and mv1["executable_digest"] == mv2["executable_digest"]
-    # a different parameterization yields a different immutable version
-    mv3 = M.model_version(req, routes, parameterization={"k_wash": 0.02})
-    assert mv3["id"] != mv1["id"]
+def test_model_version_same_composite_params_same_id():
+    a = M.model_version("pkg.comp", {"diffusion": 1.0, "k": 2})
+    b = M.model_version("pkg.comp", {"k": 2, "diffusion": 1.0})
+    assert a["id"] == b["id"] and a["id"].startswith("mv:")
+
+
+def test_changing_diffusion_changes_mv():
+    assert (M.model_version("pkg.comp", {"diffusion": 1.0})["id"]
+            != M.model_version("pkg.comp", {"diffusion": 2.0})["id"])
+
+
+def test_seed_does_not_change_mv():
+    base = M.model_version("pkg.comp", {"diffusion": 1.0})
+    assert M.model_version("pkg.comp", {"diffusion": 1.0, "seed": 7, "n_steps": 5})["id"] == base["id"]
+
+
+def test_parent_ids_and_origin_round_trip():
+    mv = M.model_version("pkg.comp", {}, parent_ids=("mv:a",), origin={"revision_of": "mv:a"})
+    assert mv["parent_ids"] == ["mv:a"] and mv["origin"] == {"revision_of": "mv:a"}
+    assert "validation" not in mv
+
+
+def test_same_model_under_two_questions_same_id():
+    r1 = M.ModelBuildRequest(question_id="A", required_mechanisms=["exchange"])
+    r2 = M.ModelBuildRequest(question_id="B", required_mechanisms=["exchange"])
+    cat = M.build_catalog(_studies())
+    m1 = M.model_version(M.routes_composite(M.choose_acquisition_route(r1, cat)), {})
+    m2 = M.model_version(M.routes_composite(M.choose_acquisition_route(r2, cat)), {})
+    assert m1["id"] == m2["id"]
 
 
 def test_search_ranks_providers():

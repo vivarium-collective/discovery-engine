@@ -29,7 +29,7 @@ def test_composed_model_versions_from_cycle_n1_parents():
         "s3": {"topic": "membrane-mechanics", "baseline": [{"name": "b", "composite": "viva_genesis.composites.protrusion_enclosure_cpm.protrusion_enclosure_cpm"}]}}
     mv = T.compose_transition_model(studies, parent_versions=["mv:A:1234", "mv:B:5678"])
     assert mv["parent_ids"] == ["mv:A:1234", "mv:B:5678"]
-    assert mv["id"].startswith("mv:N+2:proto-endosymbiosis:")
+    assert mv["id"].startswith("mv:")
     assert "exchange" in mv["components"] and "heredity" in mv["components"]
 
 

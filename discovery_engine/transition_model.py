@@ -55,7 +55,8 @@ def compose_transition_model(studies: dict, parent_versions: list[str] | None = 
                                 required_mechanisms=_TRANSITION_MECHANISMS,
                                 required_observables=["transition_outcome"])
     routes = _ma.choose_acquisition_route(req, catalog)
-    mv = _ma.model_version(req, routes, parent_ids=parent_versions or [])
+    mv = _ma.model_version(_ma.routes_composite(routes), {}, parent_ids=sorted(parent_versions or []))
+    mv["components"] = {m: r.get("component") for m, r in routes.items()}
     mv["coupling_issues"] = _ma.validate_coupling(routes, catalog)
     mv["routes"] = routes
     return mv
