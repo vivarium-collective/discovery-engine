@@ -172,6 +172,9 @@ def review_revision(inv_path: Path | str, proposal_id: str, event: str, rational
     prop = next((p for p in props if isinstance(p, dict) and p.get("id") == proposal_id), None)
     if prop is None:
         raise ValueError(f"unknown revision proposal {proposal_id!r} in {path}")
+    if prop.get("status", "proposed") != "proposed":
+        raise ValueError(f"proposal {proposal_id!r} is already {prop.get('status')!r}; "
+                         "only a 'proposed' proposal can be approved or rejected")
     prop["status"] = event
     hist = list(prop.get("history") or [])
     hist.append({"at": _dt.datetime.now(_dt.timezone.utc).isoformat(timespec="seconds"),
@@ -734,12 +737,23 @@ def execute_action(ws_root: Path | str, inv_slug: str, *, autonomous: bool = Fal
         # AI decider approves a model-revision proposal (history is the only mutation).
         detail = next((i["rationale"] for i in de.frontier(cyc, inv_spec)
                        if i["kind"] == "revision_proposed" and i["target"] == top["source"]), top["source"])
-        choice = decider(top["source"], detail) or {}
-        why = choice.get("rationale") or ""
-        review_revision(inv_path, top["source"], "approved",
-                        f"[ai-driven] {why}".strip(), by="discovery-ai")
-        rec["status"] = "executed"
-        rec["outcome"] = {"ok": True, "detail": f"ai-approved: {top['source']}", "rationale": why}
+        choice = decider(top["source"], detail)
+        choice = choice if isinstance(choice, dict) else {}
+        verb = {"approve": "approved", "reject": "rejected"}.get(str(choice.get("choice") or "").strip().lower())
+        why = (choice.get("rationale") or "").strip()
+        disk = next((p for p in load_yaml_mapping(inv_path).get("revision_proposals") or []
+                     if isinstance(p, dict) and p.get("id") == top["source"]), None)
+        if disk is not None and disk.get("status", "proposed") != "proposed":
+            rec["status"] = "gated-human"
+            rec["outcome"] = {"ok": None, "detail": f"already {disk.get('status')} — not re-decided"}
+        elif verb is None or not why:
+            rec["status"] = "gated-human"
+            rec["outcome"] = {"ok": None, "detail": "decider gave no usable approve/reject choice "
+                              "with a rationale — needs a human decision"}
+        else:
+            review_revision(inv_path, top["source"], verb, f"[ai-driven] {why}", by="discovery-ai")
+            rec["status"] = "executed"
+            rec["outcome"] = {"ok": True, "detail": f"ai-{verb}: {top['source']}", "rationale": why}
     else:  # review / human-only with no decider
         rec["status"] = "gated-human"
         rec["outcome"] = {"ok": None, "detail": f"{top['consequence']} — needs a human decision"}

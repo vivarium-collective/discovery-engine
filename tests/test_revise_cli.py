@@ -84,3 +84,72 @@ def test_decider_seam_records_discovery_ai(tmp_path, monkeypatch):
     assert prop["status"] == "approved"
     ev = prop["history"][-1]
     assert ev["event"] == "approved" and ev["by"] == "discovery-ai" and "closes the 2D/3D gap" in ev["rationale"]
+
+
+def _seam(tmp_path, monkeypatch, decider, status="proposed", pid=PID, top=None):
+    p = _ws(tmp_path)
+    if status != "proposed":
+        spec = load_yaml(p)
+        spec["revision_proposals"][0]["status"] = status
+        save_yaml_atomic(p, spec)
+    monkeypatch.setattr(discover, "_cycle_with_evidence",
+                        lambda *a, **k: {"revision_proposals": [_prop(status=status)]})
+    rec = discover.execute_action(tmp_path, "og", autonomous=True, decider=decider, target=pid)
+    return p, rec
+
+
+def test_decider_reject_rejects(tmp_path, monkeypatch):
+    p, rec = _seam(tmp_path, monkeypatch, lambda t, d: {"choice": "reject", "rationale": "artefact"})
+    assert rec["status"] == "executed"
+    (prop,) = load_yaml(p)["revision_proposals"]
+    assert prop["status"] == "rejected" and prop["history"][-1]["by"] == "discovery-ai"
+    assert "artefact" in prop["history"][-1]["rationale"]
+
+
+@pytest.mark.parametrize("ret", [None, {}, {"choice": "maybe", "rationale": "x"},
+                                 {"choice": "approve"}, {"choice": "approve", "rationale": "  "}])
+def test_decider_unusable_answer_is_gated_and_unchanged(tmp_path, monkeypatch, ret):
+    p, rec = _seam(tmp_path, monkeypatch, lambda t, d: ret)
+    assert rec["status"] == "gated-human"
+    (prop,) = load_yaml(p)["revision_proposals"]
+    assert prop["status"] == "proposed" and len(prop["history"]) == 1
+
+
+def test_non_rp_revise_model_stays_gated(tmp_path, monkeypatch):
+    p = _ws(tmp_path)
+    cyc = {"signals": {"anomalies": [{"study": "a", "observable": "o", "observed": 1.0,
+                                      "proposed_question": "?"}]}}
+    monkeypatch.setattr(discover, "_cycle_with_evidence", lambda *a, **k: cyc)
+    called = []
+    rec = discover.execute_action(tmp_path, "og", autonomous=True,
+                                  decider=lambda t, d: called.append(t) or {"choice": "approve", "rationale": "x"},
+                                  target="a:o")
+    assert rec["status"] == "gated-human" and not called
+    assert load_yaml(p)["revision_proposals"][0]["status"] == "proposed"
+
+
+def test_blank_rationale_via_cli_errors(tmp_path):
+    p = _ws(tmp_path)
+    with pytest.raises(SystemExit):
+        _run(tmp_path, "--approve", "--rationale", "   ")
+    assert load_yaml(p)["revision_proposals"][0]["status"] == "proposed"
+
+
+@pytest.mark.parametrize("st", ["approved", "rejected", "applied", "evaluated"])
+def test_redeciding_non_proposed_is_blocked_without_duplicate_history(tmp_path, monkeypatch, st):
+    p = _ws(tmp_path)
+    spec = load_yaml(p)
+    spec["revision_proposals"][0]["status"] = st
+    save_yaml_atomic(p, spec)
+    with pytest.raises(ValueError, match="already"):
+        discover.review_revision(p, PID, "approved", "again")
+    with pytest.raises(SystemExit):
+        _run(tmp_path, "--reject", "--rationale", "again")
+    monkeypatch.setattr(discover, "_cycle_with_evidence",
+                        lambda *a, **k: {"revision_proposals": [_prop(status=st)]})
+    if st in ("approved",):  # still on the frontier -> decider must no-op
+        rec = discover.execute_action(tmp_path, "og", autonomous=True, target=PID,
+                                      decider=lambda t, d: {"choice": "approve", "rationale": "y"})
+        assert rec["status"] == "gated-human"
+    (prop,) = load_yaml(p)["revision_proposals"]
+    assert prop["status"] == st and len(prop["history"]) == 1
