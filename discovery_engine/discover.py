@@ -1574,10 +1574,14 @@ def viz_inventory(ws_root, inv_slug: str, studies: dict) -> dict:
         runs = runs_by.get(slug) or []
         rows["_latest"] = ({"run_id": runs[0].get("run_id"),
                             "completed_at": runs[0].get("completed_at")} if runs else None)
-        vdir = sdir / "viz"
-        rows["_orphans"] = sorted(
-            f"viz/{f.name}" for f in vdir.glob("*.html")
-            if f.is_file() and f"viz/{f.name}" not in declared) if vdir.is_dir() else []
+        orph: list[str] = []
+        for sub, pats in (("viz", ("*.html",)), ("charts", ("*.html", "*.svg", "*.png"))):
+            d = sdir / sub
+            if d.is_dir():
+                for pat in pats:
+                    orph += [f"{sub}/{f.name}" for f in d.glob(pat)
+                             if f.is_file() and f"{sub}/{f.name}" not in declared]
+        rows["_orphans"] = sorted(orph)
         out[slug] = rows
     return out
 

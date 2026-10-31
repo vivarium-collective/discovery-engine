@@ -199,7 +199,9 @@ def frontier(cycle_result: dict, inv_spec: dict) -> list[dict]:
             continue
         # visual records are projected per figure as typed viz_* items in step 7
         # (build/refine ops), not as one generic validation_finding with op `revise`.
-        if rec.get("type") == "visual":
+        # A crashed visual validator (status `error`) is NOT skipped: it falls through
+        # to a validation_finding so a harvest bug is visible, not a silent empty frontier.
+        if rec.get("type") == "visual" and (rec.get("result") or {}).get("execution_status") != "error":
             continue
         findings = rec.get("findings") or []
         add("validation_finding", rec.get("target"),

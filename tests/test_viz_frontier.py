@@ -91,3 +91,23 @@ def test_hermetic_no_viz_state():
 def test_resolution_kinds():
     for k in ("viz_broken", "viz_missing", "viz_proposed", "viz_stale"):
         assert k in D.RESOLUTION_KINDS
+
+
+def test_crashed_visual_validator_surfaces(monkeypatch):
+    from discovery_engine import validation as V
+    reg = [v for v in V._REGISTRY if v["id"] == "visual.figure.freshness"][0]
+    monkeypatch.setitem(reg, "fn", lambda ctx: (_ for _ in ()).throw(RuntimeError("boom")))
+    res, _ = _run([{"name": "a", "address": "local:x.A"}], _vs(a=_row()))
+    f = de.frontier(res, INV)
+    hit = [i for i in f if i["kind"] == "validation_finding" and "boom" in i["rationale"]]
+    assert hit and hit[0]["op"] == "revise"
+
+
+def test_charts_dir_fix_and_no_double_orphan():
+    vs = _vs(**{"_orphans": ["charts/eigen.svg", "viz/other.html"]})
+    res, _ = _run([{"name": "eigen", "rendered": "x"}], vs)
+    rec = [r for r in res["validations"] if r["target"] == "fig:s5/eigen"][0]
+    assert rec["evidence"][0]["derivable_fix"] == {"address": "svg:charts/eigen.svg"}
+    unt = [r["target"] for r in res["validations"] if r["criteria"] == ["untracked"]]
+    assert unt == ["fig:s5/viz/other.html"]
+    assert D.build_cycle_state(res, INV)["viz_census"]["untracked_files"] == 1

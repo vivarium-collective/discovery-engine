@@ -538,6 +538,7 @@ def _figure_freshness(ctx: ValidationContext) -> list[dict]:
         bound = {}
     out: list[dict] = []
     for study, spec in (ctx.studies or {}).items():
+        fixed: set = set()
         st = vstate.get(study)
         if st is None:
             continue
@@ -574,9 +575,11 @@ def _figure_freshness(ctx: ValidationContext) -> list[dict]:
                 match = next((o for o in orphans
                               if o.rsplit("/", 1)[-1].rsplit(".", 1)[0] == name), None)
                 if match:
-                    fix = {"address": f"html:{match}"}
+                    scheme = match.rsplit(".", 1)[-1].lower()
+                    fix = {"address": f"{scheme}:{match}"}
+                    fixed.add(match); match_addr = fix["address"]
                     ev.update(path=match, exists=True, derivable_fix=fix)
-                    rec_ = (f"set `address: html:{match}` (a matching file exists) "
+                    rec_ = (f"set `address: {match_addr}` (a matching file exists) "
                             "and a `render:` recipe so it can be refreshed")
             out.append(validation_record(
                 type="visual", scope="figure", target=f"fig:{study}/{name}",
@@ -585,6 +588,8 @@ def _figure_freshness(ctx: ValidationContext) -> list[dict]:
                 recommendations=[rec_] if rec_ else [], evidence=[ev],
                 validator_id="visual.figure.freshness"))
         for o in orphans:
+            if o in fixed:  # already offered as a broken_stub's derivable_fix
+                continue
             out.append(validation_record(
                 type="visual", scope="figure", target=f"fig:{study}/{o}",
                 execution_status="inconclusive", criteria=["untracked"],
