@@ -316,6 +316,60 @@ def reject_viz_proposal(ws_root: Path | str, inv_slug: str, vp: str, *, rational
     return prop
 
 
+def _cap_gap_load(ws_root, inv_slug: str, cg: str) -> tuple[Path, dict, dict]:
+    inv_path = investigations_dir(Path(ws_root)) / inv_slug / "investigation.yaml"
+    spec = load_yaml_mapping(inv_path)
+    gap = next((g for g in spec.get("capability_gaps") or [] if isinstance(g, dict) and g.get("id") == cg), None)
+    if gap is None:
+        raise ValueError(f"unknown capability gap {cg!r} — run `discover cycle` to persist gaps first")
+    return inv_path, spec, gap
+
+
+def accept_capability_gap(ws_root: Path | str, inv_slug: str, cg: str, *, rationale: str,
+                          by: str = "human") -> dict:
+    """Rationale-gated accept of a persisted capability gap (load -> module validate -> atomic
+    save). Authorizes a build; never builds. Returns the updated gap."""
+    from . import capability_gaps as _cg
+    inv_path, spec, gap = _cap_gap_load(ws_root, inv_slug, cg)
+    _cg.accept_capability_gap(gap, rationale=rationale, by=by)
+    save_yaml_atomic(inv_path, spec)
+    return gap
+
+
+def reject_capability_gap(ws_root: Path | str, inv_slug: str, cg: str, *, rationale: str,
+                          by: str = "human") -> dict:
+    """Terminal reject (rationale required); the content-addressed id never re-emits."""
+    from . import capability_gaps as _cg
+    inv_path, spec, gap = _cap_gap_load(ws_root, inv_slug, cg)
+    _cg.reject_capability_gap(gap, rationale=rationale, by=by)
+    save_yaml_atomic(inv_path, spec)
+    return gap
+
+
+def load_workspace_build_hook(ws_root: Path | str | None):
+    """Import ``<pkg>.build_hook`` and call ``register_build_hook(registry)``; the hook is
+    ``registry['build_capability']`` (``fn(gap, ws_root) -> {status, process, detail, gap_id}``).
+    Same package discovery as ``register_evaluators``. None if absent; a broken hook is skipped."""
+    import sys
+    from .study_evaluator import _workspace_evaluator_packages
+    if ws_root is None:
+        return None
+    key = str(Path(ws_root).resolve())
+    if key not in sys.path:
+        sys.path.insert(0, key)
+    registry: dict = {}
+    for pkg in _workspace_evaluator_packages(ws_root):
+        try:
+            mod = __import__(f"{pkg}.build_hook", fromlist=["register_build_hook"])
+            reg = getattr(mod, "register_build_hook", None)
+            if callable(reg):
+                reg(registry)
+        except Exception:  # noqa: BLE001 -- a broken workspace hook must never crash the cycle
+            continue
+    fn = registry.get("build_capability")
+    return fn if callable(fn) else None
+
+
 def _close_built_viz_proposals(on_disk: dict, viz_state: dict, studies: dict) -> list[str]:
     """§2E: flip an ``accepted`` proposal to ``built`` once its materialized entry (matched by
     ``origin.ref``) classifies ``fresh`` (rendered AND current). Mutates ``on_disk``;
@@ -600,6 +654,12 @@ def run_cycle(inv_spec: dict, studies_by_slug: dict[str, dict], *,
         from .viz_proposals import propose_visualizations
         bundle["viz_proposals"] = propose_visualizations(
             inv_spec, studies_by_slug, bundle, viz_state, viz_catalog)
+    from .capability_gaps import propose_capability_gaps
+    # The catalog (carrying `capability` + `builds`) is the same one the acquisition route reads.
+    gaps = propose_capability_gaps(
+        inv_spec, studies_by_slug, catalog if catalog is not None else build_catalog(studies_by_slug))
+    if gaps:
+        bundle["capability_gaps"] = gaps
     return bundle
 
 
@@ -807,7 +867,8 @@ def _tab_freshness(inv_spec: dict, studies: dict) -> dict:
 
 
 def persist_cycle(inv_path: Path | str, inv_spec: dict, result: dict, *, studies: dict | None = None,
-                  evidence_state: dict | None = None, viz_state: dict | None = None) -> dict:
+                  evidence_state: dict | None = None, viz_state: dict | None = None,
+                  catalog: list | None = None) -> dict:
     """Write the slim ``cycle_state`` summary into investigation.yaml.
 
     Re-reads the on-disk spec (so concurrent authored edits are never clobbered),
@@ -848,6 +909,21 @@ def persist_cycle(inv_path: Path | str, inv_spec: dict, result: dict, *, studies
         on_disk["viz_proposals"] = havev
     if studies is not None and viz_state:
         _close_built_viz_proposals(on_disk, viz_state, studies)
+    newg = [p for p in result.get("capability_gaps") or [] if isinstance(p, dict)]
+    if newg:
+        haveg = list(on_disk.get("capability_gaps") or [])
+        idsg = {r.get("id") for r in haveg if isinstance(r, dict)}
+        for p in newg:
+            if p.get("id") not in idsg:  # content-addressed: existing rows keep status/history
+                haveg.append(p)
+                idsg.add(p.get("id"))
+        _validate_extensions({"capability_gaps": haveg})
+        on_disk["capability_gaps"] = haveg
+    if studies is not None and on_disk.get("capability_gaps"):
+        from .capability_gaps import close_built_capability_gaps
+        from .model_architect import build_catalog
+        close_built_capability_gaps(on_disk["capability_gaps"],
+                                    catalog if catalog is not None else build_catalog(studies), studies)
     on_disk["cycle_state"] = build_cycle_state(result, inv_spec, model_versions=mvs, studies=studies,
                                                evidence_state=evidence_state)
     if studies is not None:
@@ -1126,7 +1202,7 @@ def _env_decider(target: str, detail: str) -> dict:
 
 def execute_action(ws_root: Path | str, inv_slug: str, *, autonomous: bool = False,
                    runner=None, decider=None, target: str | None = None,
-                   action: str | None = None, render_hook=None) -> dict:
+                   action: str | None = None, render_hook=None, build_hook=None) -> dict:
     """The bridge's execution step: take the top value-ranked action and carry it out,
     gated by consequence.
 
@@ -1318,6 +1394,59 @@ def execute_action(ws_root: Path | str, inv_slug: str, *, autonomous: bool = Fal
                 else:
                     accept_viz_proposal(ws_root, inv_slug, top["source"], address=sug["address"],
                                         rationale=f"[ai-driven] {why}", by="discovery-ai")
+                rec["status"] = "executed"
+                rec["outcome"] = {"ok": True, "detail": f"ai-{verb}: {top['source']}", "rationale": why}
+    elif top["action_type"] == "build_process" and str(top["source"]).startswith("cg:"):
+        # A capability gap is REVIEW tier and NEVER auto-built. An AI decider may accept/reject a
+        # DERIVABLE `proposed` gap only with a rationale; an `accepted` gap (authorized, with a
+        # rationale on record) is built via the injected/workspace `build_hook`. needs_author, no
+        # rationale, no decider or no hook -> gated-human. advance never reaches here.
+        disk = next((g for g in load_yaml_mapping(inv_path).get("capability_gaps") or []
+                     if isinstance(g, dict) and g.get("id") == top["source"]), None)
+        status = (disk or {}).get("status", "proposed")
+        if disk is None or status not in ("proposed", "accepted"):
+            rec["status"] = "gated-human"
+            rec["outcome"] = {"ok": None, "detail": "gap not persisted/open — run `discover cycle` first"}
+        elif not autonomous:
+            rec["status"] = "gated-human"
+            rec["outcome"] = {"ok": None, "detail": "review — needs a human accept/reject (or --autonomous)"}
+        elif status == "accepted":
+            hook = build_hook if build_hook is not None else load_workspace_build_hook(ws_root)
+            if hook is None or not (disk.get("accept") or {}).get("rationale"):
+                rec["status"] = "gated-human"
+                rec["outcome"] = {"ok": None, "detail": "accepted but no build_hook (or no accept rationale) — "
+                                  "register <pkg>.build_hook.register_build_hook"}
+            else:
+                from .capability_gaps import build_capability_gap
+                from .model_architect import build_catalog
+                inv_path_, spec_, gap_ = _cap_gap_load(ws_root, inv_slug, top["source"])
+                build_capability_gap(gap_, hook, ws_root=ws_root,
+                                     catalog=lambda: build_catalog(load_cycle_inputs(ws_root, inv_slug)[2], ws_root))
+                # Re-read: the hook may have edited the investigation (e.g. registered the new study).
+                inv_path_, spec_, fresh_ = _cap_gap_load(ws_root, inv_slug, top["source"])
+                fresh_.clear()
+                fresh_.update(gap_)
+                save_yaml_atomic(inv_path_, spec_)
+                rec["status"] = "executed" if gap_["status"] == "built" else "failed"
+                rec["outcome"] = {"ok": gap_["status"] == "built", "detail": f"{gap_['status']}: {top['source']}",
+                                  "built": gap_.get("built")}
+        elif decider is None:
+            rec["status"] = "gated-human"
+            rec["outcome"] = {"ok": None, "detail": "review — needs a human accept/reject"}
+        elif disk.get("suggested", {}).get("needs_author") or not disk.get("derivable"):
+            rec["status"] = "gated-human"
+            rec["outcome"] = {"ok": None, "detail": "needs_author — a human must accept (no derivable build path)"}
+        else:
+            choice = decider(top["source"], top["source"])
+            choice = choice if isinstance(choice, dict) else {}
+            verb = str(choice.get("choice") or "").strip().lower()
+            why = (choice.get("rationale") or "").strip()
+            if verb not in ("approve", "accept", "reject") or not why:
+                rec["status"] = "gated-human"
+                rec["outcome"] = {"ok": None, "detail": "decider gave no usable choice with a rationale"}
+            else:
+                fn = reject_capability_gap if verb == "reject" else accept_capability_gap
+                fn(ws_root, inv_slug, top["source"], rationale=f"[ai-driven] {why}", by="discovery-ai")
                 rec["status"] = "executed"
                 rec["outcome"] = {"ok": True, "detail": f"ai-{verb}: {top['source']}", "rationale": why}
     else:  # review / human-only with no decider
@@ -2458,6 +2587,12 @@ def main(argv: list[str] | None = None) -> int:
     p_rev.add_argument("--change", type=int, default=None, help="candidate change index (default: first derived)")
     p_rev.add_argument("--rationale", default=None, help="why (required for --approve/--reject)")
 
+    p_gap = sub.add_parser("gap", help="review-tier capability gaps (cg:…): required mechanisms no catalog process provides")
+    p_gap.add_argument("investigation", help="investigation slug")
+    p_gap.add_argument("--propose", action="store_true", help="derive + persist capability gaps and list the open ones")
+    p_gap.add_argument("--accept", metavar="CG", default=None, help="accept gap cg:… (needs --rationale)")
+    p_gap.add_argument("--reject", metavar="CG", default=None, help="reject gap cg:… (terminal; needs --rationale)")
+    p_gap.add_argument("--rationale", default=None, help="why (required)")
     p_viz = sub.add_parser("viz", help="review-tier edits of a declared figure (fig:<study>/<name>)")
     p_viz.add_argument("investigation", help="investigation slug")
     p_viz.add_argument("target", nargs="?", default=None,
@@ -2528,6 +2663,33 @@ def main(argv: list[str] | None = None) -> int:
         print(f"resolved [{rec['kind']}] {rec['target']}"
               + (f"  (by {rec['by']})" if rec.get("by") else "")
               + f"  — {rec['rationale']}")
+        return 0
+
+    if args.cmd == "gap":
+        if args.accept and args.reject:
+            parser.error("gap: pass only one of --accept / --reject")
+        try:
+            if args.reject:
+                reject_capability_gap(ws, args.investigation, args.reject, rationale=args.rationale or "")
+                print(f"rejected {args.reject} (terminal)")
+            elif args.accept:
+                accept_capability_gap(ws, args.investigation, args.accept, rationale=args.rationale or "")
+                print(f"accepted {args.accept}; build it: discover execute {args.investigation} --autonomous")
+            elif args.propose:
+                inv_path, inv_spec, studies = load_cycle_inputs(ws, args.investigation)
+                result = _cycle_with_evidence(ws, args.investigation, inv_spec, studies)
+                persist_cycle(inv_path, inv_spec, result, studies=studies,
+                              viz_state=viz_inventory(ws, args.investigation, studies))
+                for g in load_yaml_mapping(inv_path).get("capability_gaps") or []:
+                    gst = g.get("status", "proposed") if isinstance(g, dict) else None
+                    if gst in ("proposed", "needs_author", "failed"):
+                        print(f"{g['id']}  {g.get('mechanism')}  "
+                              f"[{'derivable' if g.get('derivable') else 'needs_author'}]"
+                              + ("" if gst == "proposed" else f"  ({gst})"))
+            else:
+                parser.error("gap needs --propose, --accept CG, or --reject CG")
+        except ValueError as e:
+            parser.error(str(e))
         return 0
 
     if args.cmd == "viz" and (args.propose or args.accept or args.reject):

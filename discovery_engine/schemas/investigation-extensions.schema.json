@@ -49,6 +49,26 @@
         }
       }
     },
+    "capability_gaps": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "status", "mechanism"],
+        "properties": {
+          "id": {"type": "string", "pattern": "^cg:"},
+          "status": {"enum": ["proposed", "accepted", "rejected", "built", "needs_author", "failed"]},
+          "mechanism": {"type": "string"},
+          "study": {"type": ["string", "null"]},
+          "source": {"type": "object"},
+          "suggested": {"type": "object"},
+          "accept": {"type": "object"},
+          "approval": {"type": "string"},
+          "history": {"type": "array"},
+          "built": {"type": ["object", "null"]},
+          "derivable": {"type": "boolean"}
+        }
+      }
+    },
     "revision_proposals": {"type": "array", "items": {"type": "object"}},
     "executive": {
       "type": "object",

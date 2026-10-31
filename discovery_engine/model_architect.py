@@ -119,7 +119,11 @@ def build_catalog(studies: dict, ws_root=None) -> list[dict]:
             # metabolic and the reaction-diffusion study) — UNION their capability contexts.
             entry = by_comp.setdefault(comp, {
                 "id": comp.split(".")[-1], "composite": comp, "study": slug,
-                "studies": [], "fidelities": set(), "_cap": set(_tokens(comp)), "_obs": set()})
+                "studies": [], "fidelities": set(), "_cap": set(_tokens(comp)), "_obs": set(),
+                "_builds": set()})
+            # `builds`: mechanisms a generator/template composite can derive (author-declared on
+            # the study or arm) -- the signal that makes a capability gap `derivable`.
+            entry["_builds"] |= {str(b) for b in _as_list(spec.get("builds")) + _as_list(arm.get("builds"))}
             entry["studies"].append(slug)
             if spec.get("fidelity") or arm.get("fidelity"):
                 entry["fidelities"].add(spec.get("fidelity") or arm.get("fidelity"))
@@ -132,6 +136,7 @@ def build_catalog(studies: dict, ws_root=None) -> list[dict]:
             "id": e["id"], "composite": comp, "study": e["study"], "studies": e["studies"],
             "fidelity": fids[0] if fids else None, "fidelities": fids,
             "capability": sorted(e["_cap"]), "observables": sorted(e["_obs"]),
+            "builds": sorted(e["_builds"]),
         })
         if ws_root is not None:
             catalog[-1].update(resolve_composite(comp, ws_root))
@@ -143,6 +148,13 @@ def _provides(component: dict, mechanism: str) -> int:
     cap = set(component.get("capability", []))
     syns = set(_SYNONYMS.get(mechanism, (mechanism,)))
     return sum(1 for s in syns if any(s in c or c in s for c in cap))
+
+
+def provides(component: dict, mechanism: str) -> bool:
+    """Public routing predicate: does ``component`` provide ``mechanism`` at all (fuzzy,
+    synonym-aware; the same signal ``choose_acquisition_route`` ranks on)? NOT an exact
+    presence check - gap closing uses ``capability_gaps.process_present``."""
+    return _provides(component, mechanism) > 0
 
 
 def search_components(request: dict, catalog: list[dict]) -> dict:
