@@ -115,7 +115,7 @@ def test_anomaly_mechanism_is_needs_author_never_filled():
     assert len(ps) == 1 and ps[0]["source"]["kind"] == "anomaly"
     mech = [c for c in ps[0]["candidate_changes"] if c["kind"] == "mechanism"]
     assert len(mech) == 1 and mech[0]["needs_author"] is True and mech[0]["question"]
-    assert set(mech[0]) == {"kind", "needs_author", "question"}
+    assert set(mech[0]) == {"kind", "add", "needs_author", "question"} and mech[0]["add"] is None
     assert any(c["kind"] == "param" for c in ps[0]["candidate_changes"])
 
 
@@ -148,3 +148,61 @@ def test_contested_gives_param_only_never_retire():
     ps = propose_model_revisions(inv, s, ev, {}, _mvs(s), _catalog(), now=NOW)
     assert len(ps) == 1 and ps[0]["source"]["kind"] == "contested"
     assert [c["kind"] for c in ps[0]["candidate_changes"]] == ["param"]
+
+
+def test_not_higher_fidelity_resolving_alternative_gives_no_composite():
+    cat = _catalog()
+    cat[1]["fidelity"], cat[1]["fidelities"] = "reduced", ["reduced"]  # equal rank, resolves
+    cat.append({"id": "m_heur", "composite": "viva_x.composites.m_heur.build", "fidelity": "heuristic",
+                "fidelities": ["heuristic"], "capability": ["membrane"], "observables": ["enclosure_probability"],
+                "resolves": True})  # lower rank, resolves
+    assert "composite" not in {c["kind"] for c in _run(_studies(), catalog=cat)[0]["candidate_changes"]}
+
+
+def test_capability_mismatch_gives_no_composite():
+    cat = _catalog()
+    cat[1].update(capability=["glycolysis"], observables=["flux"])
+    assert "composite" not in {c["kind"] for c in _run(_studies(), catalog=cat)[0]["candidate_changes"]}
+
+
+def test_disagreement_and_contested_emit_no_mechanism():
+    assert all(c["kind"] != "mechanism" for c in _run(_studies())[0]["candidate_changes"])
+    s = _studies({"measure": "enclosure_probability", "observed": 0.5})
+    mv = _mvs(s)[0]["id"]
+    ev = {"s3": {"status": "contested", "observable": "enclosure_probability", "model_version": mv,
+                 "hypotheses": [{"id": "ha", "support": {"net": -2}}]}}
+    p = propose_model_revisions(_inv(), s, ev, {}, _mvs(s), _catalog(), now=NOW)[0]
+    assert all(c["kind"] != "mechanism" for c in p["candidate_changes"])
+
+
+def test_evaluation_status_contradicted_no_proposal():
+    s = _studies()
+    inv = _inv()
+    ev = E.compare_hypotheses(inv, s, None)
+    ev["s3"] = {**ev.get("s3", {}), "status": "contradicted"}
+    assert propose_model_revisions(inv, s, ev, {}, _mvs(s), _catalog(), now=NOW) == []
+
+
+def test_by_study_contradicted_no_proposal_even_without_finding_match():
+    s = _studies()
+    assert _run(s, ev_state={"by_study": {"s3": {"status": "contradicted"}}}) == []
+    s2 = _studies({"measure": "other", "by_topology": {"a": 0.0, "b": 0.9}})
+    assert _run(s2, ev_state={"ledger": [{"study": "s3", "finding": "zzz", "status": "contradicted"}]}) == []
+
+
+def test_cap_cross_kind_disagreement_beats_anomaly():
+    # one study, two different-kind triggers: rule = kind priority disagreement > anomaly > contested
+    s = _studies({"measure": "enclosure_probability", "observed": 0.5, "from_test": "enclosure_prob_in_band"})
+    s["s3"]["findings"].append({"id": "f-dis", "evidence": {"measure": "other_obs",
+                                                           "by_topology": {"2d": 0.3, "3d": 0.6}}})
+    inv = _anomaly_inv()
+    assert H.anomalies(inv, list(s.values()))
+    ps = _run(s, inv=inv)
+    assert len(ps) == 1 and ps[0]["source"]["kind"] == "model_disagreement"
+
+
+def test_discriminating_test_pass_if_is_a_copy():
+    s = _studies()
+    p = _run(s)[0]
+    p["discriminating_test"]["pass_if"]["low"] = 99
+    assert s["s3"]["behavior_tests"][0]["pass_if"]["low"] == 0.3

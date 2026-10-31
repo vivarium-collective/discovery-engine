@@ -11,6 +11,7 @@ finding is an evidence problem (REPAIR), so it yields NO proposal.
 """
 from __future__ import annotations
 
+import copy
 import hashlib
 import json
 from datetime import datetime, timezone
@@ -21,6 +22,10 @@ from .hypotheses import _fidelity_rank, _finding_measure_observed, anomalies
 from .study_refinement import _default_sweep
 
 _TERMINAL = ("rejected", "applied", "evaluated")
+# Cap ordering (1 proposal/study/cycle): explicit kind priority first (a measured model
+# disagreement > an unanticipated anomaly > a contested tally), then magnitude WITHIN the
+# kind (spread for disagreement, max |net| for contested; anomalies tie at 0, id breaks it).
+# Raw scores are never compared across kinds - their scales are incomparable.
 _KIND_ORDER = {"model_disagreement": 0, "anomaly": 1, "contested": 2}
 
 
@@ -40,9 +45,16 @@ def _ev(f: dict) -> dict:
     return f.get("evidence") if isinstance(f.get("evidence"), dict) else {}
 
 
-def _contradicted(evidence_state: dict | None) -> set[tuple]:
-    return {(r.get("study"), r.get("finding")) for r in (evidence_state or {}).get("ledger", [])
-            if isinstance(r, dict) and r.get("status") == "contradicted"}
+def _contradicted_studies(evidence_state: dict | None, evaluation: dict) -> set:
+    """Studies with a contradicted result (evidence problem -> REPAIR, never a model revision):
+    via a contradicted ledger finding, by_study status, or the evaluation status."""
+    es = evidence_state or {}
+    bad = {r.get("study") for r in es.get("ledger", [])
+           if isinstance(r, dict) and r.get("status") == "contradicted"}
+    bad |= {k for k, v in (es.get("by_study") or {}).items()
+            if isinstance(v, dict) and v.get("status") == "contradicted"}
+    bad |= {k for k, v in evaluation.items() if isinstance(v, dict) and v.get("status") == "contradicted"}
+    return bad
 
 
 def _affected_mv(study: str, evaluation: dict, model_versions: list) -> str | None:
@@ -106,7 +118,7 @@ def _test_for(spec: dict, finding: dict | None, observable: str | None) -> dict 
         return None
     t = next((t for t in _as_list(spec.get("behavior_tests"))
               if isinstance(t, dict) and t.get("name") == name), None)
-    return {"behavior_test": name, "pass_if": (t or {}).get("pass_if")}
+    return {"behavior_test": name, "pass_if": copy.deepcopy((t or {}).get("pass_if"))}
 
 
 def _hash8(payload: dict) -> str:
@@ -142,7 +154,7 @@ def propose_model_revisions(inv_spec: dict, studies: dict, evaluation: dict,
     studies = studies or {}
     evaluation = evaluation or {}
     now = now or datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-    bad = _contradicted(evidence_state)
+    bad = _contradicted_studies(evidence_state, evaluation)
     spec_list = [s for s in studies.values() if isinstance(s, dict)]
     out: list[dict] = []
 
@@ -156,7 +168,7 @@ def propose_model_revisions(inv_spec: dict, studies: dict, evaluation: dict,
         spec = studies.get(study) or {}
         f = _find(study, lambda f: _arm_values(f) == row["arms"]
                   and (_finding_measure_observed(f)[0] == obs or obs is None))
-        if (study, _fid(f) if f else None) in bad:
+        if study in bad:
             continue
         mv = _affected_mv(study, evaluation, model_versions)
         arms = ", ".join(f"{k}={v}" for k, v in sorted(row["arms"].items()))
@@ -173,7 +185,7 @@ def propose_model_revisions(inv_spec: dict, studies: dict, evaluation: dict,
         spec = studies.get(study) or {}
         f = _find(study, lambda f: _finding_measure_observed(f)[0] == obs
                   and _finding_measure_observed(f)[1] is not None)
-        if (study, _fid(f) if f else None) in bad:
+        if study in bad:
             continue
         mv = _affected_mv(study, evaluation, model_versions)
         out.append(_build(
@@ -181,7 +193,7 @@ def propose_model_revisions(inv_spec: dict, studies: dict, evaluation: dict,
             f"observed {obs} = {a['observed']} lies outside every live hypothesis band",
             {"observed": a["observed"]}, 0.0,
             [_param_candidate(spec),
-             {"kind": "mechanism", "needs_author": True, "question": a["proposed_question"]}],
+             {"kind": "mechanism", "add": None, "needs_author": True, "question": a["proposed_question"]}],
             [{"observable": obs, "direction": "enter_predicted_band",
               "rationale": "a parameter change or new mechanism should bring the observable into a predicted band"}],
             spec, now))
@@ -194,7 +206,7 @@ def propose_model_revisions(inv_spec: dict, studies: dict, evaluation: dict,
         hyps = cmp.get("hypotheses") or []
         nets = {h.get("id"): (h.get("support") or {}).get("net") for h in hyps}
         f = _find(study, lambda f: _finding_measure_observed(f)[0] == obs) if obs else None
-        if (study, _fid(f) if f else None) in bad:
+        if study in bad:
             continue
         mv = _affected_mv(study, evaluation, model_versions)
         out.append(_build(
@@ -209,7 +221,8 @@ def propose_model_revisions(inv_spec: dict, studies: dict, evaluation: dict,
     prior = {p.get("id"): p.get("status") for p in _as_list(inv_spec.get("revision_proposals"))
              if isinstance(p, dict)}
     out = [p for p in out if prior.get(p["id"]) not in _TERMINAL]
-    out.sort(key=lambda p: (-p["_score"], _KIND_ORDER[p["source"]["kind"]], p["id"]))
+    # (see _KIND_ORDER for the cap rule)
+    out.sort(key=lambda p: (_KIND_ORDER[p["source"]["kind"]], -p["_score"], p["id"]))
     seen: set = set()
     final = []
     for p in out:
