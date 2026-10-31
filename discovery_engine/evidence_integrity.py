@@ -25,7 +25,7 @@ from __future__ import annotations
 
 from .hypotheses import (
     _as_list, _evaluate, _expected_band, _finding_measure_observed, _findings,
-    _to_float,
+    _SCALAR_REL_TOL, _to_float,
 )
 
 VERIFIED = "verified"
@@ -69,10 +69,54 @@ def _pass_if_band(test: dict) -> dict | None:
     return None
 
 
+_DONE_STATUSES = {"complete", "done", "ran", "completed"}
+_ABS_TOL = 1e-9
+
+
+def _run_rows(study_spec: dict) -> dict[str, dict]:
+    """The study's ``runs[]`` records keyed by run name (and run_id/id aliases)."""
+    out: dict[str, dict] = {}
+    for r in _as_list((study_spec or {}).get("runs")):
+        if isinstance(r, dict):
+            for k in ("name", "run_id", "id"):
+                v = r.get(k)
+                if isinstance(v, str) and v.strip():
+                    out.setdefault(v.strip(), r)
+    return out
+
+
+def _is_int(x) -> bool:
+    return isinstance(x, int) and not isinstance(x, bool)
+
+
+def _value_matches(observed, measured, tol: float) -> bool:
+    m = _to_float(measured)
+    o = _to_float(observed)
+    if m is None or o is None:
+        return False
+    if _is_int(observed) and _is_int(measured):
+        return observed == measured
+    if abs(m) < _ABS_TOL:
+        return abs(o - m) <= _ABS_TOL
+    return abs(o - m) <= tol * abs(m)
+
+
+def _tolerance(test: dict | None) -> float:
+    pf = (test or {}).get("pass_if")
+    tol = _to_float(pf.get("tolerance")) if isinstance(pf, dict) else None
+    return tol if tol is not None and tol >= 0 else _SCALAR_REL_TOL
+
+
 def classify_finding_evidence(finding: dict, study_spec: dict,
-                              registered_run_ids: set[str]) -> dict:
+                              registered_run_ids: set[str],
+                              run_rows: dict[str, dict] | None = None) -> dict:
     """Classify one finding's evidence. Returns ``{finding, measure, observed,
-    status, reason, run_ids, from_test}``."""
+    status, reason, run_ids, from_test, measured_value, evaluated_by}``.
+
+    VERIFIED needs more than a registered run id: the canonical (first) cited run
+    must be complete, the cited test must be graded by code, and ``observed`` must
+    match the run's computed ``measured_value`` within tolerance. Pure."""
+    run_rows = run_rows or {}
     ev = finding.get("evidence") if isinstance(finding.get("evidence"), dict) else {}
     prov = finding.get("provenance") if isinstance(finding.get("provenance"), dict) else {}
     measure, observed = _finding_measure_observed(finding)
@@ -81,7 +125,8 @@ def classify_finding_evidence(finding: dict, study_spec: dict,
     from_test = ev.get("from_test")
     run_ids = [str(r) for r in _as_list(prov.get("run_ids")) if str(r).strip()]
     base = {"finding": fid, "measure": measure, "observed": observed,
-            "run_ids": run_ids, "from_test": from_test}
+            "run_ids": run_ids, "from_test": from_test,
+            "measured_value": None, "evaluated_by": None}
 
     if val is None:
         return {**base, "status": UNSUPPORTED,
@@ -102,8 +147,29 @@ def classify_finding_evidence(finding: dict, study_spec: dict,
 
     resolvable = bool(from_test) and bool(run_ids) and all(r in registered_run_ids for r in run_ids)
     if resolvable:
+        run = run_ids[0]
+        row = run_rows.get(run) if isinstance(run_rows.get(run), dict) else {}
+        status = str(row.get("status") or "").strip().lower()
+        out = (row.get("computed_outcomes") or {}).get(from_test)
+        out = out if isinstance(out, dict) else {}
+        measured = out.get("measured_value")
+        graded = out.get("evaluated_by")
+        base = {**base, "measured_value": measured, "evaluated_by": graded}
+
+        def prov(why: str) -> dict:
+            return {**base, "status": PROVISIONAL, "reason": why}
+
+        if status not in _DONE_STATUSES:
+            return prov(f"run {run} status={status or 'unknown'}")
+        if measured is None:
+            return prov(f"run {run} has no computed outcome for '{from_test}'")
+        if graded != "code":
+            return prov(f"test '{from_test}' graded by {graded or 'unknown'}, not code (run {run})")
+        if not _value_matches(observed, measured, _tolerance(_behavior_test(study_spec, from_test))):
+            return prov(f"observed {observed} \u2260 computed {measured} for '{from_test}' in run {run}")
         return {**base, "status": VERIFIED,
-                "reason": f"resolvable run chain: from_test '{from_test}', run_ids {run_ids}"}
+                "reason": f"observed {observed} matches computed {measured} for "
+                          f"'{from_test}' in run {run} (graded by code)"}
     missing = []
     if not from_test:
         missing.append("evidence.from_test")
@@ -138,7 +204,7 @@ def reconcile_evidence_state(inv_spec: dict, studies: dict,
         reg = _registered_run_ids(runs_by_study.get(slug))
         rows = []
         for f in _findings(spec):
-            row = classify_finding_evidence(f, spec, reg)
+            row = classify_finding_evidence(f, spec, reg, _run_rows(spec))
             row["study"] = slug
             ledger.append(row)
             rows.append(row)
@@ -168,7 +234,7 @@ def trace_claim_to_runs(finding_id: str, studies: dict,
             if (f.get("id") or f.get("name")) != finding_id:
                 continue
             reg = _registered_run_ids(runs_by_study.get(slug))
-            res = classify_finding_evidence(f, spec, reg)
+            res = classify_finding_evidence(f, spec, reg, _run_rows(spec))
             missing = []
             if not res["from_test"]:
                 missing.append("evidence.from_test")
