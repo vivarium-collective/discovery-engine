@@ -32,6 +32,21 @@ def _fixture(tmp_path, monkeypatch, *, builds=None):
     return ws
 
 
+COVER = "pkg.mod.PlasmidReplication"
+
+
+def _register_covering(ws_root):
+    """Register a study whose composite genuinely COVERS MECH (topic tokenizes to the mechanism)."""
+    sd = studies_dir(ws_root) / "s2"
+    sd.mkdir(parents=True, exist_ok=True)
+    (sd / "study.yaml").write_text(yaml.safe_dump(
+        {"name": "s2", "topic": MECH, "baseline": {"composite": COVER}}))
+    ip = investigations_dir(ws_root) / "inv" / "investigation.yaml"
+    d = yaml.safe_load(ip.read_text())
+    d["studies"] = ["s1", "s2"]
+    ip.write_text(yaml.safe_dump(d))
+
+
 def _cycle(ws):
     _, inv, st = D.load_cycle_inputs(ws, "inv")
     return D._cycle_with_evidence(ws, "inv", inv, st), inv, st
@@ -88,7 +103,8 @@ def test_two_cycle_capability_gap_loop(tmp_path, monkeypatch):
 
     def hook(gap, ws_root):
         calls.append(gap["id"])
-        return {"status": "reuse", "process": BASE, "gap_id": gap["id"], "detail": "fake"}
+        _register_covering(ws_root)
+        return {"status": "reuse", "process": COVER, "gap_id": gap["id"], "detail": "fake"}
 
     rec = D.execute_action(ws, "inv", autonomous=False, target=cg, build_hook=hook)
     assert rec["status"] == "gated-human" and calls == []
@@ -100,8 +116,8 @@ def test_two_cycle_capability_gap_loop(tmp_path, monkeypatch):
     rec = D.execute_action(ws, "inv", autonomous=True, target=cg, build_hook=hook)
     assert rec["status"] == "executed" and calls == [cg]
     built = _disk(ws)["capability_gaps"][0]
-    assert built["status"] == "built" and built["built"]["process"] == BASE
-    assert BASE in {c["composite"] for c in build_catalog(D.load_cycle_inputs(ws, "inv")[2])}
+    assert built["status"] == "built" and built["built"]["process"] == COVER
+    assert COVER in {c["composite"] for c in build_catalog(D.load_cycle_inputs(ws, "inv")[2])}
 
     # ---- Cycle 2 -------------------------------------------------------------------------
     disk2, res2 = _persist(ws)
@@ -174,3 +190,53 @@ def test_rejected_gap_never_reemits(tmp_path, monkeypatch):
     _, _, st = D.load_cycle_inputs(ws, "inv")
     assert propose_capability_gaps(_disk(ws), st, build_catalog(st)) == []
     assert _persist(ws)[0]["capability_gaps"] == disk["capability_gaps"]
+
+
+def test_non_covering_reuse_is_failed_not_built(tmp_path, monkeypatch):
+    """A hook naming a process that is PRESENT but does not cover the mechanism must not close
+    the gap: it becomes `failed` (surfaced), never `built`."""
+    ws = _fixture(tmp_path, monkeypatch, builds=MECH)
+    cg = _persist(ws)[0]["capability_gaps"][0]["id"]
+    D.accept_capability_gap(ws, "inv", cg, rationale="needed")
+    hook = lambda gap, w: {"status": "reuse", "process": BASE, "gap_id": gap["id"]}  # noqa: E731
+    rec = D.execute_action(ws, "inv", autonomous=True, target=cg, build_hook=hook)
+    g = _disk(ws)["capability_gaps"][0]
+    assert g["status"] == "failed" and g.get("built") in (None, {})
+    assert rec["status"] == "failed"
+    # still recoverable: surfaced on the frontier, not silently closed
+    assert [i["target"] for i in _items(ws)] == [cg]
+
+
+def _set_status(ws, status):
+    ip = investigations_dir(ws) / "inv" / "investigation.yaml"
+    d = yaml.safe_load(ip.read_text())
+    d["capability_gaps"][0]["status"] = status
+    ip.write_text(yaml.safe_dump(d))
+
+
+@pytest.mark.parametrize("status", ["needs_author", "failed"])
+def test_needs_author_and_failed_surface_review_tier(tmp_path, monkeypatch, status, capsys):
+    ws = _fixture(tmp_path, monkeypatch, builds=MECH)
+    cg = _persist(ws)[0]["capability_gaps"][0]["id"]
+    _set_status(ws, status)
+    assert [i["target"] for i in _items(ws)] == [cg]
+    assert _blocking(ws) == []
+    calls = []
+    hook = lambda gap, w: calls.append(1) or {"status": "reuse", "process": COVER}  # noqa: E731
+    rec = D.execute_action(ws, "inv", autonomous=True, target=cg, build_hook=hook)
+    assert rec["status"] == "gated-human" and calls == []
+    assert _disk(ws)["capability_gaps"][0]["status"] == status
+    assert "build_process" not in D._ADVANCE_OPS            # advance never dispatches a build
+    assert D.main(["--workspace", str(ws), "gap", "inv", "--propose"]) == 0
+    out = capsys.readouterr().out
+    assert cg in out and status in out
+
+
+@pytest.mark.parametrize("status", ["rejected", "built"])
+def test_terminal_gaps_do_not_surface(tmp_path, monkeypatch, status, capsys):
+    ws = _fixture(tmp_path, monkeypatch, builds=MECH)
+    cg = _persist(ws)[0]["capability_gaps"][0]["id"]
+    _set_status(ws, status)
+    assert _items(ws) == []
+    assert D.main(["--workspace", str(ws), "gap", "inv", "--propose"]) == 0
+    assert cg not in capsys.readouterr().out

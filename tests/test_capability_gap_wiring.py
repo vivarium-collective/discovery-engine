@@ -37,7 +37,16 @@ def _gaps(ws):
 
 
 def _hook(gap, ws_root):
-    return {"status": "reuse", "process": "pkg.mod.GrowthComposite", "gap_id": gap["id"], "detail": "fake"}
+    # Register a study whose composite genuinely COVERS the mechanism, then reuse it.
+    sd = studies_dir(ws_root) / "s2"
+    sd.mkdir(parents=True, exist_ok=True)
+    (sd / "study.yaml").write_text(yaml.safe_dump(
+        {"name": "s2", "topic": MECH, "baseline": {"composite": "pkg.mod.PlasmidReplication"}}))
+    ip = investigations_dir(ws_root) / "inv" / "investigation.yaml"
+    d = yaml.safe_load(ip.read_text())
+    d["studies"] = ["s1", "s2"]
+    ip.write_text(yaml.safe_dump(d))
+    return {"status": "reuse", "process": "pkg.mod.PlasmidReplication", "gap_id": gap["id"], "detail": "fake"}
 
 
 def test_cycle_writes_gaps_idempotent(tmp_path, monkeypatch):
@@ -87,7 +96,7 @@ def test_execute_builds_accepted_gap_with_fake_hook(tmp_path, monkeypatch):
     rec = D.execute_action(ws, "inv", autonomous=True, target=cg, build_hook=_hook)
     assert rec["status"] == "executed", rec
     g = _gaps(ws)[0]
-    assert g["status"] == "built" and g["built"]["process"] == "pkg.mod.GrowthComposite"
+    assert g["status"] == "built" and g["built"]["process"] == "pkg.mod.PlasmidReplication"
 
 
 def test_execute_does_not_build_unaccepted_or_hookless(tmp_path, monkeypatch):

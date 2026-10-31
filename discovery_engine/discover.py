@@ -2635,9 +2635,11 @@ def main(argv: list[str] | None = None) -> int:
                 persist_cycle(inv_path, inv_spec, result, studies=studies,
                               viz_state=viz_inventory(ws, args.investigation, studies))
                 for g in load_yaml_mapping(inv_path).get("capability_gaps") or []:
-                    if isinstance(g, dict) and g.get("status", "proposed") == "proposed":
+                    gst = g.get("status", "proposed") if isinstance(g, dict) else None
+                    if gst in ("proposed", "needs_author", "failed"):
                         print(f"{g['id']}  {g.get('mechanism')}  "
-                              f"[{'derivable' if g.get('derivable') else 'needs_author'}]")
+                              f"[{'derivable' if g.get('derivable') else 'needs_author'}]"
+                              + ("" if gst == "proposed" else f"  ({gst})"))
             else:
                 parser.error("gap needs --propose, --accept CG, or --reject CG")
         except ValueError as e:

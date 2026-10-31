@@ -278,18 +278,27 @@ def frontier(cycle_result: dict, inv_spec: dict) -> list[dict]:
             f"({src.get('kind')}; {'needs_author' if sug.get('needs_author') else 'derivable'})")
 
     # 9. capability gaps (non-blocking, review tier): a `proposed` one awaits accept/reject, an
-    #    `accepted` one awaits its build. Disk status wins; built/rejected/failed/needs_author
-    #    are terminal for the engine and never re-raised.
+    #    `accepted` one awaits its build; `needs_author` (a human must author the mechanism) and
+    #    `failed` (build failed - retry) resurface like viz_missing/viz_stale, still gated-human.
+    #    Disk status wins; built/rejected are terminal and never re-raised.
     gdisk = {p.get("id"): p for p in inv_spec.get("capability_gaps") or [] if isinstance(p, dict)}
     for p in cycle_result.get("capability_gaps") or []:
         if isinstance(p, dict):
             gdisk.setdefault(p.get("id"), p)
     for gid, p in sorted(gdisk.items(), key=lambda kv: str(kv[0])):
-        if p.get("status", "proposed") not in ("proposed", "accepted"):
+        st = p.get("status", "proposed")
+        if st not in ("proposed", "accepted", "needs_author", "failed"):
             continue
-        add("capability_gap", gid,
-            f"{p.get('status', 'proposed')} build of a process providing {p.get('mechanism')!r} "
-            f"({'derivable' if p.get('derivable') else 'needs_author'})")
+        if st == "needs_author":
+            why = f"needs a human to author a process providing {p.get('mechanism')!r}"
+        elif st == "failed":
+            why = f"build of a process providing {p.get('mechanism')!r} failed - retry"
+        else:
+            why = (f"{st} build of a process providing {p.get('mechanism')!r} "
+                   f"({'derivable' if p.get('derivable') else 'needs_author'})")
+        if p.get("detail") and st in ("needs_author", "failed"):
+            why += f" ({p['detail']})"
+        add("capability_gap", gid, why)
 
     items.sort(key=lambda x: (-x["priority"], str(x["kind"]), str(x["target"])))
     return items

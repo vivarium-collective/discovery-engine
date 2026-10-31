@@ -235,6 +235,11 @@ def build_capability_gap(gap: dict, build_hook: Callable[[dict, Any], dict], *,
             st, res = "failed", {"detail": "hook reported success but named no process"}
         elif catalog is not None and process_present(catalog, gap.get("mechanism", ""), process) is None:
             st, res = "failed", {"detail": f"process {process!r} not found in the catalog"}
+        elif catalog is not None and process_present(catalog, gap.get("mechanism", "")) is None:
+            # Present is not enough: the catalog must actually COVER the mechanism (token-superset),
+            # else a name-only match would silently close the gap (same bar as the recatalog path).
+            st, res = "failed", {"detail": f"process {process!r} is present but does not cover "
+                                           f"{gap.get('mechanism')!r}"}
     if st in ("reuse", "built"):
         gap["status"] = "built"
         gap["built"] = {"process": process, "via": st, "detail": res.get("detail")}
