@@ -210,3 +210,30 @@ def test_declare_refuses_healthy_entry(tmp_path, monkeypatch):
     with pytest.raises(ValueError, match="not a broken stub"):
         D.declare_viz(ws, "inv", "fig:s5/h", {"address": "local:p.Z"}, "why")
     assert yaml.safe_load((sd / "study.yaml").read_text())["visualizations"][0]["address"] == "local:p.H"
+
+
+def _pin_hook(pin, calls):
+    def hook(sdir, entry, latest):
+        calls.append(entry["name"])
+        out = f"viz/{entry['name']}.html"
+        (sdir / out).write_text("<html>new</html>")
+        stamp_meta(sdir / out, source_run_id=pin, generation_id=None,
+                   rendered_at=time.time(), command="fake")
+        return {"ok": True, "chart": out, "source_run_id": pin, "detail": "rendered"}
+    return hook
+
+
+def test_source_run_pin_is_kept_and_discharged_by_advance(tmp_path, monkeypatch):
+    vis = [{"name": "b", "address": "local:x.B", "source_run": "rX"}]
+    ws, sd = _ws(tmp_path, monkeypatch, vis, files=("viz/b.html",))   # latest = r1 != rX
+    import os
+    os.utime(sd / "viz" / "b.html", (1.0, 1.0))
+    assert [i["kind"] for i in _items(ws)] == ["viz_stale"]
+    calls = []
+    D.advance_cycle(ws, "inv", autonomous=True, render_hook=_pin_hook("rX", calls))
+    assert calls == ["b"]
+    assert read_meta(sd / "viz" / "b.html")["source_run_id"] == "rX"   # pin not overwritten
+    assert _items(ws) == []                                            # discharged: fresh
+    calls2 = []
+    D.advance_cycle(ws, "inv", autonomous=True, render_hook=_pin_hook("rX", calls2))
+    assert calls2 == []                                                # not re-dispatched

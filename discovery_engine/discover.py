@@ -1197,9 +1197,10 @@ def execute_action(ws_root: Path | str, inv_slug: str, *, autonomous: bool = Fal
                     after = _snap()
                     changed = after is not None and after != before_snap
                     m = read_meta(chart) if after is not None else None
-                    stamped = bool(after is not None and m and latest
-                                   and out.get("source_run_id") == latest.get("run_id")
-                                   and m.get("source_run_id") == latest.get("run_id")
+                    _want = _pinned_run(entry, latest)
+                    stamped = bool(after is not None and m and _want
+                                   and out.get("source_run_id") == _want
+                                   and m.get("source_run_id") == _want
                                    and (m.get("rendered_at") or 0) >= t0)
                     if not (changed or stamped):
                         out = {**out, "ok": False,
@@ -1463,12 +1464,22 @@ def _viz_resolvable(entry: dict) -> bool:
     return normalize_entry(entry)["kind"] in ("class", "command")
 
 
+def _pinned_run(entry: dict, latest: dict | None) -> str | None:
+    """The run a figure must be stamped against: the entry's explicit ``source_run`` pin
+    (spec 2E) when present, else the study's latest run."""
+    pin = (entry or {}).get("source_run")
+    if pin:
+        return str(pin)
+    return (latest or {}).get("run_id") or None
+
+
 def _post_render_stamp(sdir, entry: dict, latest: dict | None, command: str | None = None) -> bool:
     """Best-effort (the `_post_run_sync` discipline): make sure the rendered figure carries
     a ``<output>.meta.json`` stamped against the latest run, when the hook left it
     unstamped (or stamped against an older run). Never creates a figure; returns True iff
     it wrote a stamp. With no run to stamp against, writes nothing (mtime fallback)."""
-    if sdir is None or not latest or not latest.get("run_id"):
+    want = _pinned_run(entry, latest)
+    if sdir is None or not want:
         return False
     try:
         import time
@@ -1478,9 +1489,9 @@ def _post_render_stamp(sdir, entry: dict, latest: dict | None, command: str | No
         if chart is None or not chart.is_file():
             return False
         meta = read_meta(chart)
-        if meta and meta.get("source_run_id") == latest["run_id"]:
+        if meta and meta.get("source_run_id") == want:
             return False
-        stamp_meta(chart, source_run_id=latest["run_id"],
+        stamp_meta(chart, source_run_id=want,
                    generation_id=(meta or {}).get("generation_id"),
                    rendered_at=time.time(), command=command or (entry.get("render") or ""),
                    model_version=(meta or {}).get("model_version"))
@@ -1639,7 +1650,8 @@ def advance_cycle(ws_root: Path | str, inv_slug: str, *, autonomous: bool = Fals
                 lat = viz_inventory(ws_root, inv_slug, {vt[0]: studies[vt[0]]})[vt[0]]["_latest"]
                 chart = sd / normalize_entry(entry)["output"] if sd else None
                 meta = read_meta(chart) if chart is not None and chart.is_file() else None
-                if lat and meta and meta.get("source_run_id") == lat.get("run_id"):
+                _want = _pinned_run(entry, lat)
+                if _want and meta and meta.get("source_run_id") == _want:
                     seen.add(p["source"])
                     continue
                 target, target_slug, target_op = p["source"], vt[0], p["action_type"]
