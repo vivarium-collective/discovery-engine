@@ -20,7 +20,10 @@ Outcome shapes:
 from __future__ import annotations
 
 import ast
+import hashlib
+import json
 import re
+from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Any, Callable
 
 import polars as pl
@@ -287,7 +290,7 @@ def load_workspace_evaluators(ws_root: Any) -> dict[str, Callable]:
 # Bump when the grading LOGIC changes (not for data changes). Stamped into each run's
 # computed_outcomes as ``_grader`` so a consumer (the investigation-graph card) can detect
 # a stale computed gate and force a re-grade when the grader has moved on.
-GRADER_VERSION = "2-storeless"
+GRADER_VERSION = "3-freshness"
 
 
 def storeless(fn: Callable) -> Callable:
@@ -306,12 +309,55 @@ def _storeless_kinds(ws_root: Any) -> set[str]:
             if getattr(fn, "storeless", False)}
 
 
-def _grader_stamp() -> dict:
-    """The grader-identity stamp written into every computed_outcomes block. A consumer
-    (the investigation-graph card) compares ``version`` against the current GRADER_VERSION
-    and re-grades when it differs — so a changed grader forces a refresh rather than serving
-    a stale computed gate."""
-    return {"version": GRADER_VERSION}
+def _grader_stamp(inputs_hash: str | None = None, store: str | None = None,
+                  graded_at: str | None = None) -> dict:
+    """The grader-identity stamp written into every computed_outcomes block (Phase 2).
+
+    ``version``     — ``GRADER_VERSION``; a consumer compares it to the current grader and re-grades
+                      when it differs (``grader_freshness.grade_freshness``).
+    ``graded_at``   — ISO-8601 UTC time the grade was computed. Idempotent: a caller passes the
+                      prior ``graded_at`` back in when the ``inputs_hash`` is unchanged, so a
+                      re-grade of identical inputs does not churn the YAML.
+    ``inputs_hash`` — ``_inputs_hash`` of (test defs + run provenance + evaluator-registry
+                      fingerprint); changes when the grader or its inputs change.
+    ``store``       — three-valued provenance: ``resolved`` (openable run store — render a link),
+                      ``store_less`` (re-derived by design, no store — "re-derived, no run store"),
+                      ``unresolved`` (a store that SHOULD exist could not be opened).
+    """
+    stamp: dict = {"version": GRADER_VERSION}
+    stamp["graded_at"] = graded_at or datetime.now(timezone.utc).isoformat()
+    if inputs_hash is not None:
+        stamp["inputs_hash"] = inputs_hash
+    if store is not None:
+        stamp["store"] = store
+    return stamp
+
+
+def _evaluator_fingerprint(ws_root: Any) -> str:
+    """A stable fingerprint of the workspace's registered evaluator kinds + the grader version —
+    one of the three inputs to ``_inputs_hash``. Changes when the grading surface changes."""
+    try:
+        kinds = sorted(load_workspace_evaluators(ws_root).keys())
+    except Exception:  # noqa: BLE001 — a broken workspace never breaks the hash
+        kinds = []
+    return _sha16(json.dumps([GRADER_VERSION, kinds], sort_keys=True))
+
+
+def _run_provenance_id(run: dict) -> str:
+    """The identity of the specific run data a grade was computed from (best-effort)."""
+    keys = ("name", "commit", "timestamp", "env_id", "provenance_status", "generation_id")
+    return json.dumps({k: run.get(k) for k in keys if run.get(k) is not None}, sort_keys=True)
+
+
+def _inputs_hash(tests: Any, run: dict, ws_root: Any) -> str:
+    """Hash of (test definitions + run provenance + evaluator-registry fingerprint). The value a
+    freshness check compares against — it changes iff the grade's inputs change."""
+    payload = json.dumps([tests, _run_provenance_id(run or {})], sort_keys=True, default=str)
+    return _sha16(payload + _evaluator_fingerprint(ws_root))
+
+
+def _sha16(s: str) -> str:
+    return hashlib.sha256(s.encode("utf-8")).hexdigest()[:16]
 
 
 def load_workspace_derived_scalars(ws_root: Any) -> dict[str, Callable]:
@@ -1822,6 +1868,12 @@ def compute_outcomes(
     for run in doc.get("runs") or []:
         store_path = _resolve_run_store(run, study_dir, ws_root)
 
+        # Phase 2 freshness stamp: the inputs_hash anchors staleness AND idempotency — carry the
+        # prior graded_at forward when the inputs are unchanged, so a re-grade never churns the YAML.
+        _ih = _inputs_hash(per_run_spec.get(_tests_key), run, ws_root)
+        _old_stamp = (run.get("computed_outcomes") or {}).get("_grader") or {}
+        _prior_at = _old_stamp.get("graded_at") if _old_stamp.get("inputs_hash") == _ih else None
+
         store_status = None
         if store_path is None:
             # The run store is unresolved. We can still grade STORE-LESS tests — their
@@ -1833,7 +1885,9 @@ def compute_outcomes(
                         if isinstance(t, dict) and (t.get("measure") or {}).get("kind") in _sl]
             if not sl_tests:
                 run["computed_outcomes"] = ruamel.yaml.CommentedMap(
-                    {"_status": "store_unresolved", "_grader": _grader_stamp()}
+                    {"_status": "store_unresolved",
+                     "_grader": _grader_stamp(inputs_hash=_ih, store="unresolved",
+                                              graded_at=_prior_at)}
                 )
                 continue
             try:
@@ -1841,7 +1895,8 @@ def compute_outcomes(
                                           ws_root=ws_root)
             except Exception as exc:  # noqa: BLE001
                 run["computed_outcomes"] = ruamel.yaml.CommentedMap(
-                    {"_status": f"evaluation_error: {exc}", "_grader": _grader_stamp()}
+                    {"_status": f"evaluation_error: {exc}",
+                     "_grader": _grader_stamp(inputs_hash=_ih, graded_at=_prior_at)}
                 )
                 continue
             store_status = "store_less_graded"  # store unresolved; only store-less tests graded
@@ -1859,7 +1914,8 @@ def compute_outcomes(
                 outcomes = evaluate_study(per_run_spec, reader, ws_root=ws_root)
             except Exception as exc:  # noqa: BLE001
                 run["computed_outcomes"] = ruamel.yaml.CommentedMap(
-                    {"_status": f"evaluation_error: {exc}", "_grader": _grader_stamp()}
+                    {"_status": f"evaluation_error: {exc}",
+                     "_grader": _grader_stamp(inputs_hash=_ih, graded_at=_prior_at)}
                 )
                 continue
 
@@ -1893,14 +1949,13 @@ def compute_outcomes(
             else:
                 tests_agent += 1
 
-        stamp = _grader_stamp()
-        if store_status:
-            # A store-less GRADED block is a REAL result, NOT a stub — it must NOT carry
-            # ``_status`` (that convention, read by finding_observations, means "skip me" and
-            # would blank the grades before they reach findings[].status). Record the
-            # store-less provenance in the grader stamp instead; it is a meta key read by
-            # test-name lookup, so it never masks the real grades.
-            stamp["store"] = "unresolved"
+        # A store-less GRADED block is a REAL result, NOT a stub — it must NOT carry ``_status``
+        # (that convention, read by finding_observations, means "skip me" and would blank the
+        # grades before they reach findings[].status). The store provenance lives in the grader
+        # stamp instead (a meta key, never masking the real grades), now three-valued so a consumer
+        # can tell "re-derived by design" (store_less) from a genuinely broken store (unresolved).
+        _store = "store_less" if store_status == "store_less_graded" else "resolved"
+        stamp = _grader_stamp(inputs_hash=_ih, store=_store, graded_at=_prior_at)
         new_co["_grader"] = ruamel.yaml.CommentedMap(stamp)
         run["computed_outcomes"] = new_co
         runs_evaluated += 1

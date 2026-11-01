@@ -89,7 +89,7 @@ def test_storeless_test_graded_when_store_unresolved(tmp_path):
     # finding_observations uses to blank the block — it would hide the real grade). The
     # store-less provenance lives in the grader stamp instead.
     assert "_status" not in co
-    assert co["_grader"]["store"] == "unresolved"
+    assert co["_grader"]["store"] == "store_less"   # Phase 2: three-valued; re-derived-by-design
 
 
 def test_non_storeless_unresolved_still_bails(tmp_path):
@@ -166,7 +166,7 @@ def test_storeless_graded_when_ws_root_omitted(tmp_path):
     co = yaml.safe_load((sd / "study.yaml").read_text())["runs"][0]["computed_outcomes"]
     assert co.get("_status") != "store_unresolved"  # was the bug
     assert co["recover-mechanism"]["result"] == "FAIL"
-    assert co["_grader"].get("store") == "unresolved"
+    assert co["_grader"].get("store") == "store_less"   # Phase 2: three-valued
 
 
 # --- sub-feature 2: candidate_model sentinel is load-bearing ------------------------
