@@ -53,7 +53,7 @@ class FakeRunner:
     def __init__(self):
         self.calls = []
 
-    def __call__(self, cmd, ws):
+    def __call__(self, cmd, ws, **_kw):
         m = re.search(r"run study (\S+)", cmd)
         slug = m.group(1)
         self.calls.append(slug)

@@ -1233,25 +1233,59 @@ def suggest_studies(cycle_result: dict, inv_spec: dict, studies: dict) -> list[d
     return out
 
 
-def _default_runner(command: str, ws_root: Path | str) -> dict:
-    """Run a consequential executor command as a subprocess in the workspace, capturing
-    its outcome. This is the real sim/seed invocation the autonomous bridge makes.
+def _default_runner(command: str, ws_root: Path | str, *,
+                    worktree: Path | str | None = None, timeout: int = 3600) -> dict:
+    """Run a consequential executor command as a subprocess in the workspace, capturing its
+    outcome. This is the real sim/seed invocation the autonomous bridge makes.
 
-    The RUNNING interpreter's venv bin is prepended to the subprocess PATH so a bare
-    console script in the command (e.g. ``vivarium-workbench``) resolves to THIS venv's
-    binary — not some other venv earlier on PATH, which would run against a different
-    workspace package and fail to find the composite (observed: a bare ``vivarium-workbench``
-    resolved to a sibling venv and reported the study's composite 'not found')."""
+    The RUNNING interpreter's venv bin is prepended to the subprocess PATH so a bare console script
+    in the command (e.g. ``vivarium-workbench``) resolves to THIS venv's binary — not some other venv
+    earlier on PATH, which would run against a different workspace package and fail to find the
+    composite (observed: a bare ``vivarium-workbench`` resolved to a sibling venv and reported the
+    study's composite 'not found').
+
+    ``worktree`` (G5): when given, the worktree is additionally prepended to ``PYTHONPATH`` so a
+    FRESHLY-BUILT composite living in that worktree resolves OVER the canonical editable install —
+    letting the cycle run a just-built composite without a workspace-wide reinstall. ``worktree=None``
+    is today's behavior exactly. The workbench injects its own worktree-aware runner at the cycle
+    call sites; this is the no-injection fallback, conforming to the same signature."""
     import os
     import subprocess
     import sys
     env = dict(os.environ)
     env["PATH"] = os.path.dirname(sys.executable) + os.pathsep + env.get("PATH", "")
+    if worktree is not None:
+        env["PYTHONPATH"] = str(worktree) + os.pathsep + env.get("PYTHONPATH", "")
     proc = subprocess.run(command, shell=True, cwd=str(ws_root), env=env,
-                          capture_output=True, text=True, timeout=3600)
+                          capture_output=True, text=True, timeout=timeout)
     return {"returncode": proc.returncode,
             "ok": proc.returncode == 0,
+            "run_id": _latest_run_id_for_command(command, ws_root) if proc.returncode == 0 else None,
             "tail": (proc.stdout or proc.stderr or "")[-400:]}
+
+
+def _latest_run_id_for_command(command: str, ws_root: Path | str) -> str | None:
+    """Best-effort run_id for the RunResult: parse the study slug from the run command and read the
+    newest row from its ``runs.db`` via the run registry. ``None`` when not resolvable — the
+    workbench's injected runner is where run_id is authoritative; the fallback just reports what it
+    can without parsing stdout."""
+    import re as _re
+    m = _re.search(r"run[ -]study\s+([A-Za-z0-9][\w-]*)", command)
+    if not m:
+        return None
+    slug = m.group(1)
+    for base in ("studies", ""):
+        db = Path(ws_root) / base / slug / "runs.db" if base else Path(ws_root) / slug / "runs.db"
+        if db.exists():
+            try:
+                from .run_registry import list_runs
+                rows = list_runs(db) or []
+                if rows:
+                    last = rows[-1]
+                    return str(last.get("run_id") or last.get("name") or "") or None
+            except Exception:  # noqa: BLE001
+                return None
+    return None
 
 
 def _env_decider(target: str, detail: str) -> dict:
@@ -1275,7 +1309,8 @@ def _env_decider(target: str, detail: str) -> dict:
 
 def execute_action(ws_root: Path | str, inv_slug: str, *, autonomous: bool = False,
                    runner=None, decider=None, target: str | None = None,
-                   action: str | None = None, render_hook=None, build_hook=None) -> dict:
+                   action: str | None = None, render_hook=None, build_hook=None,
+                   worktree: Path | str | None = None) -> dict:
     """The bridge's execution step: take the top value-ranked action and carry it out,
     gated by consequence.
 
@@ -1342,7 +1377,7 @@ def execute_action(ws_root: Path | str, inv_slug: str, *, autonomous: bool = Fal
                     rec["status"] = "gated"
                     rec["outcome"] = {"ok": None, "detail": f"command needs manual values, run it yourself: {command}"}
                 else:
-                    rec["outcome"] = (runner or _default_runner)(command, ws_root)
+                    rec["outcome"] = (runner or _default_runner)(command, ws_root, worktree=worktree)
                     rec["status"] = "executed" if rec["outcome"].get("ok") else "failed"
     elif top["consequence"] == "render":
         # A figure (re)render. Autonomous-only; refused unless the declared entry is
@@ -1381,7 +1416,7 @@ def execute_action(ws_root: Path | str, inv_slug: str, *, autonomous: bool = Fal
                     if render_hook is not None:
                         out = render_hook(sdir, entry, latest) or {}
                     else:
-                        out = (runner or _default_runner)(command, ws_root) or {}
+                        out = (runner or _default_runner)(command, ws_root, worktree=worktree) or {}
                 except Exception as e:  # noqa: BLE001 -- a crashing renderer is a failed render
                     out = {"ok": False, "detail": f"render raised {type(e).__name__}: {e}"}
                 if out.get("ok"):
@@ -1917,7 +1952,8 @@ def _post_run_sync(sdir, before_runs: set) -> None:
 
 
 def advance_cycle(ws_root: Path | str, inv_slug: str, *, autonomous: bool = False,
-                  runner=None, max_runs: int = 12, render_hook=None) -> dict:
+                  runner=None, max_runs: int = 12, render_hook=None,
+                  worktree: Path | str | None = None) -> dict:
     """The cycle's ADVANCE phase — build-if-needed and RUN the open questions, so turning
     the crank moves the science forward instead of only describing it.
 
@@ -1974,7 +2010,7 @@ def advance_cycle(ws_root: Path | str, inv_slug: str, *, autonomous: bool = Fals
         sdir = _study_dir_on_disk(ws_root, inv_slug, target_slug)
         before_runs = _run_names(sdir)
         rec = execute_action(ws_root, inv_slug, autonomous=True, runner=runner, target=target,
-                             action=target_op, render_hook=render_hook)
+                             action=target_op, render_hook=render_hook, worktree=worktree)
         if target_op in ("build_viz", "refine_viz"):
             # a render claims neither the study nor stops the loop; a failed/gated render
             # is not retried this advance (gated_ops), a done one is not re-dispatched.

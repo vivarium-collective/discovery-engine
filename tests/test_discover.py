@@ -364,7 +364,7 @@ def test_execute_action_gates_a_consequential_action_until_autonomous(tmp_path):
 
     calls = []
 
-    def fake_runner(cmd, ws):
+    def fake_runner(cmd, ws, **_kw):
         calls.append(cmd)
         return {"ok": True, "returncode": 0, "tail": "sim complete"}
 
@@ -535,7 +535,7 @@ def test_advance_cycle_runs_a_run_ready_open_question(tmp_path):
 
     calls = []
 
-    def runner(cmd, ws):
+    def runner(cmd, ws, **_kw):
         calls.append(cmd)
         return {"ok": True, "returncode": 0, "tail": "done"}
 
