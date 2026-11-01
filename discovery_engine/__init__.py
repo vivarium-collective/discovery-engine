@@ -25,11 +25,20 @@ from . import (  # noqa: F401  submodule access for the full surface
     feedback_compiler,
     knowledge_store,
     narrative,
+    resolution,
     study_evaluator,
     synthesis,
     validation,
 )
 from .argument_store import derive_argument, merge_argument  # noqa: F401
+from .resolution import (  # noqa: F401
+    RESOLUTION_MODES,
+    RESOLUTION_ROUTES,
+    ResolutionRouteError,
+    normalize_resolution_route,
+    resolution_route_of,
+    resolution_satisfied,
+)
 from .feedback_compiler import (  # noqa: F401
     FeedbackValidationError,
     compile_feedback,

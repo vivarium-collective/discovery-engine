@@ -65,7 +65,20 @@
           "approval": {"type": "string"},
           "history": {"type": "array"},
           "built": {"type": ["object", "null"]},
-          "derivable": {"type": "boolean"}
+          "derivable": {"type": "boolean"},
+          "resolution_route": {
+            "type": "object",
+            "required": ["routes", "mode"],
+            "additionalProperties": false,
+            "properties": {
+              "routes": {
+                "type": "array",
+                "minItems": 1,
+                "items": {"enum": ["acquire_data", "develop_method", "request_expert", "spawn_research"]}
+              },
+              "mode": {"enum": ["all", "any"]}
+            }
+          }
         }
       }
     },
