@@ -1183,6 +1183,53 @@ def suggest_studies(cycle_result: dict, inv_spec: dict, studies: dict) -> list[d
                  "the behavior it asks about.")
         add(sid, t, m, parent, f"frontier_{oc.get('kind')}", [key])
 
+    # 5. GENERATIVE loop: a REFUTED finding (finding status in {contradicts, refuted})
+    #    spawns a builds-on FOLLOW-UP study — pre-populated from the finding via
+    #    build_child_seed_from_finding (question/mechanism/expected_outcome, seeded_from,
+    #    carried behavior_tests) — plus, once any refutation exists, a single SYNTHESIS
+    #    "frontier" study that folds the refutations into the next discriminating question.
+    #    A refutation is a concrete signal, so these are proposed `ready` (not expert-gated);
+    #    select_for_launch then applies the autonomy policy. This makes "a negative result
+    #    generates the next study" a first-class part of the cycle.
+    import dataclasses as _dc
+
+    from .seed_from_followup import build_child_seed_from_finding
+    refutations: list[tuple[str, str]] = []
+    for slug, spec in (studies or {}).items():
+        if not isinstance(spec, dict):
+            continue
+        for f in spec.get("findings") or []:
+            if not isinstance(f, dict):
+                continue
+            verdict = str(f.get("status") or f.get("verdict") or "").strip().lower()
+            if verdict not in ("contradicts", "refuted"):
+                continue
+            fid = f.get("id")
+            if not fid:
+                continue
+            refutations.append((slug, fid))
+            sid = f"followup-{slug}-{hashlib.sha256(str(fid).encode()).hexdigest()[:8]}"
+            seed = None
+            try:
+                seed = _dc.asdict(build_child_seed_from_finding(spec, slug, sid, fid))
+            except Exception:  # noqa: BLE001 — a malformed finding never breaks the proposal view
+                seed = None
+            motivation = str(f.get("next_action") or f.get("statement")
+                             or "A finding was refuted; investigate why and what holds instead.")[:300]
+            before = len(out)
+            add(sid, f"Follow-up — investigate a refuted finding in {slug}", motivation,
+                slug, "refuted_finding", [])
+            if seed is not None and len(out) > before:
+                out[-1]["seed"] = seed
+    if refutations:
+        n_studies = len({s for s, _ in refutations})
+        key = ",".join(sorted(f"{s}:{fid}" for s, fid in refutations))
+        sid = f"synthesize-frontier-{hashlib.sha256(key.encode()).hexdigest()[:8]}"
+        add(sid, "Synthesis — fold the refuted findings into the next frontier",
+            f"{len(refutations)} refuted finding(s) across {n_studies} study(ies): synthesize what "
+            "they rule out and pose the next discriminating question.",
+            None, "synthesis_frontier", [])
+
     return out
 
 
