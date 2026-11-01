@@ -132,3 +132,18 @@ def test_build_catalog_with_ws_root_marks_components(tmp_path):
 def test_build_catalog_without_ws_root_unchanged():
     for c in M.build_catalog(_studies()):
         assert not ({"resolves", "module", "spec_path"} & set(c))
+
+
+def test_novel_compound_mechanism_builds_not_spurious_wrap():
+    """P2 part 1: a NOVEL compound mechanism whose name merely contains a word that is a
+    capability token of an existing composite ('membrane' ∈ protrusion_enclosure_cpm) must
+    route to BUILD — no component actually provides the coupled mechanism. The old
+    c-in-s substring match spuriously WRAPped it, so no capability_gap fired. The novel
+    mechanism has no registered synonym (the workspace hasn't declared it)."""
+    mech = "adhesion_and_membrane_mechanics"
+    assert mech not in M._SYNONYMS                      # undeclared novel mechanism
+    cat = M.build_catalog(_studies())                  # includes protrusion_enclosure_cpm
+    assert any("membrane" in c.get("capability", []) for c in cat)  # the word that used to match
+    routes = M.choose_acquisition_route(
+        M.ModelBuildRequest(question_id="A", required_mechanisms=[mech]), cat)
+    assert routes[mech]["route"] == M.BUILD
