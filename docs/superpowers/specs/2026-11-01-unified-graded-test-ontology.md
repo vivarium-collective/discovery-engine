@@ -69,14 +69,21 @@ flags surfaced by `report_linter._check_verdict_divergence` (`:856`) — after t
 `computed_outcomes[T]` is THE graded result. Unified shape (superset of today's, additive):
 
 ```yaml
-result: PASS | FAIL | needs_rerun | ungraded      # the one verdict for this (test, run)
+result: PASS | FAIL | needs_rerun | ungraded | not_applicable   # CLOSED set — every state → a badge
+                                                                 #   pending ≡ ungraded; requires_simulation:false ≡ not_applicable
 measured_value: <scalar | {generation: value}>
-evaluated_by: code | agent | authored              # HOW it was graded
+evaluated_by: code | agent | authored              # HOW it was graded (authored → tagged + muted in the UI)
 grading: {kind: <measure.kind>, op: <pass_if.op>, operator: "<kind>/<op>"}
-axis: {verdict: within_tol|drift|mismatch|ungraded, expected, margin, severity, units}  # the tolerance dimension — a DIMENSION, not a 2nd verdict
-provenance: {run: <run name|id>, store: resolved | unresolved | store_less}
+axis: {verdict: within_tol|drift|mismatch|ungraded, expected, margin, severity, units}  # the tolerance DIMENSION, not a 2nd verdict
+provenance:
+  run: <run name|id | null>
+  store: resolved | store_less | unresolved        # resolved = openable store (render a run link);
+                                                   # store_less = re-derived, no store, BY DESIGN ("re-derived — no run store", suppress link);
+                                                   # unresolved = a real problem (store expected but missing)
 reconcile: agree | divergent | no_authored         # vs the authored expectation
-_grader: {version: <GRADER_VERSION>, graded_at: <iso>, inputs_hash: <hash>}   # freshness
+reconcile_detail: {authored: <value>}              # the authored expected value INLINE, so divergence renders without a join into runs[].outcomes
+freshness: fresh | stale                           # RESOLVED server-side / at publish time — the read-only bundle READS this, never recomputes it
+_grader: {version: <GRADER_VERSION>, graded_at: <iso>, inputs_hash: <hash>}   # the WHY behind `freshness`
 ```
 
 - `evaluated_by: authored` is allowed for a test that genuinely has no code/agent grader — the
@@ -113,11 +120,14 @@ Every graded result and every roll-up carries `_grader: {version, graded_at, inp
 - `inputs_hash` = hash of (the test definitions + run provenance id + the workspace evaluator
   registry fingerprint). Changes when the *grader or its inputs* change.
 
-A consumer (the Audit tab, the card, the discovery cycle) compares a record's stamp to the
-current grader; **mismatch ⇒ STALE ⇒ re-derive**, rather than trusting the cached value.
-`computed_acceptance` stops being a blindly-trusted snapshot — it is re-derived when stale, and
-the Audit tab can show "stale — re-grade" instead of a wrong ✓met. A `report_linter` check flags
-any persisted roll-up whose stamp is behind the tests it summarizes.
+Staleness is **resolved server-side (and at publish time) into an explicit `freshness: fresh|stale`
+field on the record/view** — NOT a consumer recompute. This is load-bearing: the published static
+bundle has no server/engine to know "the current grader," so it must read a baked flag. The live
+server and the publish step compare a record's `_grader` stamp to the current grader and write
+`freshness`; the read-only workbench and the live Audit tab both just render it. So
+`computed_acceptance` stays persisted (required for the bundle — see Q4) but is re-derived fresh +
+re-stamped at publish, and shows "stale — re-grade" instead of a wrong ✓met. A `report_linter`
+check flags any persisted roll-up whose stamp is behind the tests it summarizes.
 
 ### 2.5 report_card axis + gates + acceptance = computed views
 
@@ -153,13 +163,16 @@ any persisted roll-up whose stamp is behind the tests it summarizes.
   fresh vs stale (via the stamp), cycle-updated vs not — with divergence surfaced, not four
   disagreeing panels.
 
-## 5. Open questions (for review)
+## 5. Open questions — RESOLVED (sbml-cycle review, 2026-11-01)
 
-1. **Author-graded tests:** record the author's result as `evaluated_by: authored` inside the one
-   model (§2.1), or keep a visibly-separate "unverified" lane? (Proposed: the former, tagged.)
-2. **`canonical_run` robustness:** the roll-ups crash today on mixed `str`/`float` run timestamps
-   (`viva_workspace.outcomes.canonical_run`); coerce the sort key to `str` as part of Phase 1.
-3. **`inputs_hash` scope:** test defs + run id + evaluator-registry fingerprint — enough, or also
-   the composite/model version?
-4. **Where acceptance lives:** keep `computed_acceptance` persisted-but-stamped, or make it a pure
-   on-read view (no persistence)? Persisted+stamped is friendlier to the published static bundle.
+1. **Author-graded tests → `evaluated_by: authored` inside the one model**, tagged + muted in the
+   UI. A separate "unverified lane" would just rebuild the multi-panel mess. **Resolved: one model.**
+2. **`canonical_run` robustness:** coerce the sort key to `str` **in Phase 1** (the mixed
+   `str`/`float` timestamp crash is adjacent to the `ws_root` store bug). **Resolved: Phase 1.**
+3. **`inputs_hash` scope:** test defs + run id + evaluator-registry fingerprint **+ the
+   composite/model version**. Essential for store-less recovery, where the grade is a pure function
+   of the oracle MODEL + the SINDy/fit METHOD (not run data) — a changed method or target model must
+   invalidate the stamp. **Resolved: include model/composite version.**
+4. **Where acceptance lives:** **persisted + stamped** — required, not just friendlier: the
+   published static bundle has no on-read engine, so `computed_acceptance` MUST be persisted;
+   re-derive fresh + re-stamp at publish. **Resolved: persisted + stamped.**
