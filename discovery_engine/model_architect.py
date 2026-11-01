@@ -144,10 +144,28 @@ def build_catalog(studies: dict, ws_root=None) -> list[dict]:
 
 
 def _provides(component: dict, mechanism: str) -> int:
-    """How strongly a component provides a mechanism (0 = not, higher = stronger)."""
+    """How strongly a component provides a mechanism (0 = not, higher = stronger).
+
+    Two regimes:
+    - A mechanism with REGISTERED synonyms (author-declared domain vocabulary) uses the
+      fuzzy synonym match — the workspace opted into that vocabulary, so its loose matching
+      is intentional.
+    - A mechanism with NO registered synonym is matched by honest token COVERAGE: every
+      one of the mechanism's tokens must be a capability token (the same bar gap-closing
+      uses in ``capability_gaps.process_present``). This removes the "lexical catalog"
+      false positive where a novel COMPOUND mechanism (e.g. ``adhesion_and_membrane_mechanics``)
+      matched any component that merely shared a single incidental word (``membrane``) via
+      the old ``c in s`` substring test, routing it to WRAP so no capability gap ever fired.
+      A genuinely-provided slug whose words ARE the component's capability
+      (``rate-law-fitter`` ↔ ``[rate, law, fitter]``) is still covered.
+    """
     cap = set(component.get("capability", []))
-    syns = set(_SYNONYMS.get(mechanism, (mechanism,)))
-    return sum(1 for s in syns if any(s in c or c in s for c in cap))
+    syns = _SYNONYMS.get(mechanism)
+    if syns:
+        return sum(1 for s in set(syns) if any(s in c or c in s for c in cap))
+    mt = _tokens(mechanism)
+    cap_tokens = {t for c in cap for t in _tokens(c)}
+    return 1 if (mt and mt <= cap_tokens) else 0
 
 
 def provides(component: dict, mechanism: str) -> bool:
