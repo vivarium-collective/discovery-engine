@@ -32,6 +32,7 @@ from typing import Any, Callable
 
 from .model_architect import BUILD, ModelBuildRequest, choose_acquisition_route
 from .model_architect import provides  # noqa: F401  (public routing predicate, re-exported)
+from .resolution import DEVELOP_METHOD
 
 CAP = 2  # per study per cycle (mirrors viz_proposals.CAP)
 TERMINAL = ("rejected", "built")
@@ -103,6 +104,10 @@ def _build_gap(mechanism: str, inv_slug: str, route_info: dict, study: str | Non
             "effort": "derivable" if derivable else "needs-author",
         },
         "approval": "review",            # rationale-gated accept; never auto-build
+        # resolution taxonomy (DE 2.0): a missing MECHANISM is closed by building the
+        # capability — the BUILD route maps to develop_method. Authored gaps/claim gaps
+        # may carry a richer {routes, mode} (e.g. acquire_data + develop_method, mode all).
+        "resolution_route": {"routes": [DEVELOP_METHOD], "mode": "all"},
         "history": [{"at": now, "event": "proposed", "by": "engine"}],
         "built": None,
         "derivable": derivable,
