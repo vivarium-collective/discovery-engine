@@ -1588,7 +1588,10 @@ def run_readiness(study_spec: dict, ws_root: Path | str | None = None) -> dict:
     for t in tests:
         if not isinstance(t, dict):
             continue
-        m = t.get("measure") or {}
+        m = t.get("measure")
+        if not isinstance(m, dict):
+            m = {}  # a bare-string measure (a composite-observable function) needs no declared
+                    # readout — it is computed from the raw trajectory; treat as readiness-neutral.
         kind, path = m.get("kind"), m.get("path")
         if kind and kind not in ("config_value", "cross_run", "run_delta") and not path:
             unevaluable.append(t.get("name") or "<unnamed>")
