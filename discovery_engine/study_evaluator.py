@@ -718,6 +718,13 @@ def evaluate_test(test: dict, reader: "RunReader", ws_root=None, config=None,
     measure = test.get("measure")
     if not measure:
         return _agent("missing measure block")
+    # 1a. A bare-STRING measure (a composite-observable function `name(rows)->float`, the
+    # M-track/workbench convention) is not yet graded by the engine grader — resolving it to the
+    # composite module's function is tracked as a follow-up. Report it honestly as ungraded rather
+    # than crashing on `measure.get(...)` (it is a str, not a dict).
+    if not isinstance(measure, dict):
+        return _agent(f"bare-string measure {str(measure)!r} (composite-observable function) "
+                      "is not yet gradable by the engine — needs composite-function resolution")
 
     # 1b. Config-selection: read a declared param, no run data needed (#98).
     if measure.get("kind", "") == "config_value":
