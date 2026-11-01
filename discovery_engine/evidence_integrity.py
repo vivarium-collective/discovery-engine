@@ -107,6 +107,51 @@ def _tolerance(test: dict | None) -> float:
     return tol if tol is not None and tol >= 0 else _SCALAR_REL_TOL
 
 
+# The 3-part "registered run" contract a numeric finding must satisfy to be run-backed evidence,
+# documented in ONE place (trial finding G3: the checks existed but were scattered inside
+# classify_finding_evidence with no single validator/doc). ALL THREE must hold — study.yaml
+# ``runs[]`` rows and ``evidence.from_run`` do NOT by themselves make a finding run-backed:
+REGISTERED_RUN_CONTRACT = (
+    "evidence.from_test — the finding names the behavior test it is evidence for",
+    "provenance.run_ids — present AND each resolves to a run registered via run_registry in runs.db",
+    "a computed outcome for from_test on the cited run (study_evaluator.compute_outcomes)",
+)
+
+
+def registered_run_contract(finding: dict, registered_run_ids: set[str],
+                            run_rows: dict[str, dict] | None = None) -> dict:
+    """Check a finding against the 3-part registered-run contract (see
+    :data:`REGISTERED_RUN_CONTRACT`) — the single source of truth for "what makes a finding
+    run-backed", so callers / validators / docs need not re-derive it.
+
+    Returns ``{satisfied: bool, missing: [str, ...], parts: {from_test, run_ids_resolve,
+    computed_outcome}}``. ``run_rows`` maps run_id -> its row (with ``computed_outcomes``); omit it
+    to check only the first two parts (presence + resolution), leaving ``computed_outcome`` unknown."""
+    run_rows = run_rows or {}
+    ev = finding.get("evidence") if isinstance(finding.get("evidence"), dict) else {}
+    prov = finding.get("provenance") if isinstance(finding.get("provenance"), dict) else {}
+    from_test = ev.get("from_test")
+    run_ids = [str(r) for r in _as_list(prov.get("run_ids")) if str(r).strip()]
+    resolves = bool(run_ids) and all(r in registered_run_ids for r in run_ids)
+    has_outcome = False
+    if from_test and resolves:
+        row = run_rows.get(run_ids[0]) if isinstance(run_rows.get(run_ids[0]), dict) else {}
+        out = (row.get("computed_outcomes") or {}).get(from_test)
+        has_outcome = isinstance(out, dict) and out.get("measured_value") is not None
+    missing: list[str] = []
+    if not from_test:
+        missing.append("evidence.from_test")
+    if not run_ids:
+        missing.append("provenance.run_ids")
+    elif not resolves:
+        missing.append("provenance.run_ids resolve to a registered run")
+    if from_test and resolves and run_rows and not has_outcome:
+        missing.append(f"computed outcome for '{from_test}' on the cited run")
+    return {"satisfied": not missing, "missing": missing,
+            "parts": {"from_test": bool(from_test), "run_ids_resolve": resolves,
+                      "computed_outcome": has_outcome}}
+
+
 def classify_finding_evidence(finding: dict, study_spec: dict,
                               registered_run_ids: set[str],
                               run_rows: dict[str, dict] | None = None) -> dict:
