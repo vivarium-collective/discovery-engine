@@ -685,6 +685,70 @@ def _evaluate_run_delta(test: dict, reader, run_opener) -> dict:
     return _scalar_compare(op, delta, pass_if, f"run_delta/{op}")
 
 
+def _study_composite_id(spec: dict) -> str | None:
+    """The study's baseline composite id — v4 ``conditions.baseline.composite`` first, else legacy
+    ``baseline[0].composite``, else the first arm's. The ``name(rows)->float`` functions a bare-string
+    measure names live on THIS composite's module."""
+    cond = (spec.get("conditions") or {}).get("baseline") or {}
+    if cond.get("composite"):
+        return str(cond["composite"])
+    for arm in (spec.get("baseline") or spec.get("arms") or []):
+        if isinstance(arm, dict) and arm.get("composite"):
+            return str(arm["composite"])
+    return None
+
+
+def _import_composite_module(composite_id: str | None, ws_root: Any):
+    """Import the module that holds a composite's observable functions (bare-string measures).
+
+    A composite id is ``<module.path>.<generator_fn>``; the ``name(rows)`` functions live on the
+    module. Ensures ``ws_root`` is importable (same mechanism as the workspace evaluators). Returns
+    the module or ``None`` — never raises (a bad import degrades the measure to ungraded)."""
+    if not composite_id:
+        return None
+    import importlib
+    import sys
+    from pathlib import Path
+    if ws_root is not None:
+        key = str(Path(ws_root).resolve())
+        if key not in sys.path:
+            sys.path.insert(0, key)
+    for candidate in (composite_id.rsplit(".", 1)[0], composite_id):
+        try:
+            return importlib.import_module(candidate)
+        except Exception:  # noqa: BLE001
+            continue
+    return None
+
+
+def _grade_bare_string(measure_name: str, test: dict, reader, composite_module) -> dict:
+    """Grade a bare-STRING measure (a composite-observable function ``name(rows)->float``, the
+    M-track/workbench convention): resolve the function on the study's composite module, compute the
+    scalar from the run trajectory via the SHARED resolver (viva_emitters.measure_resolver, so the
+    engine grades byte-identically to the workbench), and apply the test's pass_if. Degrades to the
+    agent/needs_rerun bucket — never crashes — when the module, reader, or resolver is unavailable."""
+    if composite_module is None:
+        return _agent(f"bare-string measure {measure_name!r}: study composite module not resolved")
+    if reader is None:
+        return _needs_rerun(f"bare-string measure {measure_name!r}: no run reader")
+    try:
+        from viva_emitters.measure_resolver import grade_bare_string_measure
+    except ImportError:
+        return _agent(f"bare-string measure {measure_name!r}: viva_emitters.measure_resolver "
+                      "unavailable (needs viva-emitters with RunReader.rows)")
+    pass_if = test.get("pass_if")
+    if not isinstance(pass_if, dict):
+        return _agent("missing pass_if block")
+    op = pass_if.get("op", "")
+    if not _op_supported(op):
+        return _agent(f"unsupported op: {op!r}")
+    try:
+        value = float(grade_bare_string_measure(reader, composite_module, measure_name))
+    except Exception as exc:  # noqa: BLE001
+        return _agent(f"bare-string measure {measure_name!r} error: {exc}")
+    return _scalar_compare(op, value, pass_if, measure_name)
+
+
 def evaluate_study(spec: dict, reader: "RunReader", ws_root=None, run_opener=None) -> dict[str, dict]:
     """Evaluate all behavior tests in a study spec.
 
@@ -694,17 +758,22 @@ def evaluate_study(spec: dict, reader: "RunReader", ws_root=None, run_opener=Non
     (``kind: run_delta``); omit it and those tests report ``needs_rerun``.
     """
     tests = spec.get("tests") or spec.get("behavior_tests") or []
+    # Resolve the study's composite module ONCE, only when a bare-string measure is present
+    # (the function-on-the-composite convention) — otherwise no import cost.
+    composite_module = None
+    if any(isinstance(t, dict) and isinstance(t.get("measure"), str) for t in tests):
+        composite_module = _import_composite_module(_study_composite_id(spec), ws_root)
     results: dict[str, dict] = {}
     for i, test in enumerate(tests):
         name = test.get("name", f"test_{i}")
         config = _resolve_run_config(spec, test)
-        results[name] = evaluate_test(test, reader, ws_root=ws_root,
-                                      config=config, run_opener=run_opener)
+        results[name] = evaluate_test(test, reader, ws_root=ws_root, config=config,
+                                      run_opener=run_opener, composite_module=composite_module)
     return results
 
 
 def evaluate_test(test: dict, reader: "RunReader", ws_root=None, config=None,
-                  run_opener=None) -> dict:
+                  run_opener=None, composite_module=None) -> dict:
     """Evaluate a single behavior test against a run.
 
     Resolution order: config-selection (``kind: config_value``) → cross-run
@@ -719,12 +788,10 @@ def evaluate_test(test: dict, reader: "RunReader", ws_root=None, config=None,
     if not measure:
         return _agent("missing measure block")
     # 1a. A bare-STRING measure (a composite-observable function `name(rows)->float`, the
-    # M-track/workbench convention) is not yet graded by the engine grader — resolving it to the
-    # composite module's function is tracked as a follow-up. Report it honestly as ungraded rather
-    # than crashing on `measure.get(...)` (it is a str, not a dict).
+    # M-track/workbench convention) grades via the study's composite module + the shared
+    # viva_emitters resolver (G2); degrades to agent/needs_rerun when unavailable, never crashes.
     if not isinstance(measure, dict):
-        return _agent(f"bare-string measure {str(measure)!r} (composite-observable function) "
-                      "is not yet gradable by the engine — needs composite-function resolution")
+        return _grade_bare_string(str(measure), test, reader, composite_module)
 
     # 1b. Config-selection: read a declared param, no run data needed (#98).
     if measure.get("kind", "") == "config_value":
