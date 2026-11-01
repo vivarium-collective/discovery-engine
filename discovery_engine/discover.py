@@ -39,7 +39,7 @@ from pathlib import Path
 from ruamel.yaml import YAML
 
 from .argument_store import derive_argument, merge_argument
-from .investigation_import import investigations_dir, studies_dir
+from .investigation_import import investigation_members, investigations_dir, studies_dir
 from .knowledge_store import canonical_verdict, derive_knowledge, merge_knowledge
 from .narrative import audit, narrate
 from .run_command import render_command, run_command
@@ -2151,7 +2151,17 @@ def load_cycle_inputs(ws_root: Path | str, slug: str) -> tuple[Path, dict, dict[
 
     flat = studies_dir(ws)
     nested = investigations_dir(ws) / slug / "studies"
-    member_slugs = inv_spec.get("studies") or _slugs_on_disk(flat, nested)
+    # Resolve membership to THIS investigation only. Read the pre-migration `studies:` AND the
+    # post-migration `members:` (dict/str item shapes), then ac/at_a_glance via investigation_members,
+    # and only as a last resort scan disk SCOPED by each study's `investigation:` back-ref. The old
+    # code read `studies:` alone and fell back to the whole flat studies dir, so a members-based
+    # investigation pulled every workspace study into its cycle — and `apply` rewrote sibling
+    # investigations' study.yaml files.
+    member_slugs = (
+        _declared_member_slugs(inv_spec)
+        or investigation_members(inv_path)
+        or _member_slugs_on_disk(slug, flat, nested)
+    )
 
     studies_by_slug: dict[str, dict] = {}
     for s in member_slugs:
@@ -2235,14 +2245,49 @@ def viz_inventory(ws_root, inv_slug: str, studies: dict) -> dict:
     return out
 
 
-def _slugs_on_disk(*dirs: Path) -> list[str]:
-    seen: list[str] = []
-    for d in dirs:
-        if d.is_dir():
-            for child in sorted(d.iterdir()):
-                if (child / "study.yaml").exists() and child.name not in seen:
-                    seen.append(child.name)
-    return seen
+def _declared_member_slugs(inv_spec: dict) -> list[str]:
+    """Member slugs an investigation spec DECLARES: the pre-migration ``studies:`` or the
+    post-migration ``members:`` list, normalizing bare slugs and ``{study|slug|name: ...}`` dicts.
+    ``studies:`` wins when both are present (transitional specs keep the old list authoritative)."""
+    raw = inv_spec.get("studies") or inv_spec.get("members") or []
+    if not isinstance(raw, list):
+        return []
+    out: list[str] = []
+    for e in raw:
+        if isinstance(e, str):
+            if e not in out:
+                out.append(e)
+        elif isinstance(e, dict):
+            slug = e.get("study") or e.get("slug") or e.get("name")
+            if slug and str(slug) not in out:
+                out.append(str(slug))
+    return out
+
+
+def _member_slugs_on_disk(inv_slug: str, flat: Path, nested: Path) -> list[str]:
+    """On-disk member studies scoped to investigation ``inv_slug`` — the last-resort fallback when
+    the spec declares no membership. Every study under the investigation's OWN nested ``studies/``
+    dir counts (already dir-scoped); a FLAT ``studies/<slug>/`` counts only when its ``study.yaml``
+    back-refs ``investigation: inv_slug``. It deliberately NEVER returns the whole flat studies dir:
+    an undeclared membership must not pull sibling investigations' studies into this cycle, which is
+    what let ``apply`` rewrite their files."""
+    out: list[str] = []
+    if nested.is_dir():
+        for child in sorted(nested.iterdir()):
+            if (child / "study.yaml").exists() and child.name not in out:
+                out.append(child.name)
+    if flat.is_dir():
+        for child in sorted(flat.iterdir()):
+            sp = child / "study.yaml"
+            if child.name in out or not sp.exists():
+                continue
+            try:
+                spec = load_yaml(sp)
+            except Exception:  # noqa: BLE001 — a malformed sibling never breaks the scan
+                continue
+            if isinstance(spec, dict) and spec.get("investigation") == inv_slug:
+                out.append(child.name)
+    return out
 
 
 # ---------------------------------------------------------------------------
