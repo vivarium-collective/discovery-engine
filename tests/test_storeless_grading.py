@@ -43,7 +43,7 @@ def _ws_with_storeless(tmp_path: Path, kind: str = "recovery_check") -> Path:
         def _recovery(test, reader, ws_root):
             # re-derives its own result; must run even with reader=None
             assert reader is None or True
-            return {{"result": "FAIL", "evaluated_by": "code",
+            return {{"result": "FAIL", "evaluated_by": "code", "measured_value": 0.58,
                     "status": "contradicts", "detail": "real recovery search ran"}}
         def register_evaluators(registry):
             registry["{kind}"] = _recovery
@@ -82,10 +82,14 @@ def test_storeless_test_graded_when_store_unresolved(tmp_path):
     doc = yaml.safe_load((sd / "study.yaml").read_text())
     co = doc["runs"][0]["computed_outcomes"]
     # the store-less test WAS graded (not skipped as store_unresolved)
-    assert co.get("_status") == "store_less_graded"
     assert "recover-mechanism" in co
     assert co["recover-mechanism"]["result"] == "FAIL"
     assert co["recover-mechanism"]["evaluated_by"] == "code"
+    # a GRADED block must NOT carry _status (that convention means "stub, skip me", which
+    # finding_observations uses to blank the block — it would hide the real grade). The
+    # store-less provenance lives in the grader stamp instead.
+    assert "_status" not in co
+    assert co["_grader"]["store"] == "unresolved"
 
 
 def test_non_storeless_unresolved_still_bails(tmp_path):
@@ -96,6 +100,38 @@ def test_non_storeless_unresolved_still_bails(tmp_path):
     co = yaml.safe_load((sd / "study.yaml").read_text())["runs"][0]["computed_outcomes"]
     assert co.get("_status") == "store_unresolved"
     assert "recover-mechanism" not in co
+
+
+def test_storeless_grade_fills_finding(tmp_path):
+    # The whole point: a store-less grade must reach findings[] (and thus the verdict + the
+    # generative loop). With the old `_status: store_less_graded` marker, finding_observations
+    # blanked the block and the finding never filled — this guards that bridge.
+    from discovery_engine import finding_observations as fo
+    ws = _ws_with_storeless(tmp_path)
+    sd = tmp_path / "studies" / "recover-x"
+    sd.mkdir(parents=True)
+    spec = {
+        "schema_version": 4,
+        "name": "recover-x",
+        "behavior_tests": [{
+            "name": "recover-mechanism",
+            "measure": {"kind": "recovery_check", "candidate_model": "@recovered"},
+            "pass_if": {"op": "<=", "value": 0.05},
+        }],
+        "findings": [{
+            "id": "f-recover",
+            "statement": "recovery of the mechanism",
+            "evidence": {"from_test": "recover-mechanism"},
+        }],
+        "runs": [{"name": "baseline"}],  # no store → unresolved
+    }
+    (sd / "study.yaml").write_text(yaml.safe_dump(spec, sort_keys=False), encoding="utf-8")
+    se.compute_outcomes(sd, ws_root=ws)
+    res = fo.populate_finding_observations(sd)
+    doc = yaml.safe_load((sd / "study.yaml").read_text())
+    # the store-less grade (measured_value 0.58) flowed into the finding's evidence.observed
+    assert res["filled"] == 1
+    assert doc["findings"][0]["evidence"]["observed"] == 0.58
 
 
 # --- sub-feature 2: candidate_model sentinel is load-bearing ------------------------

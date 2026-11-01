@@ -1882,9 +1882,15 @@ def compute_outcomes(
             else:
                 tests_agent += 1
 
+        stamp = _grader_stamp()
         if store_status:
-            new_co["_status"] = store_status
-        new_co["_grader"] = ruamel.yaml.CommentedMap(_grader_stamp())
+            # A store-less GRADED block is a REAL result, NOT a stub — it must NOT carry
+            # ``_status`` (that convention, read by finding_observations, means "skip me" and
+            # would blank the grades before they reach findings[].status). Record the
+            # store-less provenance in the grader stamp instead; it is a meta key read by
+            # test-name lookup, so it never masks the real grades.
+            stamp["store"] = "unresolved"
+        new_co["_grader"] = ruamel.yaml.CommentedMap(stamp)
         run["computed_outcomes"] = new_co
         runs_evaluated += 1
 
