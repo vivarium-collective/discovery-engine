@@ -1,0 +1,142 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://vivarium-collective.org/schemas/reopening-feedback.schema.json",
+  "title": "ReopeningFeedback",
+  "description": "A scientist's instruction to reopen and redirect an investigation. The compiler maps its STRUCTURED fields into engine-native artifacts; it never infers executable actions from prose. Executable subtrees are strict (additionalProperties:false); advisory/narrative sections are passed through. Unknown fields in a strict subtree are errors.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "feedback_version": {"type": ["string", "number"]},
+    "target": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "investigation": {"type": "string"},
+        "title": {"type": "string"},
+        "source_report": {"type": "string"},
+        "intent": {"type": "string"},
+        "priority": {"type": "string"}
+      }
+    },
+    "status_reconciliation": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "observation": {"type": "string"},
+        "requested_state": {"type": "string"},
+        "actions": {"type": "array", "items": {"type": "string"}},
+        "acceptance": {"type": "string"}
+      }
+    },
+    "scientific_challenge": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "id": {"type": "string"},
+        "question": {"type": "string"},
+        "central_gap": {"type": "string"},
+        "mandate": {"type": "string"},
+        "competing_hypotheses": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["id"],
+            "properties": {
+              "id": {"type": "string", "minLength": 1},
+              "mechanism": {"type": "string"},
+              "predictions": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": ["observable"],
+                  "properties": {
+                    "observable": {"type": "string", "minLength": 1},
+                    "op": {"type": "string", "enum": [">", ">=", "<", "<=", "==", "range"]},
+                    "value": {"type": "number"},
+                    "low": {"type": "number"},
+                    "high": {"type": "number"},
+                    "regime": {"type": "string"}
+                  }
+                }
+              }
+            }
+          }
+        },
+        "nonnegotiable_controls": {"type": "array", "items": {"type": "string"}}
+      }
+    },
+    "report_diagnostics": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "id": {"type": "string"},
+          "severity": {"type": "string"},
+          "observation": {"type": "string"},
+          "request": {"type": "string"}
+        }
+      }
+    },
+    "next_cycle": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "title": {"type": "string"},
+        "objective": {"type": "string"},
+        "design": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["id"],
+            "properties": {
+              "id": {"type": "string", "minLength": 1},
+              "question": {"type": "string"},
+              "reuse": {"type": "array", "items": {"type": "string"}},
+              "extend_with": {"type": "array", "items": {"type": "string"}},
+              "measurements": {"type": "array", "items": {"type": "string"}},
+              "decision_rule": {"type": "string"},
+              "primary_hypothesis": {"type": "string"}
+            }
+          }
+        },
+        "required_visualizations": {"type": "array", "items": {"type": "string"}},
+        "exit_gate": {"type": "string"}
+      }
+    },
+    "following_cycle": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "title": {"type": "string"},
+        "entry_condition": {"type": "string"},
+        "objective": {"type": "string"},
+        "new_composite_model": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "name": {"type": "string"},
+            "architecture": {"type": "string"},
+            "modules": {"type": "array", "items": {"type": "string"}},
+            "coupling_contract": {"type": "string"}
+          }
+        },
+        "experiments": {"type": "array", "items": {"type": "string"}},
+        "measurements": {"type": "array", "items": {"type": "string"}},
+        "required_visualizations": {"type": "array", "items": {"type": "string"}},
+        "exit_gate": {"type": "string"}
+      }
+    },
+    "engine_method_feedback": {"type": "object"},
+    "cycle_instructions": {
+      "type": "object",
+      "properties": {
+        "autonomy": {"type": "string"}
+      }
+    },
+    "human_feedback_to_engine": {"type": "string"}
+  }
+}

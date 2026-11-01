@@ -2664,6 +2664,13 @@ def main(argv: list[str] | None = None) -> int:
     p_viz.add_argument("--reject", metavar="VP", default=None, help="reject proposal vp:… (terminal; needs --rationale)")
     p_viz.add_argument("--rationale", default=None, help="why (required)")
 
+    p_ingest = sub.add_parser("ingest-feedback",
+                              help="compile a discovery_request.yaml: reopen + redirect an "
+                                   "investigation from a scientist's reopening-feedback")
+    p_ingest.add_argument("request", help="path to a discovery_request.yaml")
+    p_ingest.add_argument("--write", action="store_true",
+                          help="apply the mutations (default: dry-run, print the summary)")
+
     args = parser.parse_args(argv)
     ws = Path(args.workspace).resolve()
 
@@ -2678,6 +2685,18 @@ def main(argv: list[str] | None = None) -> int:
             persist_cycle(inv_path, inv_spec, result, studies=studies, evidence_state=ev_state,
                           viz_state=viz_inventory(ws, args.investigation, studies))
             print(f"persisted cycle_state -> {inv_path}")
+        return 0
+
+    if args.cmd == "ingest-feedback":
+        import json as _json
+        from . import feedback_compiler
+        result = feedback_compiler.ingest_feedback(args.request, ws, write=args.write)
+        print(_json.dumps(result["summary"], indent=2, default=str))
+        if result["wrote"]:
+            print(f"\nreopened {result['summary']['investigation']} + "
+                  f"{len(result['new_studies'])} seeded studies")
+        else:
+            print("\n(dry-run; pass --write to apply)")
         return 0
 
     if args.cmd == "set-verdict":

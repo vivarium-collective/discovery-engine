@@ -1,0 +1,49 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://vivarium-collective.org/schemas/discovery-request.schema.json",
+  "title": "DiscoveryRequest",
+  "description": "The execution envelope that drives a feedback-triggered discovery cycle: which investigation to (re)open, which reopening-feedback file carries the scientific content, the lifecycle action, and the execution budgets / approval gates / stop conditions. Strict: unknown fields are errors.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["discovery_request"],
+  "properties": {
+    "discovery_request": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema_version", "investigation_id", "feedback_file"],
+      "properties": {
+        "schema_version": {"type": "string"},
+        "investigation_id": {"type": "string", "minLength": 1},
+        "feedback_file": {"type": "string", "minLength": 1},
+        "lifecycle": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "action": {"type": "string", "enum": ["reopen"]},
+            "reason": {"type": "string"},
+            "preserve_history": {"type": "boolean"}
+          }
+        },
+        "execution": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "mode": {"type": "string"},
+            "max_cycles": {"type": "integer", "minimum": 0},
+            "max_new_studies": {"type": "integer", "minimum": 0},
+            "max_new_models": {"type": "integer", "minimum": 0},
+            "require_approval_for": {"type": "array", "items": {"type": "string"}}
+          }
+        },
+        "continuation": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "policy": {"type": "string"},
+            "stop_when": {"type": "array", "items": {"type": "string"}}
+          }
+        }
+      }
+    }
+  }
+}
