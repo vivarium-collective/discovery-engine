@@ -275,3 +275,20 @@ def test_ingest_feedback_write_reopens_and_seeds(tmp_path):
     assert on_disk["executive"]["verdict_status"] == "open"
     assert (ws / "studies" / "study-discriminating" / "study.yaml").is_file()
     assert (ws / "studies" / "study-open" / "study.yaml").is_file()
+
+
+# ── auto-bind competing hypotheses to their discriminating study ───────────────
+def test_competing_hypotheses_bind_to_their_discriminating_study():
+    """The compiler binds each competing hypothesis to the seeded study measuring its observable,
+    so discriminating_hypotheses (which groups by `study:`) reads the study as discriminable out of
+    the box — no manual per-study binding after a reopen (the viva-genesis Morowitz-reopen gap)."""
+    from discovery_engine.hypotheses import discriminating_hypotheses
+    compiled = compile_feedback(_request(), _feedback())
+    bind = {a["hypothesis"]["id"]: a["hypothesis"].get("study")
+            for a in compiled["actions"] if a["type"] == "register_hypothesis"}
+    # H-pos / H-null both predict obs_x, which study-discriminating measures -> bound to it
+    assert bind == {"H-pos": "study-discriminating", "H-null": "study-discriminating"}
+    # end-to-end: the reopened investigation reads that study as discriminable (disjoint bands)
+    inv = reconcile_and_reopen(compiled, _inv_spec(), _studies())["inv_spec"]
+    disc = discriminating_hypotheses(inv)
+    assert disc.get("study-discriminating", {}).get("discriminable") is True

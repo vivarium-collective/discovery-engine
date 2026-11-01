@@ -205,6 +205,16 @@ def compile_feedback(discovery_request: dict, feedback: dict | None = None, *,
     #    index so study seeding can detect ≥2-way disjoint coverage.
     hyps = challenge.get("competing_hypotheses") or []
     hyp_ids = [h.get("id") for h in hyps if isinstance(h, dict) and h.get("id")]
+    # Which seeded design measures each observable (first wins). Used to BIND each competing
+    # hypothesis to the study that discriminates it: `discriminating_hypotheses` groups by the
+    # hypothesis's `study:` field, so without a binding the hypotheses register globally but
+    # unbound — a reopened study then grades its pass_if bands yet never reads as discriminable,
+    # and `design`/`advance` (which consume the binding) can't fix it. (viva-genesis Morowitz reopen.)
+    obs_to_study: dict[str, str] = {}
+    for _d in next_cycle.get("design") or []:
+        if isinstance(_d, dict) and _d.get("id"):
+            for _m in _as_list(_d.get("measurements")):
+                obs_to_study.setdefault(str(_m).strip(), _d["id"])
     obs_bands: dict[str, list[tuple[str, dict]]] = {}   # observable -> [(hyp_id, band)]
     for h in hyps:
         hid = h["id"]
@@ -218,16 +228,21 @@ def compile_feedback(discovery_request: dict, feedback: dict | None = None, *,
                 canon["when"] = {"regime": p["regime"]}
             canon_preds.append(canon)
             obs_bands.setdefault(obs, []).append((hid, band))
-        actions.append({
-            "type": "register_hypothesis",
-            "hypothesis": {
-                "id": hid,
-                "statement": h.get("mechanism"),
-                "competing_with": [o for o in hyp_ids if o != hid],
-                "predictions": canon_preds,
-                "status": "open",
-            },
-        })
+        hypothesis = {
+            "id": hid,
+            "statement": h.get("mechanism"),
+            "competing_with": [o for o in hyp_ids if o != hid],
+            "predictions": canon_preds,
+            "status": "open",
+        }
+        # Bind to the study measuring this hypothesis's (first) predicted observable, so the
+        # seeded study reads as discriminable. Disjointness is re-checked downstream by
+        # discriminating_hypotheses — here we only need the study link.
+        bind_study = next((obs_to_study[p["observable"]] for p in canon_preds
+                           if p.get("observable") in obs_to_study), None)
+        if bind_study:
+            hypothesis["study"] = bind_study
+        actions.append({"type": "register_hypothesis", "hypothesis": hypothesis})
 
     # cross-check: a prediction's observable must be measured by some design study
     measured = {m for d in next_cycle.get("design") or [] if isinstance(d, dict)
