@@ -22,6 +22,7 @@ from . import (  # noqa: F401  submodule access for the full surface
     argument_store,
     discover,
     discovery_engine,
+    feedback_compiler,
     knowledge_store,
     narrative,
     study_evaluator,
@@ -29,6 +30,12 @@ from . import (  # noqa: F401  submodule access for the full surface
     validation,
 )
 from .argument_store import derive_argument, merge_argument  # noqa: F401
+from .feedback_compiler import (  # noqa: F401
+    FeedbackValidationError,
+    compile_feedback,
+    ingest_feedback,
+    reconcile_and_reopen,
+)
 from .discover import (  # noqa: F401
     advance_cycle,
     build_completion_map,
