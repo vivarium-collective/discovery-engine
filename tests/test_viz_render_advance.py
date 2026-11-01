@@ -108,7 +108,7 @@ def test_runner_fallback_uses_render_command(tmp_path, monkeypatch):
     ws, sd = _ws(tmp_path, monkeypatch, VIS[:1])
     cmds = []
 
-    def runner(cmd, w):
+    def runner(cmd, w, **_kw):
         cmds.append(cmd)
         (sd / "viz" / "a.html").write_text("x")
         return {"ok": True, "detail": "ran"}
