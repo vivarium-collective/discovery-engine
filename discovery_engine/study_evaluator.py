@@ -1776,6 +1776,17 @@ def compute_outcomes(
 
     study_dir = _Path(study_dir)
     ws_root = _Path(ws_root) if ws_root else None
+    if ws_root is None:
+        # Derive the workspace root from study_dir when not given, so workspace-registered
+        # evaluators (including the @storeless recovery evaluators) are found. Without this,
+        # compute_outcomes(study_dir) with no ws_root silently loads NO workspace evaluators —
+        # _storeless_kinds comes back empty and every store-less test bails to store_unresolved
+        # (and native workspace-evaluator tests fall to the agent bucket).
+        _p = study_dir.resolve()
+        for _anc in (_p, *_p.parents):
+            if (_anc / "workspace.yaml").is_file():
+                ws_root = _anc
+                break
     study_yaml_path = study_dir / "study.yaml"
 
     # Plain load for evaluate_study (reads tests / behavior_tests)
