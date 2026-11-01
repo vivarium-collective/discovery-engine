@@ -630,6 +630,9 @@ CHECKS = (
     "band_cites_unknown_bib_key",
     # Derive-on-read status drift (status-drift lesson)
     "status_out_of_date_vs_runs",
+    # Graded-test ontology Phase 2: a persisted computed grade whose _grader stamp is behind the
+    # current grader — the stored verdict is stale and should be re-derived (warning, non-blocking).
+    "stale_computed_grades",
     # Forward-drift: declares done/passed but records no runs (dnaa-replication
     # 2026-05-31 — reviewer couldn't tell if studies had actually run)
     "status_claims_done_no_runs_recorded",
@@ -850,6 +853,38 @@ def _check_missing_provenance(ctx: _LintContext) -> None:
                     "cannot be re-checked against the underlying data."
                 ),
                 check="missing_provenance",
+            )
+
+
+def _check_stale_computed_grades(ctx: _LintContext) -> None:
+    """Warn when a run's persisted ``computed_outcomes`` was graded by a grader behind the current
+    one (graded-test ontology Phase 2). The stored grade — and any roll-up summarising it — is stale
+    and should be re-derived (``vivarium-workbench sync``); rendering it risks a confidently-wrong
+    verdict. Non-blocking: it signals a re-grade, it does not fail publication."""
+    from .grader_freshness import grade_freshness, STALE
+    runs = ctx.spec.get("runs")
+    if not isinstance(runs, list):
+        return
+    for idx, run in enumerate(runs):
+        if not isinstance(run, dict):
+            continue
+        co = run.get("computed_outcomes")
+        if not isinstance(co, dict):
+            continue
+        stamp = co.get("_grader")
+        if not isinstance(stamp, dict):
+            continue
+        if grade_freshness(stamp) == STALE:
+            name = run.get("name", f"<index-{idx}>")
+            ctx.add(
+                level="warning",
+                field_path=f"runs[{idx}].computed_outcomes._grader",
+                message=(
+                    f"Run {name!r} carries a computed grade from grader "
+                    f"{stamp.get('version')!r}, behind the current grader — the stored verdict "
+                    "is stale; re-derive it (sync) so acceptance/gates reflect the current grader."
+                ),
+                check="stale_computed_grades",
             )
 
 
@@ -4240,6 +4275,7 @@ _CHECK_FUNCTIONS = (
     _check_status_legacy_only,
     _check_runs_yaml_vs_db_drift,
     _check_status_out_of_date_vs_runs,
+    _check_stale_computed_grades,
     _check_status_claims_done_but_no_runs_recorded,
     _check_runs_without_emitter,
     _check_reviewer_clarity_ambiguities,
