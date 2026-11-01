@@ -327,9 +327,20 @@ def frontier(cycle_result: dict, inv_spec: dict) -> list[dict]:
 
 
 def next_action(cycle_result: dict, inv_spec: dict) -> dict | None:
-    """The single highest-leverage unresolved item (or ``None`` when closed)."""
-    f = frontier(cycle_result, inv_spec)
-    return f[0] if f else None
+    """The single highest-leverage unresolved item (or ``None`` when closed).
+
+    This is the TOP of the value-ranked plan (:func:`opportunities` / :func:`execute_plan`),
+    not merely the highest-*priority* frontier item: priority and value-score can disagree,
+    and when they did the banner's "Next:" op (read from here) and its consequence chip
+    (read from ``execute_plan[0]``) described different items. Deriving both from the one
+    ordered plan makes banner, CLI and executor always name the same item. Returned in the
+    frontier-item shape ``{kind, target, priority, op, rationale}`` its consumers expect."""
+    opps = opportunities(cycle_result, inv_spec)
+    if not opps:
+        return None
+    top = opps[0]
+    return {"kind": top["kind"], "target": top["source"], "priority": top["priority"],
+            "op": top["action_type"], "rationale": top["question"]}
 
 
 def closure(cycle_result: dict, inv_spec: dict) -> dict:

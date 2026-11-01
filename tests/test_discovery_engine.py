@@ -340,11 +340,38 @@ def test_frontier_flags_open_challenge_edges():
     assert len(ch) == 1 and ch[0]["target"] == "claim:main" and ch[0]["op"] == "synthesize"
 
 
-def test_next_action_is_highest_priority_or_none():
+def test_next_action_selects_from_the_plan_or_none():
     cyc = _cycle(open_calls=[{"kind": "divergence", "title": "d", "refs": ["claim:c"]}])
     assert de.next_action(cyc, {})["kind"] == "divergence"
     # a fully-resolved cycle yields no action
     assert de.next_action(_cycle(), {}) is None
+
+
+def test_next_action_tracks_value_ranked_plan_not_raw_priority(monkeypatch):
+    """next_action must name the TOP of the value-ranked plan (execute_plan[0]), not the
+    highest-*priority* frontier item — otherwise the banner's "Next:" op and its
+    consequence chip (read from execute_plan[0]) can describe different items.
+
+    Fixture: a high-priority / low-value item (stale_validation→revalidate, score≈0.03)
+    vs a low-priority / high-value one (open_question→test, score≈0.12). Priority order
+    and value order are reversed, so the old frontier[0] behavior would pick the wrong one.
+    """
+    fake = [
+        {"kind": "stale_validation", "target": "claim:A", "priority": 55,
+         "op": "revalidate", "rationale": "A"},
+        {"kind": "open_question", "target": "claim:B", "priority": 40,
+         "op": "test", "rationale": "B"},
+    ]
+    monkeypatch.setattr(de, "frontier", lambda cyc, inv: [dict(x) for x in fake])
+    cyc, inv = _cycle(), {}
+    plan = de.execute_plan(cyc, inv)
+    na = de.next_action(cyc, inv)
+    # the plan is value-ranked: the test op outranks the cheap revalidate
+    assert plan[0]["source"] == "claim:B" and plan[0]["action_type"] == "test"
+    # next_action names the SAME item as execute_plan[0] (the whole point of the fix)
+    assert na["target"] == plan[0]["source"] and na["op"] == plan[0]["action_type"]
+    # and it is NOT merely the highest-priority frontier item (the old behavior)
+    assert na["target"] != "claim:A"
 
 
 def test_closure_requires_no_criteria_gaps_or_challenges():
