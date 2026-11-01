@@ -114,7 +114,7 @@ def test_per_mv_skip_and_no_loop(tmp_path):
     _ws2.mkdir()
     _ws(_ws2, {"only": _study("only")})
     calls = []
-    res = _advance(_ws2, lambda c, w: calls.append(c) or {"ok": True, "returncode": 0, "tail": ""},
+    res = _advance(_ws2, lambda c, w, **_kw: calls.append(c) or {"ok": True, "returncode": 0, "tail": ""},
                    max_runs=5)
     assert len(calls) == 1 and len(res["runs"]) == 1
 
