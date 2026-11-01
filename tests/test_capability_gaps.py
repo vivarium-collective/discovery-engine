@@ -257,3 +257,27 @@ def test_build_with_empty_catalog_fails():
     build_capability_gap(g, lambda gap, ws=None: {"status": "reuse", "process": "pkg.NRD", "gap_id": gap["id"]},
                          catalog=[])
     assert g["status"] == "failed"
+
+
+# ── G4 (trial finding): prose "mechanisms" must not each become a capability gap ──
+def test_is_buildable_mechanism_predicate():
+    from discovery_engine.capability_gaps import _is_buildable_mechanism
+    assert _is_buildable_mechanism("proto_endosymbiosis_integration")
+    assert _is_buildable_mechanism("rate-law-fitter")
+    assert _is_buildable_mechanism("viva_genesis.composites.x")
+    assert _is_buildable_mechanism("plasmid replication")   # a legit multi-word mechanism NAME
+    assert not _is_buildable_mechanism("Register matched runs; distinguish contact from enclosure")
+    assert not _is_buildable_mechanism("author bands, then run the discriminating experiment")  # prose
+    assert not _is_buildable_mechanism("")
+
+
+def test_prose_mechanism_is_filtered_not_a_gap():
+    # free-text design notes must not each become a buildable capability-gap author-stub (G4)
+    req = ["non-recoverability-detector",
+           "Register matched runs; distinguish contact from enclosure",  # prose (;) -> filtered
+           "author bands, then run the experiment"]                      # prose (,) -> filtered
+    gaps = propose_capability_gaps(INV, {}, TOOL_CATALOG, required_mechanisms=req)
+    mechs = [g["mechanism"] for g in gaps]
+    assert "non-recoverability-detector" in mechs            # the real token still proposes a gap
+    assert "Register matched runs; distinguish contact from enclosure" not in mechs
+    assert "author bands, then run the experiment" not in mechs
