@@ -281,7 +281,7 @@ def test_ingest_feedback_write_reopens_and_seeds(tmp_path):
 def test_competing_hypotheses_bind_to_their_discriminating_study():
     """The compiler binds each competing hypothesis to the seeded study measuring its observable,
     so discriminating_hypotheses (which groups by `study:`) reads the study as discriminable out of
-    the box — no manual per-study binding after a reopen (the viva-genesis Morowitz-reopen gap)."""
+    the box — no manual per-study binding after a reopen (a feedback-driven reopen gap)."""
     from discovery_engine.hypotheses import discriminating_hypotheses
     compiled = compile_feedback(_request(), _feedback())
     bind = {a["hypothesis"]["id"]: a["hypothesis"].get("study")

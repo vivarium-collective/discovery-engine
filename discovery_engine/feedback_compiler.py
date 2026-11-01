@@ -209,7 +209,7 @@ def compile_feedback(discovery_request: dict, feedback: dict | None = None, *,
     # hypothesis to the study that discriminates it: `discriminating_hypotheses` groups by the
     # hypothesis's `study:` field, so without a binding the hypotheses register globally but
     # unbound — a reopened study then grades its pass_if bands yet never reads as discriminable,
-    # and `design`/`advance` (which consume the binding) can't fix it. (viva-genesis Morowitz reopen.)
+    # and `design`/`advance` (which consume the binding) can't fix it. (Surfaced by a feedback-driven reopen.)
     obs_to_study: dict[str, str] = {}
     for _d in next_cycle.get("design") or []:
         if isinstance(_d, dict) and _d.get("id"):
