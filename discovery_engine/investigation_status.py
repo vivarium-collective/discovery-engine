@@ -17,7 +17,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from .study_outcomes import canonical_outcomes
+from .study_outcomes import canonical_graded_outcomes, canonical_outcomes  # noqa: F401
 
 
 # ---------------------------------------------------------------------------
@@ -98,7 +98,7 @@ def roll_up_acceptance(inv_spec: dict, studies_by_name: dict) -> dict:
             # Study not found in workspace → pending/in-progress
             result = _CRIT_PROGRESS
         else:
-            outcomes = canonical_outcomes(study_spec)
+            outcomes = canonical_graded_outcomes(study_spec)
             out = outcomes.get(behavior)
             raw = out.get("result") if isinstance(out, dict) else out
             result = _criterion_result(raw)
