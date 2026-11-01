@@ -21,7 +21,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from .study_outcomes import canonical_outcomes, canonical_run
+from .study_outcomes import canonical_graded_outcomes, canonical_outcomes, canonical_run  # noqa: F401
 from .study_status import _study_tests, bucket_tests
 
 
@@ -67,7 +67,7 @@ def roll_up_verdict(spec: dict) -> dict:
         evaluated_by : str  — always "code"
     """
     tests = _study_tests(spec)
-    outcomes = canonical_outcomes(spec)
+    outcomes = canonical_graded_outcomes(spec)
 
     has_any_run = bool((spec.get("runs") or []))
 
@@ -386,7 +386,7 @@ def verdict_count_split(spec: dict) -> dict:
     """
     spec = spec or {}
     tests = _study_tests(spec)
-    outcomes = canonical_outcomes(spec)
+    outcomes = canonical_graded_outcomes(spec)
     buckets = bucket_tests(tests, outcomes)
     passed = set(buckets["pass"])
     failed = set(buckets["fail"])

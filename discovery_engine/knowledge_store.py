@@ -44,10 +44,11 @@ def _merged_run_outcomes(spec: dict) -> dict:
     run that tested it recorded. Canonical runs are applied last, so on a genuine key
     conflict the canonical value still wins — the verdict path (which reads
     ``canonical_outcomes``) is unchanged; only this gate lookup widens."""
+    from .study_outcomes import graded_outcomes_for_run  # noqa: PLC0415
     merged: dict = {}
-    runs = [r for r in (spec.get("runs") or []) if isinstance(r, dict) and isinstance(r.get("outcomes"), dict)]
+    runs = [r for r in (spec.get("runs") or []) if isinstance(r, dict)]
     for r in sorted(runs, key=lambda r: 1 if r.get("canonical") is True else 0):
-        merged.update(r["outcomes"])
+        merged.update(graded_outcomes_for_run(r))  # computed-first per run (RFC Phase 1)
     return merged
 
 

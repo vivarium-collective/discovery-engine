@@ -13,6 +13,76 @@ from viva_workspace.outcomes import canonical_outcomes, canonical_run  # noqa: F
 
 
 # ---------------------------------------------------------------------------
+# Unified graded outcomes (RFC: unified graded-test ontology, Phase 1)
+# ---------------------------------------------------------------------------
+
+_COMPLETE_STATES = {"completed", "complete", "ran", "passed", "evaluated"}
+
+
+def _canonical_run_safe(spec_or_runs):
+    """``canonical_run``, robust to mixed ``str``/``float`` run timestamps.
+
+    ``viva_workspace.canonical_run`` sorts by ``timestamp`` and crashes with
+    ``TypeError: '>' not supported between 'str' and 'float'`` when a workspace has both
+    shapes of timestamp (seen on origins-of-life-vent). Coerce the sort key to ``str``.
+    """
+    runs = (spec_or_runs.get("runs") if isinstance(spec_or_runs, dict) else spec_or_runs) or []
+    runs = [r for r in runs if isinstance(r, dict)]
+    flagged = [r for r in runs if r.get("canonical") is True]
+    if flagged:
+        return flagged[-1]
+    completed = [r for r in runs if str(r.get("status", "")).lower() in _COMPLETE_STATES]
+    pool = completed or runs
+    return max(pool, key=lambda r: str(r.get("timestamp") or "")) if pool else None
+
+
+def canonical_graded_outcomes(spec: dict) -> dict:
+    """The canonical run's graded per-test outcomes, **computed-first**.
+
+    The single source the roll-ups (study verdict / gate / investigation acceptance / knowledge
+    verdict) read, so they cannot disagree with the real run-data grade. Prefer
+    ``computed_outcomes[T]`` (the only run-data-derived grade; ``study_evaluator.compute_outcomes``)
+    over the authored ``outcomes[T]``; fall back to the authored result **only** when a test has no
+    computed grade, tagged ``evaluated_by: "authored"`` so a view can show "author-asserted, never
+    computed". Returns ``{test_name: {result, ...}}`` — a superset of ``canonical_outcomes``'s
+    shape, so callers reading ``outcomes[name]["result"]`` keep working unchanged.
+
+    Before this (RFC root cause): every roll-up read ``canonical_outcomes`` = the AUTHORED
+    outcomes, never ``computed_outcomes`` — so a test computing FAIL still read ``passed`` through
+    gate/acceptance/verdict. This function makes computed authoritative by construction.
+    """
+    run = _canonical_run_safe(spec)
+    return graded_outcomes_for_run(run) if run else {}
+
+
+def graded_outcomes_for_run(run: dict) -> dict:
+    """Computed-first per-test outcomes for ONE run (see :func:`canonical_graded_outcomes`).
+
+    Prefer ``computed_outcomes[T]`` over the authored ``outcomes[T]``; fall back to authored
+    (tagged ``evaluated_by: authored``) only where no computed grade exists. Meta keys
+    (``_status`` / ``_grader``) are skipped. Used both for the canonical run and for the
+    across-runs union (``knowledge_store._merged_run_outcomes``)."""
+    if not isinstance(run, dict):
+        return {}
+    computed = run.get("computed_outcomes") or {}
+    authored = run.get("outcomes") or {}
+    out: dict = {}
+    for name in ({k for k in computed if not str(k).startswith("_")} | set(authored or {})):
+        c = computed.get(name)
+        if isinstance(c, dict) and c.get("result") not in (None, "ungraded"):
+            out[name] = dict(c)  # computed is authoritative
+        elif name in (authored or {}):
+            a = authored[name]
+            if isinstance(a, dict):
+                rec = dict(a)
+                rec.setdefault("evaluated_by", "authored")
+                out[name] = rec
+            else:
+                out[name] = a  # a bare authored result (e.g. "FAIL"); bucket_tests reads it as-is
+    return out
+
+
+# ---------------------------------------------------------------------------
 # Run reconciliation
 # ---------------------------------------------------------------------------
 
