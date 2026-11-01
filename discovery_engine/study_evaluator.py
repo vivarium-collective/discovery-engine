@@ -284,6 +284,36 @@ def load_workspace_evaluators(ws_root: Any) -> dict[str, Callable]:
     return registry
 
 
+# Bump when the grading LOGIC changes (not for data changes). Stamped into each run's
+# computed_outcomes as ``_grader`` so a consumer (the investigation-graph card) can detect
+# a stale computed gate and force a re-grade when the grader has moved on.
+GRADER_VERSION = "2-storeless"
+
+
+def storeless(fn: Callable) -> Callable:
+    """Mark a workspace evaluator as STORE-LESS: it re-derives its result internally
+    (e.g. a recovery evaluator that re-runs SINDy+fit) and needs no run store. Such an
+    evaluator is graded by :func:`compute_outcomes` even when the run store is unresolved,
+    instead of being skipped as ``store_unresolved``. Use as a decorator on the evaluator
+    a workspace registers via ``register_evaluators``."""
+    fn.storeless = True  # type: ignore[attr-defined]
+    return fn
+
+
+def _storeless_kinds(ws_root: Any) -> set[str]:
+    """Measure kinds whose registered workspace evaluator is store-less (see :func:`storeless`)."""
+    return {k for k, fn in load_workspace_evaluators(ws_root).items()
+            if getattr(fn, "storeless", False)}
+
+
+def _grader_stamp() -> dict:
+    """The grader-identity stamp written into every computed_outcomes block. A consumer
+    (the investigation-graph card) compares ``version`` against the current GRADER_VERSION
+    and re-grades when it differs — so a changed grader forces a refresh rather than serving
+    a stale computed gate."""
+    return {"version": GRADER_VERSION}
+
+
 def load_workspace_derived_scalars(ws_root: Any) -> dict[str, Callable]:
     """Import the workspace's ``<pkg>.evaluators`` hook and collect derived-scalar
     computers registered via ``register_derived_scalars(reg)``.
@@ -651,9 +681,14 @@ def evaluate_test(test: dict, reader: "RunReader", ws_root=None, config=None,
     if measure.get("kind", "") == "run_delta":
         return _evaluate_run_delta(test, reader, run_opener)
 
-    # 2. Kind: native run-data, else a workspace-registered evaluator, else agent
+    # 2. Kind: native run-data, else a workspace-registered evaluator, else agent.
+    #    A candidate_model sentinel (e.g. "@recovered") means "grade the real search, not the
+    #    recorded run" — route to the registered evaluator for the kind REGARDLESS of
+    #    RUN_DATA_KINDS, so the native path can't silently grade the recorded (baseline) run.
     kind = measure.get("kind", "")
-    if kind not in RUN_DATA_KINDS:
+    cm = measure.get("candidate_model")
+    sentinel = isinstance(cm, str) and cm.startswith("@")
+    if sentinel or kind not in RUN_DATA_KINDS:
         registry = load_workspace_evaluators(ws_root)
         evaluator = registry.get(kind)
         if evaluator is not None:
@@ -661,6 +696,9 @@ def evaluate_test(test: dict, reader: "RunReader", ws_root=None, config=None,
                 return evaluator(test, reader, ws_root)
             except Exception as exc:  # noqa: BLE001
                 return _agent(f"workspace evaluator {kind!r} error: {exc}")
+        if sentinel:
+            return _agent(f"candidate_model {cm!r} needs a workspace evaluator for kind "
+                          f"{kind!r}; refusing to grade the recorded run as the candidate")
         return _agent(f"non-run-data kind: {kind!r}")
 
     # 3. Require pass_if block
@@ -1773,29 +1811,46 @@ def compute_outcomes(
     for run in doc.get("runs") or []:
         store_path = _resolve_run_store(run, study_dir, ws_root)
 
+        store_status = None
         if store_path is None:
-            # Never guess — mark unresolved without fabricating verdicts
-            run["computed_outcomes"] = ruamel.yaml.CommentedMap(
-                {"_status": "store_unresolved"}
-            )
-            continue
-
-        # Open reader and evaluate
-        try:
+            # The run store is unresolved. We can still grade STORE-LESS tests — their
+            # evaluator re-derives its result internally (e.g. a recovery search re-runs
+            # SINDy+fit) and needs no reader. Only genuinely run-data tests stay ungraded
+            # here, so don't blanket-skip when store-less tests are present.
+            _sl = _storeless_kinds(ws_root)
+            sl_tests = [t for t in (per_run_spec.get(_tests_key) or [])
+                        if isinstance(t, dict) and (t.get("measure") or {}).get("kind") in _sl]
+            if not sl_tests:
+                run["computed_outcomes"] = ruamel.yaml.CommentedMap(
+                    {"_status": "store_unresolved", "_grader": _grader_stamp()}
+                )
+                continue
             try:
-                from viva_emitters import RunReader  # noqa: PLC0415
-            except ImportError as _ie:
-                raise ImportError(
-                    "RunReader requires the parquet reader: "
-                    "pip install 'viva-emitters[parquet]'"
-                ) from _ie
-            reader = RunReader.open(store_path)
-            outcomes = evaluate_study(per_run_spec, reader, ws_root=ws_root)
-        except Exception as exc:  # noqa: BLE001
-            run["computed_outcomes"] = ruamel.yaml.CommentedMap(
-                {"_status": f"evaluation_error: {exc}"}
-            )
-            continue
+                outcomes = evaluate_study({**per_run_spec, _tests_key: sl_tests}, None,
+                                          ws_root=ws_root)
+            except Exception as exc:  # noqa: BLE001
+                run["computed_outcomes"] = ruamel.yaml.CommentedMap(
+                    {"_status": f"evaluation_error: {exc}", "_grader": _grader_stamp()}
+                )
+                continue
+            store_status = "store_less_graded"  # store unresolved; only store-less tests graded
+        else:
+            # Open reader and evaluate
+            try:
+                try:
+                    from viva_emitters import RunReader  # noqa: PLC0415
+                except ImportError as _ie:
+                    raise ImportError(
+                        "RunReader requires the parquet reader: "
+                        "pip install 'viva-emitters[parquet]'"
+                    ) from _ie
+                reader = RunReader.open(store_path)
+                outcomes = evaluate_study(per_run_spec, reader, ws_root=ws_root)
+            except Exception as exc:  # noqa: BLE001
+                run["computed_outcomes"] = ruamel.yaml.CommentedMap(
+                    {"_status": f"evaluation_error: {exc}", "_grader": _grader_stamp()}
+                )
+                continue
 
         # Build computed_outcomes with reconcile flags
         authored = run.get("outcomes") or {}
@@ -1827,6 +1882,15 @@ def compute_outcomes(
             else:
                 tests_agent += 1
 
+        stamp = _grader_stamp()
+        if store_status:
+            # A store-less GRADED block is a REAL result, NOT a stub — it must NOT carry
+            # ``_status`` (that convention, read by finding_observations, means "skip me" and
+            # would blank the grades before they reach findings[].status). Record the
+            # store-less provenance in the grader stamp instead; it is a meta key read by
+            # test-name lookup, so it never masks the real grades.
+            stamp["store"] = "unresolved"
+        new_co["_grader"] = ruamel.yaml.CommentedMap(stamp)
         run["computed_outcomes"] = new_co
         runs_evaluated += 1
 
