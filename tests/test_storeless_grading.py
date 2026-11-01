@@ -134,6 +134,41 @@ def test_storeless_grade_fills_finding(tmp_path):
     assert doc["findings"][0]["evidence"]["observed"] == 0.58
 
 
+def test_storeless_graded_when_ws_root_omitted(tmp_path):
+    # sbml's repro: compute_outcomes(study_dir) with NO ws_root. The workspace root must be
+    # derived from study_dir so the @storeless evaluators are found — otherwise the store-less
+    # set is empty and it wrongly bails to store_unresolved. Study lives UNDER the workspace.
+    ws = tmp_path / "ws"
+    pkg = ws / "pbg_slws"
+    pkg.mkdir(parents=True)
+    (ws / "workspace.yaml").write_text("name: slws\n", encoding="utf-8")
+    (pkg / "__init__.py").write_text("", encoding="utf-8")
+    (pkg / "evaluators.py").write_text(textwrap.dedent("""
+        from discovery_engine.study_evaluator import storeless
+        @storeless
+        def _recovery(test, reader, ws_root):
+            return {"result": "FAIL", "evaluated_by": "code", "measured_value": 0.58,
+                    "status": "contradicts"}
+        def register_evaluators(registry):
+            registry["recovery_check"] = _recovery
+    """), encoding="utf-8")
+    sd = ws / "studies" / "recover-x"
+    sd.mkdir(parents=True)
+    (sd / "study.yaml").write_text(yaml.dump({
+        "schema_version": 4, "name": "recover-x",
+        "behavior_tests": [{"name": "recover-mechanism",
+                            "measure": {"kind": "recovery_check"},
+                            "pass_if": {"op": ">=", "value": 0.5}}],
+        "runs": [{"name": "baseline"}],  # no store (recover_candidate strips the emitter)
+    }), encoding="utf-8")
+    se.clear_workspace_evaluator_cache()
+    se.compute_outcomes(sd)  # <-- NO ws_root, exactly as sbml calls it
+    co = yaml.safe_load((sd / "study.yaml").read_text())["runs"][0]["computed_outcomes"]
+    assert co.get("_status") != "store_unresolved"  # was the bug
+    assert co["recover-mechanism"]["result"] == "FAIL"
+    assert co["_grader"].get("store") == "unresolved"
+
+
 # --- sub-feature 2: candidate_model sentinel is load-bearing ------------------------
 
 def test_sentinel_routes_to_evaluator_even_for_run_data_kind(tmp_path):
