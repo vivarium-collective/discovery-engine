@@ -158,3 +158,29 @@ def test_gated_op_does_not_stop_or_preclaim(tmp_path, monkeypatch):
     res = _advance(tmp_path, runner)
     assert sorted(runner.calls) == ["x", "y"]
     assert any(r["status"] == "gated" for r in res["runs"])
+
+
+def test_dispatchable_actions_match_what_advance_dispatches(tmp_path):
+    """Wave 0 fix #4: dispatchable_actions is the honest 'runnable' set — exactly the
+    items advance_cycle dispatches (not merely the non-human-only plan items), because
+    both consult _dispatch_classify. Two distinct run-ready studies are both dispatchable
+    and both get run; once run (at their current model version) neither is dispatchable."""
+    _ws(tmp_path, {"a": _study("a"), "b": _study("b")})
+    with patch("viva_emitters.RunReader") as cls:
+        cls.open.return_value = _reader()
+        _, inv, st = discover.load_cycle_inputs(tmp_path, "og")
+        cyc = discover._cycle_with_evidence(tmp_path, "og", inv, st)
+        runnable = discover.dispatchable_actions(tmp_path, "og", cyc, inv, st)
+        runnable_studies = {discover._advance_study_for(p["source"], st) for p in runnable}
+    assert runnable_studies == {"a", "b"}
+
+    runner = FakeRunner()
+    _advance(tmp_path, runner)
+    assert sorted(runner.calls) == ["a", "b"]          # dispatched set == dispatchable set
+
+    with patch("viva_emitters.RunReader") as cls:
+        cls.open.return_value = _reader()
+        _, inv2, st2 = discover.load_cycle_inputs(tmp_path, "og")
+        cyc2 = discover._cycle_with_evidence(tmp_path, "og", inv2, st2)
+        # both studies now ran at their current model version → nothing runnable
+        assert discover.dispatchable_actions(tmp_path, "og", cyc2, inv2, st2) == []

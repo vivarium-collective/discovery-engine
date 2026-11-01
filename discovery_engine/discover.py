@@ -1768,6 +1768,65 @@ def _run_names(sdir) -> set:
             if isinstance(r, dict)}
 
 
+def _dispatch_classify(p: dict, studies: dict, ws_root, inv_slug: str) -> tuple[str, str | None, list]:
+    """Classify one ``execute_plan`` item for the ADVANCE phase, independent of per-run
+    loop state (seen / gated / seen_slugs). Returns ``(state, slug, gaps)``:
+
+    - ``state`` is ``"run"`` (advance would dispatch it now), ``"needs_build"`` (a test op
+      whose study's run spec is incomplete), or ``"skip"`` (not an advance op, wrong
+      consequence tier, an unresolvable/already-stamped render, already run at the current
+      model version, or no on-disk study).
+    - ``slug`` is the study the action would run (``None`` when nothing resolves).
+    - ``gaps`` is the run-readiness gap list for ``needs_build`` (else ``[]``).
+
+    This is the single source of truth both :func:`advance_cycle` (what it dispatches) and
+    :func:`dispatchable_actions` (the honest "runnable" count) consult, so the two can't
+    drift apart.
+    """
+    op = p["action_type"]
+    if op not in _ADVANCE_OPS:
+        return ("skip", None, [])
+    if op in ("build_viz", "refine_viz"):
+        vt = _viz_target(p["source"])
+        entry = _viz_entry(studies, *vt) if vt else None
+        if p["consequence"] != "render" or entry is None or not _viz_resolvable(entry):
+            return ("skip", None, [])          # review-tier / unresolvable render stays gated
+        from .viz_freshness import normalize_entry, read_meta
+        sd = _study_dir_on_disk(ws_root, inv_slug, vt[0])
+        lat = viz_inventory(ws_root, inv_slug, {vt[0]: studies[vt[0]]})[vt[0]]["_latest"]
+        chart = sd / normalize_entry(entry)["output"] if sd else None
+        meta = read_meta(chart) if chart is not None and chart.is_file() else None
+        _want = _pinned_run(entry, lat)
+        if _want and meta and meta.get("source_run_id") == _want:
+            return ("skip", vt[0], [])         # already freshly stamped against the latest run
+        return ("run", vt[0], [])
+    if p["consequence"] not in ("simulation", "simulation+study"):
+        return ("skip", None, [])              # review-tier (e.g. revise_model) stays gated
+    slug = _advance_study_for(p["source"], studies)
+    spec = studies.get(slug) if slug else None
+    if not isinstance(spec, dict):
+        return ("skip", None, [])              # unapplied / review-tier proposal resolves to nothing
+    if _has_run_at_current_mv(slug, spec):
+        return ("skip", slug, [])              # already ran this exact model version
+    rr = run_readiness(spec, ws_root)
+    if rr["ready"]:
+        return ("run", slug, [])
+    return ("needs_build", slug, rr["gaps"])
+
+
+def dispatchable_actions(ws_root, inv_slug: str, cycle_result: dict, inv_spec: dict,
+                         studies: dict) -> list[dict]:
+    """The ``execute_plan`` items the ADVANCE phase would actually dispatch right now — the
+    honest "runnable" set. Uses the same per-item gate as :func:`advance_cycle`
+    (:func:`_dispatch_classify`): run-ready ``test``/``branch`` on an on-disk study not
+    already run at its current model version, plus resolvable, not-already-stamped renders.
+    Pure / read-only — runs nothing. ``N runnable == what advance_cycle would dispatch``."""
+    from . import discovery_engine as de
+    plan = de.execute_plan(cycle_result, inv_spec)
+    return [p for p in plan
+            if _dispatch_classify(p, studies, ws_root, inv_slug)[0] == "run"]
+
+
 def _post_run_sync(sdir, before_runs: set) -> None:
     """Best-effort: sync the study's runs.db into study.yaml (idempotent; fills
     computed_outcomes) when the runner left it unsynced, then stamp each new run with the
@@ -1835,53 +1894,26 @@ def advance_cycle(ws_root: Path | str, inv_slug: str, *, autonomous: bool = Fals
         target = None
         target_slug = target_op = None
         for p in plan:
-            if p["action_type"] not in _ADVANCE_OPS or p["source"] in seen \
-                    or (p["action_type"], p["source"]) in gated_ops:
+            op, source = p["action_type"], p["source"]
+            if source in seen or (op, source) in gated_ops:
                 continue
-            if p["action_type"] in ("build_viz", "refine_viz"):
-                # render ops: only a RESOLVABLE declared entry with consequence `render`
-                # (review-tier broken_stub / vp: stay gated); skip iff already stamped
-                # against the latest run (belt-and-braces for a hook that forgot to stamp).
-                vt = _viz_target(p["source"])
-                entry = _viz_entry(studies, *vt) if vt else None
-                if p["consequence"] != "render" or entry is None or not _viz_resolvable(entry):
-                    continue
-                from .viz_freshness import normalize_entry, read_meta
-                sd = _study_dir_on_disk(ws_root, inv_slug, vt[0])
-                lat = viz_inventory(ws_root, inv_slug, {vt[0]: studies[vt[0]]})[vt[0]]["_latest"]
-                chart = sd / normalize_entry(entry)["output"] if sd else None
-                meta = read_meta(chart) if chart is not None and chart.is_file() else None
-                _want = _pinned_run(entry, lat)
-                if _want and meta and meta.get("source_run_id") == _want:
-                    seen.add(p["source"])
-                    continue
-                target, target_slug, target_op = p["source"], vt[0], p["action_type"]
-                break
-            if p["consequence"] not in ("simulation", "simulation+study"):
-                continue                            # review-tier (e.g. revise_model) stays gated
-            # test ops name a study; branch / revise_model run ONLY when they resolve to an
-            # on-disk study (the proposal was already APPLIED). An unapplied / review-tier
-            # proposal resolves to nothing and stays gated.
-            slug = _advance_study_for(p["source"], studies)
-            if slug in seen_slugs:
-                seen.add(p["source"])
+            # Intrinsic admissibility — the SAME gate dispatchable_actions reports, so the
+            # banner's "runnable" count matches what this loop dispatches. seen / gated_ops
+            # / seen_slugs are this advance's per-run state, applied around it.
+            state, slug, gaps = _dispatch_classify(p, studies, ws_root, inv_slug)
+            if state == "skip":
                 continue
-            spec = studies.get(slug) if slug else None
-            if not isinstance(spec, dict):
+            # a study already claimed by a dispatched op this advance is not re-run
+            # (a render claims no study, so renders ignore seen_slugs)
+            if op not in ("build_viz", "refine_viz") and slug in seen_slugs:
+                seen.add(source)
                 continue
-            if _has_run_at_current_mv(slug, spec):
-                # already ran this exact model version: a lingering open_question /
-                # pending_gate means the gate SKIP'd or the verdict is only-by-roll-up --
-                # re-running the same model won't resolve it. A revised study (new file, new
-                # mv) or a composite raised in place (stale run mv) is NOT skipped.
-                seen.add(p["source"])
+            if state == "needs_build":
+                needs_build.append({"study": slug, "gaps": gaps})
+                seen.add(source)
                 continue
-            rr = run_readiness(spec, ws_root)
-            if rr["ready"]:
-                target, target_slug, target_op = p["source"], slug, p["action_type"]
-                break
-            needs_build.append({"study": slug, "gaps": rr["gaps"]})
-            seen.add(p["source"])
+            target, target_slug, target_op = source, slug, op
+            break
         if target is None:
             break                                   # no runnable test op left
         if not autonomous:
