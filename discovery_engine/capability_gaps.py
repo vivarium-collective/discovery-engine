@@ -114,6 +114,25 @@ def _build_gap(mechanism: str, inv_slug: str, route_info: dict, study: str | Non
     }
 
 
+def _is_buildable_mechanism(m: Any) -> bool:
+    """A buildable mechanism is a process/composite IDENTIFIER token, not a prose design note.
+
+    Used to keep free-text out of capability-gap proposals (trial finding G4): a required-mechanism
+    like ``"Register matched runs; distinguish contact..."`` is a note, not something to build, and
+    must not become an author-stub. Accept only short identifier-shaped tokens (word chars plus
+    ``_ - . /`` separators, no whitespace, no sentence punctuation)."""
+    s = str(m).strip()
+    if not s or len(s) > 60:
+        return False
+    if not any(ch.isspace() for ch in s):
+        return True                                    # an identifier token (slug / dotted path)
+    # a whitespace phrase is a NAME only if it's short and unpunctuated; sentence punctuation or a
+    # long many-word phrase marks a prose note, not a buildable mechanism.
+    if any(ch in s for ch in ";:!?,") or s.count(".") > 0:
+        return False
+    return len(s.split()) <= 5
+
+
 def required_mechanisms_from_spec(inv_spec: dict, studies: dict | None = None) -> list[str]:
     """Domain-general source of required mechanisms — the investigation CONTRACT, not
     a hardcoded tool list (mirrors how viz_proposals draws observables from the spec's
@@ -150,7 +169,13 @@ def propose_capability_gaps(inv_spec: dict, studies: dict | None, catalog: list[
         return []
     now = now or _now()
     inv_slug = _slug(inv_spec.get("name"))
-    mechs = list(required_mechanisms) if required_mechanisms else required_mechanisms_from_spec(inv_spec, studies)
+    _raw = list(required_mechanisms) if required_mechanisms else required_mechanisms_from_spec(inv_spec, studies)
+    # A buildable mechanism is a process/composite IDENTIFIER, not free-text. Drop prose
+    # ("Register matched runs; distinguish contact...") so it never becomes a capability-gap
+    # author-stub (trial finding G4). (Control TOKENS that are slug-shaped still pass here — the
+    # real fix for those is upstream: nonnegotiable_controls should not be recorded as
+    # required_mechanisms by the feedback_compiler; tracked as a follow-up.)
+    mechs = [m for m in _raw if _is_buildable_mechanism(m)]
     done = {p.get("id") for p in inv_spec.get("capability_gaps") or []
             if isinstance(p, dict) and p.get("status", "proposed") != "proposed"}
     by_study: dict = {}
