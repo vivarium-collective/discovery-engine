@@ -3,7 +3,10 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "discovery-engine"
+# PyPI distribution name is viva-discovery-engine (the bare `discovery-engine`
+# name on PyPI is owned by an unrelated project). The IMPORT package is still
+# `discovery_engine` — only the distribution name is namespaced.
+name = "viva-discovery-engine"
 version = "0.1.0"
 description = "A derive-first scientific-investigation discovery cycle engine for the Vivarium ecosystem."
 readme = "README.md"
