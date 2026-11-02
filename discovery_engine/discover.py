@@ -1602,6 +1602,19 @@ def run_readiness(study_spec: dict, ws_root: Path | str | None = None) -> dict:
     Returns ``{ready, complete, gaps, observables{required, declared, missing}, has_*}``.
     ``ready`` means the run can produce an *evaluable* result (emitter + observables);
     ``complete`` additionally requires viz + tests + contracts (the full quality bar)."""
+    # Parked ontology (engine cycle-correctness): a study flagged ``parked: true`` is a
+    # deliberately-deferred future direction, so the cycle must never auto-run it — advance_cycle
+    # only dispatches run-ready studies. Report it NOT ready with a parked gap (NOT "incomplete":
+    # it is out of scope this cycle, distinct from a study whose run spec is missing fields).
+    # Short-circuits before the expensive evaluator-registry load.
+    if study_spec.get("parked"):
+        return {"ready": False, "complete": False, "parked": True,
+                "gaps": ["parked: deferred future direction (not run this cycle)"],
+                "already_run": False, "composite_resolves": True, "measures_resolvable": True,
+                "observables": {"required": [], "declared": [], "missing": []},
+                "unevaluable_tests": [], "unresolved_measures": [],
+                "has_emitter": False, "has_visualizations": False, "visualizations_rendered": False,
+                "has_tests": False, "has_contracts": False}
     from .study_evaluator import load_workspace_derived_scalars, required_observables_for_measure
     tests = study_spec.get("behavior_tests") or study_spec.get("tests") or []
     required: set = set()
