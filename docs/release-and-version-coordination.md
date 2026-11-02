@@ -48,9 +48,24 @@ Wire the proven trusted-publisher pattern (bigraph-schema / process-bigraph alre
 use it) into the engine's `release.yml`: on a `v*` tag, verify tag==pyproject version,
 `uv build`, publish to PyPI via OIDC trusted publishing, then cut the GitHub Release.
 
-**One-time setup (owner: Eran / org admin):** register the `discovery-engine` project
-on PyPI and add this repo + the `release` workflow + the `release` environment as a
-trusted publisher (no stored token). Then push `v0.1.0` to cut the first release.
+**One-time setup (owner: Eran / org admin)** — no stored token; PyPI trusts this repo
+via OIDC. Steps:
+
+1. On PyPI, add a **pending trusted publisher** (works before the project exists):
+   pypi.org → Account → Publishing → "Add a pending publisher", with
+   - PyPI Project Name: `discovery-engine`
+   - Owner: `vivarium-collective`
+   - Repository name: `discovery-engine`
+   - Workflow name: `release.yml`
+   - Environment name: `release`
+2. On the GitHub repo, create an Environment named **`release`** (Settings →
+   Environments → New environment). Optionally add a required reviewer so a human
+   approves each publish.
+3. Confirm `pyproject.toml` `version = "0.1.0"`, then push the tag:
+   `git tag v0.1.0 && git push origin v0.1.0`. The workflow verifies tag==version,
+   builds, and publishes to PyPI — the engine's first release.
+
+After that, the consumer flips below make `discovery-engine` a normal PyPI dependency.
 
 ### 2. Flip consumers from git-main to semver (staged, per consumer)
 
