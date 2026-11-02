@@ -49,7 +49,10 @@ use it) into the engine's `release.yml`: on a `v*` tag, verify tag==pyproject ve
 `uv build`, publish to PyPI via OIDC trusted publishing, then cut the GitHub Release.
 
 **One-time setup (owner: Eran / org admin)** — no stored token; PyPI trusts this repo
-via OIDC. Steps:
+via OIDC. **Order matters: the PyPI trusted-publisher registration AND the `release`
+GitHub Environment must both exist *before* the first `v*` tag is pushed — otherwise
+the publish job fails on that tag.** So: merge this PR → do steps 1–2 below → *then*
+push `v0.1.0` (step 3). Steps:
 
 1. On PyPI, add a **pending trusted publisher** (works before the project exists):
    pypi.org → Account → Publishing → "Add a pending publisher", with
