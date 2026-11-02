@@ -14,10 +14,34 @@ framework streamlining screening, Theme 3.
 """
 from __future__ import annotations
 
+import copy
 import os
 from pathlib import Path
 
 import yaml
+
+
+# A per-process cache of parsed YAML, keyed by (absolute path, mtime_ns). A single
+# investigation roll-up (e.g. acceptance via investigation_status) loads each member
+# study.yaml many times; without this the dashboard re-parsed the same spec dozens of
+# times per request. Safe because every writer in this module uses atomic_write (atomic
+# rename → reliable mtime). A DEEP COPY is returned so callers may mutate freely, and an
+# edit (mtime bump) re-parses automatically.
+_YAML_CACHE: "dict[str, tuple[int, object]]" = {}
+
+
+def _parse_yaml_cached(path: Path | str) -> object:
+    """Parse ``path`` (cached by path+mtime); return a deep copy of the parsed value
+    (dict / list / scalar / ``None``). Propagates the read error for a missing file,
+    exactly as ``read_text`` did, so callers' error handling is unchanged."""
+    p = Path(path)
+    mtime = p.stat().st_mtime_ns            # raises (FileNotFoundError, …) like read_text did
+    key = str(p)
+    ent = _YAML_CACHE.get(key)
+    if ent is None or ent[0] != mtime:
+        ent = (mtime, yaml.safe_load(p.read_text(encoding="utf-8")))
+        _YAML_CACHE[key] = ent
+    return copy.deepcopy(ent[1])
 
 
 def load_yaml(path: Path | str) -> dict:
@@ -26,14 +50,14 @@ def load_yaml(path: Path | str) -> dict:
     Lenient: does not assert the top level is a mapping (matches the old
     ``study_findings.load_study`` / ``study_verify._load_yaml`` behavior).
     """
-    return yaml.safe_load(Path(path).read_text(encoding="utf-8")) or {}
+    return _parse_yaml_cached(path) or {}
 
 
 def load_yaml_mapping(path: Path | str) -> dict:
     """Like :func:`load_yaml`, but raise ``ValueError`` if the top level is
     not a mapping (matches the old ``study_narrative._load`` /
     ``investigation_close._load_yaml`` guard)."""
-    data = yaml.safe_load(Path(path).read_text(encoding="utf-8")) or {}
+    data = _parse_yaml_cached(path) or {}
     if not isinstance(data, dict):
         raise ValueError(f"{path}: top-level YAML is not a mapping")
     return data
@@ -68,6 +92,7 @@ def atomic_write(path: Path | str, text: str) -> None:
     try:
         tmp.write_text(text, encoding="utf-8")
         os.replace(tmp, path)
+        _YAML_CACHE.pop(str(path), None)   # the parse cache is stale after a write
     except BaseException:
         try:
             tmp.unlink(missing_ok=True)
