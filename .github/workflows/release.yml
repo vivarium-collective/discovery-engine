@@ -1,20 +1,62 @@
 name: release
 
-# Cut a GitHub Release whenever a semver tag is pushed. This turns the engine's
-# `branch=main` consumption into tagged releases, so consumers can pin a version
-# (`tag = "vX.Y.Z"`) instead of a moving branch — the foundation of keeping the
-# three repos decoupled but reproducibly in sync. Release notes are auto-generated
-# from the merged PRs since the previous tag.
+# Cut a release whenever a semver tag is pushed. This turns the engine's
+# `branch=main` consumption into tagged, PyPI-published releases, so consumers can
+# pin a VERSION (`discovery-engine>=X.Y`) instead of a moving branch or a git commit
+# — the foundation of keeping the repos decoupled but reproducibly in sync.
+#
+# discovery-engine is the one core package still unpublished (v0.1.0, git `branch=main`
+# only): every consumer is forced onto `branch=main` for it, which cascades the whole
+# git-main dependency chain and the silent drift. Publishing it to PyPI (like
+# bigraph-schema / process-bigraph / viva-superpowers already do) lets consumers pin
+# semver and lets GitHub users `pip install` a coherent released set.
+#
+# Trusted publishing (OIDC) — no stored token. Requires a one-time PyPI setup:
+# register the `discovery-engine` project and add this repo + workflow + the `release`
+# environment as a trusted publisher (https://docs.pypi.org/trusted-publishers/).
 on:
   push:
     tags: ["v*"]
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
-  release:
+  publish:
     runs-on: ubuntu-latest
+    environment: release
+    permissions:
+      id-token: write   # required for OIDC trusted publishing
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up uv and Python
+        uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.12"
+          enable-cache: true
+          cache-dependency-glob: "**/uv.lock"
+
+      - name: Verify the tag matches pyproject version
+        run: |
+          tag_version="${GITHUB_REF_NAME#v}"
+          pyproject_version=$(uv version --short)
+          if [ "$tag_version" != "$pyproject_version" ]; then
+            echo "Tag ($tag_version) != pyproject.toml version ($pyproject_version)"
+            exit 1
+          fi
+
+      - name: Build distributions
+        run: uv build
+
+      - name: Publish to PyPI via trusted publisher
+        uses: pypa/gh-action-pypi-publish@release/v1
+
+  github-release:
+    needs: publish
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v4
         with:
