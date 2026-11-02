@@ -550,6 +550,20 @@ def test_advance_cycle_runs_a_run_ready_open_question(tmp_path):
     assert not res["needs_build"]
 
 
+def test_run_readiness_parked_study_is_never_run_ready():
+    """A parked study (deliberately-deferred future direction) is NOT run-ready, so the cycle
+    never auto-runs it — distinct from an incomplete spec. Short-circuits with a parked gap."""
+    parked = {"name": "recover-enzyme-moiety-aware", "status": "planned", "parked": True,
+              "behavior_tests": [{"name": "g", "measure": {"kind": "derived", "path": "x"}}],
+              "observables": None}
+    r = discover.run_readiness(parked, None)
+    assert r["ready"] is False and r["parked"] is True
+    assert any("parked" in g for g in r["gaps"])
+    # the same study without the flag is assessed normally (not short-circuited)
+    not_parked = dict(parked); not_parked.pop("parked")
+    assert discover.run_readiness(not_parked, None).get("parked") is not True
+
+
 def test_run_readiness_flags_unevaluable_pathless_measure():
     # a measure with a kind but no path can't be graded (the evaluator records SKIP) — the
     # readiness contract must surface it as a build gap.
