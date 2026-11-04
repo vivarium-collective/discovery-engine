@@ -261,6 +261,61 @@ def list_runs(runs_db) -> list[dict]:
         conn.close()
 
 
+def read_runlog(runlog_path) -> list[dict]:
+    """Fold the workbench's append-only run event log (``.pbg/runs.jsonl``,
+    vivarium-workbench #612) into one dict per ``run_id``, carrying that run's
+    LATEST logged event.
+
+    The per-study ``runs.db`` is the engine's authoritative run store, but a
+    workspace whose runs are recorded only in the run log would otherwise be
+    invisible to evidence reconciliation (``0 registered runs`` even though the
+    run happened). Each line is one JSON event; later events for the same
+    ``run_id`` supersede earlier ones (append-only order). Returns ``[]`` if the
+    file is absent or unreadable; tolerant of blank/malformed lines and events
+    without a ``run_id``.
+    """
+    path = Path(runlog_path)
+    if not path.exists():
+        return []
+    try:
+        text = path.read_text()
+    except OSError:
+        return []
+    latest: dict[str, dict] = {}
+    for line in text.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            ev = json.loads(line)
+        except (ValueError, TypeError):
+            continue
+        if not isinstance(ev, dict):
+            continue
+        rid = ev.get("run_id") or ev.get("id")
+        if not isinstance(rid, str) or not rid.strip():
+            continue
+        latest[rid.strip()] = ev          # last event for a run_id wins
+    return list(latest.values())
+
+
+def runs_by_study_from_runlog(runlog_path, slugs=None) -> dict[str, list[dict]]:
+    """Group :func:`read_runlog` runs by their ``study_slug`` (falling back to a
+    ``study`` key). ``slugs``, when given, restricts the result to those study
+    slugs. Runs with no resolvable study slug are dropped."""
+    want = set(slugs) if slugs is not None else None
+    out: dict[str, list[dict]] = {}
+    for run in read_runlog(runlog_path):
+        slug = run.get("study_slug") or run.get("study")
+        if not isinstance(slug, str) or not slug.strip():
+            continue
+        slug = slug.strip()
+        if want is not None and slug not in want:
+            continue
+        out.setdefault(slug, []).append(run)
+    return out
+
+
 def get_run_params(runs_db: Path, run_id: str) -> dict | None:
     """Return the recorded ``params_json`` for ``run_id`` as a dict, or
     ``None`` if the run / DB / column is absent or the JSON is empty.
