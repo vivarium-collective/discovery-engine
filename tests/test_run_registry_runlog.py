@@ -17,16 +17,22 @@ def _write_runlog(path: Path, events: list[dict]) -> None:
     path.write_text("\n".join(json.dumps(e) for e in events) + "\n")
 
 
-def test_read_runlog_folds_events_to_latest_per_run(tmp_path: Path):
+def test_read_runlog_merges_fields_across_a_runs_events(tmp_path: Path):
+    """A run's fields are spread across events: the started event carries
+    study_slug + spec_id, the completed event carries the final status but NOT
+    study_slug. Folding must merge, not take the last event wholesale (else the
+    completed run loses study_slug and can't be assigned to a study)."""
     rl = tmp_path / ".pbg" / "runs.jsonl"
     _write_runlog(rl, [
-        {"run_id": "r1", "study_slug": "s", "status": "running", "event": "start"},
-        {"run_id": "r1", "study_slug": "s", "status": "completed", "event": "complete"},
-        {"run_id": "r2", "study_slug": "s", "status": "running", "event": "start"},
+        {"run_id": "r1", "study_slug": "s", "spec_id": "spec", "status": "running", "event": "started"},
+        {"run_id": "r1", "status": "completed", "event": "completed"},   # no study_slug
+        {"run_id": "r2", "study_slug": "s", "status": "running", "event": "started"},
     ])
     by_id = {r["run_id"]: r for r in run_registry.read_runlog(rl)}
     assert set(by_id) == {"r1", "r2"}
-    assert by_id["r1"]["status"] == "completed"   # last event for a run_id wins
+    assert by_id["r1"]["status"] == "completed"       # later event overrides status
+    assert by_id["r1"]["study_slug"] == "s"           # earlier-only field preserved
+    assert by_id["r1"]["spec_id"] == "spec"
     assert by_id["r2"]["status"] == "running"
 
 

@@ -273,6 +273,12 @@ def read_runlog(runlog_path) -> list[dict]:
     ``run_id`` supersede earlier ones (append-only order). Returns ``[]`` if the
     file is absent or unreadable; tolerant of blank/malformed lines and events
     without a ``run_id``.
+
+    Events for one run carry different fields (a ``started`` event has
+    ``study_slug`` + ``spec_id``; a ``completed`` event has the final
+    ``status``), so fields are **merged** across a run_id's events — later
+    events override shared keys but earlier-only fields (e.g. ``study_slug``)
+    are preserved. Taking the last event wholesale would drop them.
     """
     path = Path(runlog_path)
     if not path.exists():
@@ -295,7 +301,9 @@ def read_runlog(runlog_path) -> list[dict]:
         rid = ev.get("run_id") or ev.get("id")
         if not isinstance(rid, str) or not rid.strip():
             continue
-        latest[rid.strip()] = ev          # last event for a run_id wins
+        rid = rid.strip()
+        prev = latest.get(rid)
+        latest[rid] = {**prev, **ev} if prev else dict(ev)  # merge fields across events
     return list(latest.values())
 
 
