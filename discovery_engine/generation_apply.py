@@ -137,3 +137,45 @@ def run_requests(requests, *, fill, ws_root, inv_slug: str) -> list[dict]:
         outcomes.append({**base, "outcome": applied.get("status", "applied"),
                          "applied_to": applied.get("applied_to", [])})
     return outcomes
+
+
+def subprocess_filler(cmd: str | None = None, *, timeout: float = 1800):
+    """A filler that shells out to ``$VIVA_FILLER_CMD`` (or an explicit ``cmd``).
+
+    Generalizes the decider seam (``$VIVA_DECIDER_CMD``): the command receives a
+    :class:`GenerationRequest` as JSON on stdin and must print a
+    :class:`GenerationResult` JSON on stdout. The engine stays LLM-free — the AI
+    (or a deterministic filler) lives in that command (e.g. ``claude -p`` with a
+    fill skill, or viva-superpowers' filler). Returns a
+    ``fill(request) -> GenerationResult | None`` for :func:`run_requests`. With no
+    command configured, ``fill`` returns ``None`` (nothing auto-fills). A malformed
+    result is rejected (``validate_result``) so a bad artifact never applies."""
+    import json
+    import os
+    import subprocess
+
+    from .generation import GenerationResult, validate_result
+    command = cmd or os.environ.get("VIVA_FILLER_CMD")
+
+    def fill(request):
+        if not command:
+            return None
+        proc = subprocess.run(command, shell=True, check=False,
+                              input=json.dumps(request.to_dict(), default=str),
+                              capture_output=True, text=True, timeout=timeout)
+        out = (proc.stdout or "").strip()
+        if not out:
+            return None
+        doc = json.loads(out)
+        validate_result(doc)                       # reject a malformed artifact loudly
+        return GenerationResult(
+            request_id=doc.get("request_id") or request.id,
+            artifact=doc.get("artifact") or {},
+            filler=doc.get("filler") or {"kind": "ai", "id": "VIVA_FILLER_CMD"},
+            rationale=doc.get("rationale") or "",
+            confidence=doc.get("confidence"),
+            status=doc.get("status") or "applied",
+            applied_to=doc.get("applied_to") or [],
+        )
+
+    return fill

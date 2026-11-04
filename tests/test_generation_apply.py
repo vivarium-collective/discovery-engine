@@ -1,4 +1,6 @@
 """Phase 3: applying a filled GenerationResult through the canonical write op."""
+import sys
+
 import pytest
 import yaml
 
@@ -7,7 +9,11 @@ from discovery_engine.generation import (
     GenerationResult,
     validate_result,
 )
-from discovery_engine.generation_apply import apply_result, run_requests
+from discovery_engine.generation_apply import (
+    apply_result,
+    run_requests,
+    subprocess_filler,
+)
 
 
 def _ws(tmp_path):
@@ -108,6 +114,44 @@ def test_run_requests_survives_a_raising_filler(tmp_path):
 
     out = run_requests([req], fill=boom, ws_root=ws, inv_slug="demo")
     assert out[0]["outcome"] == "error" and "blew up" in out[0]["reason"]
+
+
+def test_subprocess_filler_runs_a_command_and_applies(tmp_path):
+    ws = _ws(tmp_path)
+    stub = tmp_path / "filler.py"   # a stub $VIVA_FILLER_CMD: request JSON in -> result JSON out
+    stub.write_text(
+        "import sys, json\n"
+        "req = json.load(sys.stdin)\n"
+        "print(json.dumps({'request_id': req['id'],"
+        " 'artifact': {'rationale': 'auto: ' + req['target']},"
+        " 'filler': {'kind': 'ai', 'id': 'stub'}}))\n"
+    )
+    fill = subprocess_filler(f"{sys.executable} {stub}")
+    req = GenerationRequest(kind="resolve_decision", target="Which prior?",
+                            produces="decision/v1", gate="auto")
+    out = run_requests([req], fill=fill, ws_root=ws, inv_slug="demo")
+    assert out[0]["outcome"] == "applied"
+    inv = yaml.safe_load((ws / "investigations" / "demo" / "investigation.yaml").read_text())
+    assert any(r.get("rationale") == "auto: Which prior?" for r in (inv.get("resolutions") or []))
+
+
+def test_subprocess_filler_is_none_without_a_command(monkeypatch):
+    monkeypatch.delenv("VIVA_FILLER_CMD", raising=False)
+    fill = subprocess_filler(None)
+    req = GenerationRequest(kind="resolve_decision", target="Q", produces="decision/v1", gate="auto")
+    assert fill(req) is None
+
+
+def test_subprocess_filler_rejects_a_malformed_result(tmp_path):
+    stub = tmp_path / "bad.py"
+    stub.write_text("print('{\"request_id\": \"x\", \"status\": \"bogus\"}')\n")   # invalid status enum
+    fill = subprocess_filler(f"{sys.executable} {stub}")
+    req = GenerationRequest(kind="resolve_decision", target="Q", produces="decision/v1", gate="auto")
+    with pytest.raises(ValueError):
+        fill(req)
+    # and via the runner that malformed result is an isolated error, never applied
+    out = run_requests([req], fill=fill, ws_root=_ws(tmp_path), inv_slug="demo")
+    assert out[0]["outcome"] == "error"
 
 
 def test_result_contract_and_schema():
