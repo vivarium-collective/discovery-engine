@@ -1,0 +1,65 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://vivarium-collective.org/schemas/generation-request.schema.json",
+  "title": "GenerationRequest",
+  "description": "One typed generative act the discovery cycle wants performed (propose a study, acquire/build a model, author tests, interpret a finding, resolve a decision, explain, visualize). The engine emits these as a pure projection over its already-derived cycle state; a filler (human skill or AI) outside the engine fills them, and the artifact is written back into the existing structured study/investigation fields. Strict at the top level: unknown fields are errors.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["id", "kind", "target", "produces"],
+  "properties": {
+    "id": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Stable, content-addressed on (kind, target, provenance) so the same frontier state re-emits the same request."
+    },
+    "kind": {
+      "type": "string",
+      "enum": ["propose_study", "acquire_model", "author_tests", "interpret_finding", "resolve_decision", "explain", "visualize"]
+    },
+    "target": {
+      "type": "string",
+      "minLength": 1,
+      "description": "The investigation / study / claim / decision / finding id this act operates on."
+    },
+    "produces": {
+      "type": "string",
+      "minLength": 1,
+      "description": "The contract the filled artifact must satisfy, e.g. study.yaml/v4, model_spec/v1, behavior_tests[], finding/v1, decision/v1, explanation/v1, viz_spec/v1."
+    },
+    "rationale": {
+      "type": "string",
+      "description": "Why the cycle wants this — carried from the frontier op / opportunity."
+    },
+    "context": {
+      "type": "object",
+      "description": "The typed slot payload + cycle state a filler needs (hypotheses to discriminate, competing predictions, parent study, catalog routes, evidence summary, ...)."
+    },
+    "value": {
+      "type": "object",
+      "description": "Prioritization signal carried from the opportunity/candidate_action.",
+      "properties": {
+        "info": {"type": "number"},
+        "impact": {"type": "number"},
+        "enable": {"type": "number"},
+        "cost": {"type": "number"},
+        "closure": {"type": "number"},
+        "discriminate": {"type": "number"},
+        "score": {"type": "number"}
+      }
+    },
+    "provenance": {
+      "type": "object",
+      "description": "Which frontier op / opportunity produced the request.",
+      "properties": {
+        "source": {"type": "string"},
+        "op": {"type": "string"},
+        "opportunity_id": {"type": "string"}
+      }
+    },
+    "gate": {
+      "type": "string",
+      "enum": ["auto", "review"],
+      "description": "Resolved from the investigation's GateConfig at emit time."
+    }
+  }
+}

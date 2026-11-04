@@ -2692,6 +2692,11 @@ def main(argv: list[str] | None = None) -> int:
                            help="rank the frontier by value — what is most valuable to investigate next")
     p_opp.add_argument("investigation", help="investigation slug")
 
+    p_requests = sub.add_parser("requests",
+                                help="AI-drivable cycle Phase 1: the typed GenerationRequest list the frontier emits (propose_study / acquire_model / author_tests / interpret_finding / resolve_decision / explain / visualize) for a filler to fill")
+    p_requests.add_argument("investigation", help="investigation slug")
+    p_requests.add_argument("--json", action="store_true", help="emit the requests as JSON")
+
     p_hyp = sub.add_parser("hypotheses",
                            help="the competing-hypotheses contest: each hypothesis, its predicted observable, and the support its studies' runs give it")
     p_hyp.add_argument("investigation", help="investigation slug")
@@ -3026,6 +3031,20 @@ def main(argv: list[str] | None = None) -> int:
         result = _cycle_with_evidence(ws, args.investigation, inv_spec, studies)
         opps = discovery_engine.opportunities(result, inv_spec)
         print(discovery_engine.summarize_opportunities(opps))
+        return 0
+
+    if args.cmd == "requests":
+        from . import discovery_engine
+        from .generation_emit import generation_requests, summarize_requests
+        _, inv_spec, studies = load_cycle_inputs(ws, args.investigation)
+        result = _cycle_with_evidence(ws, args.investigation, inv_spec, studies)
+        opps = discovery_engine.opportunities(result, inv_spec)
+        reqs = generation_requests(opps, inv_spec=inv_spec)
+        if getattr(args, "json", False):
+            import json as _json
+            print(_json.dumps([r.to_dict() for r in reqs], indent=2, default=str))
+        else:
+            print(summarize_requests(reqs))
         return 0
 
     if args.cmd == "hypotheses":
