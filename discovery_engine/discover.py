@@ -2249,6 +2249,19 @@ def _load_runs_by_study(ws: Path, inv_slug: str, studies: dict) -> dict[str, lis
                 runs = _rr.list_runs(db)
                 break
         runs_by_study[slug] = runs
+    # Merge in runs recorded only in the workbench's workspace-wide run log
+    # (.pbg/runs.jsonl, vivarium-workbench #612) so a study whose runs live only
+    # there is still resolvable for evidence reconciliation. The per-study runs.db
+    # is authoritative and wins on a run_id conflict.
+    for slug, extra in _rr.runs_by_study_from_runlog(
+            ws / ".pbg" / "runs.jsonl", set(studies)).items():
+        existing = runs_by_study.setdefault(slug, [])
+        have = {r.get("run_id") for r in existing if isinstance(r, dict)}
+        for run in extra:
+            rid = run.get("run_id")
+            if rid not in have:
+                existing.append(run)
+                have.add(rid)
     return runs_by_study
 
 
