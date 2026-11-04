@@ -120,6 +120,31 @@ class GenerationRequest:
         return asdict(self)
 
 
+@dataclass(frozen=True)
+class GenerationResult:
+    """A filled :class:`GenerationRequest`: the ``artifact`` a filler (a human
+    ``/viva-*`` skill, or an AI filler behind ``$VIVA_FILLER_CMD``) produced for
+    ``request_id``, plus who filled it. The engine CONSUMES and APPLIES it through
+    the canonical write op for the request's kind (``generation_apply``); it never
+    generates the artifact. ``status`` is the filler's self-report; the apply step
+    sets the authoritative outcome and ``applied_to`` (the fields/files written)."""
+
+    request_id: str
+    artifact: dict = field(default_factory=dict)
+    filler: dict = field(default_factory=dict)       # {kind: "human"|"ai", id, model?}
+    rationale: str = ""
+    confidence: float | None = None
+    status: str = "applied"                           # applied | queued_for_review | rejected
+    applied_to: list = field(default_factory=list)
+
+    def __post_init__(self) -> None:
+        if not self.request_id:
+            raise ValueError("GenerationResult.request_id is required")
+
+    def to_dict(self) -> dict:
+        return asdict(self)
+
+
 def _schema(name: str) -> dict:
     return json.loads((_SCHEMA_DIR / name).read_text(encoding="utf-8"))
 
@@ -132,3 +157,13 @@ def validate_request(doc: dict) -> None:
                             _schema("generation-request.schema.json"))
     except jsonschema.ValidationError as e:  # pragma: no cover - message formatting
         raise ValueError(f"invalid generation_request: {e.message}") from e
+
+
+def validate_result(doc: dict) -> None:
+    """Raise ``ValueError`` if ``doc`` doesn't satisfy generation-result.schema.json."""
+    import jsonschema
+    try:
+        jsonschema.validate(json.loads(json.dumps(doc, default=str)),
+                            _schema("generation-result.schema.json"))
+    except jsonschema.ValidationError as e:  # pragma: no cover - message formatting
+        raise ValueError(f"invalid generation_result: {e.message}") from e

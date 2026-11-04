@@ -1,0 +1,41 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://vivarium-collective.org/schemas/generation-result.schema.json",
+  "title": "GenerationResult",
+  "description": "A filled GenerationRequest: the artifact a filler (human skill or AI) produced for a request, plus how it was filled. The engine applies it through the canonical write op for the request's kind; the artifact content satisfies the request's `produces` contract. Strict at the top level: unknown fields are errors.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["request_id"],
+  "properties": {
+    "request_id": {
+      "type": "string",
+      "minLength": 1,
+      "description": "The GenerationRequest.id this result fills."
+    },
+    "artifact": {
+      "type": "object",
+      "description": "The content satisfying the request's `produces` contract (e.g. the finding fields, the decision rationale, the study spec)."
+    },
+    "filler": {
+      "type": "object",
+      "description": "Who filled it.",
+      "properties": {
+        "kind": {"type": "string", "enum": ["human", "ai"]},
+        "id": {"type": "string"},
+        "model": {"type": "string"}
+      }
+    },
+    "rationale": {"type": "string"},
+    "confidence": {"type": ["number", "null"]},
+    "status": {
+      "type": "string",
+      "enum": ["applied", "queued_for_review", "rejected"],
+      "description": "The filler's self-report; the apply step sets the authoritative outcome."
+    },
+    "applied_to": {
+      "type": "array",
+      "items": {"type": "string"},
+      "description": "The fields/files the apply step wrote (for audit + undo)."
+    }
+  }
+}
