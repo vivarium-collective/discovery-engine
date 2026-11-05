@@ -142,3 +142,34 @@ def test_pass_if_tolerance_override():
     assert _cls(24.0, _row(22.0, "T"))["status"] == E.PROVISIONAL  # 9% > 5%
     tests = [{"name": "T", "pass_if": {"op": ">", "value": 1, "tolerance": 0.2}}]
     assert _cls(24.0, _row(22.0, "T"), tests=tests)["status"] == E.VERIFIED
+
+
+# --- consistent_with_zero op (floppy / null-centred findings) ------------------
+# Regression: _evaluate had no branch for op:consistent_with_zero, so once such a
+# finding had a numeric observed it fell through to False and was FALSE-CONTRADICTED.
+
+def _zero_test(name="floppy", **pass_if):
+    return {"name": name, "pass_if": {"op": "consistent_with_zero", **pass_if}}
+
+
+def test_consistent_with_zero_within_tolerance_is_verified():
+    f = _finding("fz", observed=-0.0225, from_test="floppy", run_ids=["r1"])
+    study = _study("s", [f], tests=[_zero_test(tolerance=0.13)])
+    r = E.classify_finding_evidence(f, study, {"r1"}, {"r1": _row(-0.0225, test="floppy")})
+    assert r["status"] == E.VERIFIED, r
+
+
+def test_consistent_with_zero_outside_tolerance_is_contradicted():
+    f = _finding("fz", observed=5.0, from_test="floppy", run_ids=["r1"])
+    study = _study("s", [f], tests=[_zero_test(tolerance=0.13)])
+    r = E.classify_finding_evidence(f, study, {"r1"}, {"r1": _row(5.0, test="floppy")})
+    assert r["status"] == E.CONTRADICTED, r
+
+
+def test_consistent_with_zero_without_tolerance_is_not_false_contradicted():
+    # No tolerance: unbounded "consistent with zero" cannot be refuted numerically,
+    # so a run-backed finding must still VERIFY (not CONTRADICT).
+    f = _finding("fz", observed=-0.0225, from_test="floppy", run_ids=["r1"])
+    study = _study("s", [f], tests=[_zero_test()])
+    r = E.classify_finding_evidence(f, study, {"r1"}, {"r1": _row(-0.0225, test="floppy")})
+    assert r["status"] == E.VERIFIED, r

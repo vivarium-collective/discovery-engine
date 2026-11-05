@@ -120,6 +120,12 @@ def _expected_band(expected: Any) -> dict | None:
         for k in ("low", "high", "threshold", "value"):
             if isinstance(expected.get(k), (int, float)) and not isinstance(expected.get(k), bool):
                 band[k] = float(expected[k])
+        # A symmetric tolerance for zero-centred ops (consistent_with_zero): the
+        # noise floor / epsilon the observed must fall within of zero.
+        for k in ("tolerance", "epsilon"):
+            if isinstance(expected.get(k), (int, float)) and not isinstance(expected.get(k), bool):
+                band["tolerance"] = float(expected[k])
+                break
         op = expected.get("op")
         if isinstance(op, str) and op.strip():
             band["op"] = op.strip()
@@ -164,6 +170,16 @@ def _evaluate(observed: float, band: dict) -> bool:
     if op in ("!=", "ne"):
         ref = band.get("value", band.get("threshold"))
         return ref is not None and observed != ref
+    if op in ("consistent_with_zero", "near_zero", "approx_zero", "approximately_zero"):
+        # Zero-centred op: observed must fall within an epsilon band of zero. The
+        # epsilon is the test's tolerance/value/threshold (ideally the measurement
+        # noise floor). Without one the claim is unbounded and cannot be refuted
+        # numerically, so return True rather than FALSE-CONTRADICT a run-backed
+        # finding (the prior fall-through to `return False` did exactly that).
+        eps = band.get("tolerance", band.get("value", band.get("threshold")))
+        if eps is None:
+            return True
+        return abs(observed) <= abs(float(eps))
     if "threshold" in band:
         # Bare threshold with no operator → default to >= (the common "at least"
         # acceptance reading); documented contract.
