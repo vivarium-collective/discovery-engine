@@ -2696,6 +2696,10 @@ def main(argv: list[str] | None = None) -> int:
                                 help="AI-drivable cycle Phase 1: the typed GenerationRequest list the frontier emits (propose_study / acquire_model / author_tests / interpret_finding / resolve_decision / explain / visualize) for a filler to fill")
     p_requests.add_argument("investigation", help="investigation slug")
     p_requests.add_argument("--json", action="store_true", help="emit the requests as JSON")
+    p_requests.add_argument("--fill", action="store_true",
+                            help="dispatch auto-gated requests to $VIVA_FILLER_CMD and apply the results")
+    p_requests.add_argument("--free-run", action="store_true",
+                            help="with --fill: treat every request as auto (the free_run gate preset)")
 
     p_hyp = sub.add_parser("hypotheses",
                            help="the competing-hypotheses contest: each hypothesis, its predicted observable, and the support its studies' runs give it")
@@ -3034,14 +3038,28 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     if args.cmd == "requests":
+        import json as _json
+
         from . import discovery_engine
+        from .generation import GateConfig
         from .generation_emit import generation_requests, summarize_requests
         _, inv_spec, studies = load_cycle_inputs(ws, args.investigation)
         result = _cycle_with_evidence(ws, args.investigation, inv_spec, studies)
         opps = discovery_engine.opportunities(result, inv_spec)
-        reqs = generation_requests(opps, inv_spec=inv_spec)
+        if getattr(args, "free_run", False):
+            gates = GateConfig.preset("free_run")
+        else:
+            gc = (inv_spec.get("discovery") or {}).get("gates") if isinstance(inv_spec, dict) else None
+            gates = (GateConfig(default=gc.get("default"), by_kind=gc.get("by_kind") or {})
+                     if isinstance(gc, dict) else GateConfig())
+        reqs = generation_requests(opps, gates=gates, inv_spec=inv_spec)
+        if getattr(args, "fill", False):
+            from .generation_apply import run_requests, subprocess_filler
+            outcomes = run_requests(reqs, fill=subprocess_filler(),
+                                    ws_root=ws, inv_slug=args.investigation)
+            print(_json.dumps(outcomes, indent=2, default=str))
+            return 0
         if getattr(args, "json", False):
-            import json as _json
             print(_json.dumps([r.to_dict() for r in reqs], indent=2, default=str))
         else:
             print(summarize_requests(reqs))
