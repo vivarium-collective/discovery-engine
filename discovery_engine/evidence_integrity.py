@@ -64,7 +64,8 @@ def _pass_if_band(test: dict) -> dict | None:
     """The ``pass_if`` of a behavior test as an expected band (op/value or low/high)."""
     pf = (test or {}).get("pass_if")
     if isinstance(pf, dict):
-        return _expected_band({k: pf[k] for k in ("op", "value", "low", "high", "threshold")
+        return _expected_band({k: pf[k] for k in ("op", "value", "low", "high", "threshold",
+                                                   "tolerance", "epsilon")
                                if k in pf})
     return None
 
