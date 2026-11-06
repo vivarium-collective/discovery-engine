@@ -86,8 +86,10 @@ def _render(target: Path, workspace_name: str) -> None:
     try:
         subprocess.run(
             ["bash", str(init_script)],
-            input=f"{workspace_name}\n",
-            text=True, cwd=target, check=True,
+            # Bytes, not text: in text mode Windows turns "\n" into "\r\n",
+            # and bash would read the name as "<name>\r".
+            input=f"{workspace_name}\n".encode(),
+            cwd=target, check=True,
         )
     except subprocess.CalledProcessError as e:
         raise click.ClickException(

@@ -16,6 +16,7 @@ absolute directory names.
 
 from __future__ import annotations
 
+import shlex
 import sys
 from pathlib import Path
 
@@ -129,7 +130,7 @@ def _main(argv=None) -> int:
         return 0
     if args.env:
         for key in list(LAYOUT_DEFAULTS) + ["package"]:
-            print(f"export {key.upper()}_DIR={wp.dir(key)}")
+            print(f"export {key.upper()}_DIR={shlex.quote(str(wp.dir(key)))}")
         return 0
     if not args.name:
         ap.error("a directory name is required (or use --env)")
