@@ -1,4 +1,5 @@
 """Nested-aware study resolution (investigation-centric structure, Phase 1)."""
+import shlex
 from pathlib import Path
 
 from discovery_engine.workspace_paths import WorkspacePaths
@@ -47,9 +48,24 @@ def test_paths_cli_study_dir(tmp_path, capsys):
     rc = _main(["--study", "s1", "--workspace", str(tmp_path)])
     out = capsys.readouterr().out.strip()
     assert rc == 0
-    assert out.endswith("investigations/inv-a/studies/s1")
+    # C.M.: This had to be changed to assess the parts of the path because expecting
+    # forward vs backward slashes is system-specific
+    assert Path(out).parts[-4:] == ("investigations", "inv-a", "studies", "s1")
 
 
 def test_inputs_dir_nested(tmp_path):
     wp = _ws(tmp_path, nested=True)
     assert wp.inputs_dir("inv-a") == tmp_path / "investigations" / "inv-a" / "inputs"
+
+
+def test_paths_cli_env_quotes_paths(tmp_path, capsys):
+    # A space (or, on Windows, a backslash) in the path must survive `eval`.
+    workspace = tmp_path / "my workspace"
+    workspace.mkdir()
+    _ws(workspace, nested=False)
+    from discovery_engine.paths import _main
+    assert _main(["--env", "--workspace", str(workspace)]) == 0
+    for line in capsys.readouterr().out.splitlines():
+        words = shlex.split(line)
+        assert len(words) == 2  # "export" and "NAME=path"
+        assert words[1].split("=", 1)[1].startswith(str(workspace.resolve()))
