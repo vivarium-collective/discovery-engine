@@ -4,7 +4,7 @@ inside classify_finding_evidence with no single validator/doc. `registered_run_c
 that one source of truth — it reports exactly which parts are missing."""
 from __future__ import annotations
 
-from discovery_engine.evidence_integrity import registered_run_contract, REGISTERED_RUN_CONTRACT
+from discovery_engine.phases.evidence_integrity import registered_run_contract, REGISTERED_RUN_CONTRACT
 
 
 def _finding(from_test="t1", run_ids=("R1",)):

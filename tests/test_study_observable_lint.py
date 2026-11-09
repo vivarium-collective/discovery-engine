@@ -1,6 +1,6 @@
 """P3 Task 2 — reconcile a study's declared contract.face against run observables."""
-import discovery_engine.study_observable_lint as mod
-from discovery_engine.study_observable_lint import (
+import discovery_engine.study.observable_lint as mod
+from discovery_engine.study.observable_lint import (
     observable_gaps,
     reconcile_study_observables,
 )

@@ -11,13 +11,13 @@ from unittest.mock import patch
 import polars as pl
 
 from discovery_engine import discover
-from discovery_engine import discovery_engine as de
-from discovery_engine import evaluation as ev
-from discovery_engine import run_registry as rr
-from discovery_engine.study_io import load_yaml, save_yaml_atomic
+from discovery_engine.projection import engine as de
+from discovery_engine.phases import evaluation as ev
+from discovery_engine.study import run_registry as rr
+from discovery_engine.study.io import load_yaml, save_yaml_atomic
 
 C2D = "json.tool.main"                                   # resolves (stdlib): the 2D composite
-C3D = "discovery_engine.model_architect.build_catalog"   # resolves: the higher-fidelity composite
+C3D = "discovery_engine.phases.model_architect.build_catalog"   # resolves: the higher-fidelity composite
 PARAMS = {"membrane_bending": 1.0}
 BAND = {"op": "range", "low": 0.3, "high": 0.8}
 
@@ -73,7 +73,7 @@ def _reader():
 
 
 def _cycle(ws):
-    from discovery_engine import evidence_integrity as ei
+    from discovery_engine.phases import evidence_integrity as ei
     ip, inv, studies = discover.load_cycle_inputs(ws, "og")
     evs = ei.reconcile_evidence_state(inv, studies, discover._load_runs_by_study(ws, "og", studies))
     return ip, inv, studies, evs, discover.run_cycle(inv, studies, evidence_state=evs)

@@ -3,10 +3,10 @@ import pytest
 import yaml
 
 from discovery_engine import discover as D
-from discovery_engine import discovery_engine as de
-from discovery_engine.investigation_import import investigations_dir, studies_dir
-from discovery_engine.viz_freshness import stamp_meta
-from discovery_engine.viz_proposals import CAP, propose_visualizations
+from discovery_engine.projection import engine as de
+from discovery_engine.investigation.import_ import investigations_dir, studies_dir
+from discovery_engine.viz.freshness import stamp_meta
+from discovery_engine.viz.proposals import CAP, propose_visualizations
 
 CAT = [{"address": "local:BandOverlayViz", "inputs": {"series": "timeseries"}, "form": "band_overlay"}]
 RUNS = [{"run_id": "r1", "completed_at": 10.0}]

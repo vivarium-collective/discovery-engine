@@ -2,7 +2,7 @@ import sys
 import textwrap
 from pathlib import Path
 
-import discovery_engine.study_evaluator as se
+import discovery_engine.study.evaluator as se
 
 
 def _make_ws(tmp_path: Path, pkg: str, body: str) -> Path:

@@ -3,10 +3,10 @@ from __future__ import annotations
 
 import copy
 
-from discovery_engine import evaluation as E
-from discovery_engine import hypotheses as H
-from discovery_engine import model_architect as M
-from discovery_engine.model_revision import propose_model_revisions
+from discovery_engine.phases import evaluation as E
+from discovery_engine.phases import hypotheses as H
+from discovery_engine.phases import model_architect as M
+from discovery_engine.phases.model_revision import propose_model_revisions
 
 C2D = "viva_x.composites.membrane_2d.build"
 C3D = "viva_x.composites.membrane_3d.build"

@@ -1,5 +1,5 @@
 """Tests for investigation canonicalization (studies: -> members:)."""
-from discovery_engine.investigation_canonicalize import canonicalize_investigation, migrate_investigation_file
+from discovery_engine.investigation.canonicalize import canonicalize_investigation, migrate_investigation_file
 
 
 def test_studies_renamed_to_members():

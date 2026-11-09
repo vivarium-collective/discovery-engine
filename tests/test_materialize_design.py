@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import copy
 
-from discovery_engine import experiment_design as D
-from discovery_engine.study_seeding import _inherit_arm
+from discovery_engine.phases import experiment_design as D
+from discovery_engine.growth.seeding import _inherit_arm
 
 PARENT = {"name": "s2", "investigation": "inv", "observables": [{"path": "flux"}],
           "behavior_tests": [{"measure": {"path": "flux"}}],

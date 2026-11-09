@@ -1,6 +1,6 @@
 from pathlib import Path
 import yaml
-from discovery_engine.investigation_inputs import investigation_inputs
+from discovery_engine.investigation.inputs import investigation_inputs
 
 def _ws(tmp):
     (tmp / "workspace.yaml").write_text("name: demo\n", encoding="utf-8")

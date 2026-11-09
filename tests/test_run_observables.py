@@ -2,7 +2,7 @@
 
 Best-effort: no run / unreadable run → ``None``, never an exception.
 """
-from discovery_engine.run_observables import study_run_observables
+from discovery_engine.study.run_observables import study_run_observables
 
 
 
@@ -41,7 +41,7 @@ def test_latest_run_store_prefers_registry_run_id(tmp_path, monkeypatch):
     import os
     import time
 
-    import discovery_engine.run_observables as ro
+    import discovery_engine.study.run_observables as ro
 
     cr = tmp_path / "canonical-runs"
     cr.mkdir()

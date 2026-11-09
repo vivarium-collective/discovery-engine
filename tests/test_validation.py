@@ -1,4 +1,4 @@
-"""Tests for discovery_engine.validation — the validator layer (RFC-0007).
+"""Tests for discovery_engine.reporting.validation — the validator layer (RFC-0007).
 
 One validation-record shape + a (type, scope)-tagged registry, generalizing the
 checks the framework already runs. The two-axis rule (execution_status ⊥
@@ -9,9 +9,7 @@ from __future__ import annotations
 
 import pytest
 
-from discovery_engine import validation as V
-
-
+from discovery_engine.reporting import validation as V
 # --- record shape ----------------------------------------------------------
 
 def test_validation_record_builds_the_two_axis_shape():

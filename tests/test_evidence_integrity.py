@@ -6,9 +6,7 @@ not silently accepted; a prose-only finding is UNSUPPORTED.
 """
 from __future__ import annotations
 
-from discovery_engine import evidence_integrity as E
-
-
+from discovery_engine.phases import evidence_integrity as E
 def _finding(fid, observed=None, from_test=None, run_ids=None):
     ev = {}
     if observed is not None:

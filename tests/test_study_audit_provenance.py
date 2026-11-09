@@ -1,7 +1,7 @@
-"""Tests for the L2 supporting-provenance check (discovery_engine.study_audit)."""
+"""Tests for the L2 supporting-provenance check (discovery_engine.study.audit)."""
 import yaml
 
-from discovery_engine.study_audit import audit_workspace
+from discovery_engine.study.audit import audit_workspace
 
 # Authored verdict "accepted" -> derive_confidence == Accepted (no coded tests needed
 # for the verdict; the test below exists only so from_test can resolve).

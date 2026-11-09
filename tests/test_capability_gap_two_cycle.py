@@ -7,10 +7,10 @@ import pytest
 import yaml
 
 from discovery_engine import discover as D
-from discovery_engine import discovery_engine as de
-from discovery_engine.capability_gaps import propose_capability_gaps
-from discovery_engine.investigation_import import investigations_dir, studies_dir
-from discovery_engine.model_architect import build_catalog
+from discovery_engine.projection import engine as de
+from discovery_engine.feedback.capability_gaps import propose_capability_gaps
+from discovery_engine.investigation.import_ import investigations_dir, studies_dir
+from discovery_engine.phases.model_architect import build_catalog
 
 MECH = "plasmid replication"
 BASE = "pkg.mod.GrowthComposite"

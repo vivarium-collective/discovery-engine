@@ -1,9 +1,9 @@
 """Wave 3b tests — hypotheses support, lifecycle floor, threshold sensitivity,
 and the new rigor dimensions (threshold_provenance, metric_calibration,
 generality) + claim_scope WARN (critique #6/#16/#25/#9/#20/#21/#22)."""
-from discovery_engine import hypotheses as H
-from discovery_engine.rigor import study_rigor, investigation_rigor, threshold_sensitivity, GAP, WARN, OK
-from discovery_engine.study_verdict import lifecycle_floor, lifecycle_below_floor
+from discovery_engine.phases import hypotheses as H
+from discovery_engine.reporting.rigor import study_rigor, investigation_rigor, threshold_sensitivity, GAP, WARN, OK
+from discovery_engine.study.verdict import lifecycle_floor, lifecycle_below_floor
 
 
 def _sev(scorecard, dim_id):
@@ -257,7 +257,7 @@ def test_claim_scope_overreach_warns():
 # ---------------------------------------------------------------------------
 
 def _lint_findings(spec, tmp_path):
-    from discovery_engine.report_linter import (
+    from discovery_engine.reporting.linter import (
         _LintContext, _check_finding_scope_generality_lifecycle,
     )
     ctx = _LintContext(ws_root=tmp_path, slug="s", spec=spec)

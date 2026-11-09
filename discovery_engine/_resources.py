@@ -17,6 +17,15 @@ _PKG_DIR = Path(__file__).resolve().parent
 _REPO_ROOT_GUESS = _PKG_DIR.parent
 
 
+def schemas_dir() -> Path:
+    """The package's bundled JSON-schema dir (``discovery_engine/schemas/``).
+
+    Lives at the package root, so modules in subpackages must resolve it here
+    rather than ``Path(__file__).parent / "schemas"``.
+    """
+    return _PKG_DIR / "schemas"
+
+
 def resource_dir(name: str) -> Path:
     """Return the path to a resource dir, preferring the wheel layout."""
     bundled = _PKG_DIR / f"_{name}"

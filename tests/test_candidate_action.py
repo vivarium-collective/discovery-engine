@@ -6,10 +6,8 @@ repair as a prerequisite of the discriminating study built on it.
 """
 from __future__ import annotations
 
-from discovery_engine import candidate_action as CA
-from discovery_engine import evidence_integrity as E
-
-
+from discovery_engine.phases import candidate_action as CA
+from discovery_engine.phases import evidence_integrity as E
 def _cycle(open_calls=None, edges=None):
     return {"knowledge": {"verdicts": {}, "behaviors": {}},
             "argument": {"claims": {}, "edges": edges or []},

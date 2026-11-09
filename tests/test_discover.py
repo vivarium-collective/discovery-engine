@@ -17,7 +17,7 @@ from __future__ import annotations
 import pytest
 
 from discovery_engine import discover
-from discovery_engine.study_io import load_yaml, save_yaml_atomic
+from discovery_engine.study.io import load_yaml, save_yaml_atomic
 
 
 def _study(slug, result, **extra):
@@ -506,8 +506,7 @@ def test_add_resolution_rejects_unknown_kind():
 
 
 def test_run_readiness_flags_unemitted_gate_observables(monkeypatch):
-    from discovery_engine import study_evaluator as SE
-
+    from discovery_engine.study import evaluator as SE
     @SE.declares_sources("enrichment_factor")
     def _log10(reader, test, ws):
         return 0.0
@@ -643,7 +642,7 @@ def test_run_readiness_flags_declared_but_unrendered_viz(tmp_path):
 def test_run_readiness_flags_unresolved_derived_measure(monkeypatch):
     # a derived measure whose computer is NOT in the env's registry will grade SKIP — flag it
     # (the env that runs readiness is the env that grades). A non-empty registry is "trustworthy".
-    import discovery_engine.study_evaluator as SE
+    import discovery_engine.study.evaluator as SE
     study = {"behavior_tests": [{"name": "t", "measure": {"kind": "derived_scalar", "path": "foo"}}]}
     monkeypatch.setattr(SE, "load_workspace_derived_scalars", lambda ws: {"bar": object()}, raising=False)
     r = discover.run_readiness(study, "/tmp")
@@ -660,7 +659,7 @@ def test_run_readiness_flags_unresolved_derived_measure(monkeypatch):
 
 def test_run_readiness_empty_registry_does_not_false_flag(monkeypatch):
     # an empty registry (no workspace package / no evaluators here) must NOT flag everything.
-    import discovery_engine.study_evaluator as SE
+    import discovery_engine.study.evaluator as SE
     monkeypatch.setattr(SE, "load_workspace_derived_scalars", lambda ws: {}, raising=False)
     study = {"behavior_tests": [{"name": "t", "measure": {"kind": "derived_scalar", "path": "foo"}}]}
     r = discover.run_readiness(study, "/tmp")

@@ -7,7 +7,7 @@ workbench to a "no classified gates" sentinel. Keep it, with this guard.
 """
 from __future__ import annotations
 
-from discovery_engine.study_verdict import verdict_count_split
+from discovery_engine.study.verdict import verdict_count_split
 
 
 def test_empty_spec_renders_the_zero_ledger_not_a_sentinel():

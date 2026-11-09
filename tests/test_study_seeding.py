@@ -5,9 +5,7 @@ without the host prose flow; and the autonomy policy decides which proposals lau
 """
 from __future__ import annotations
 
-from discovery_engine import study_seeding as S
-
-
+from discovery_engine.growth import seeding as S
 def _parent():
     return {
         "schema_version": 4, "name": "s4-energetic", "investigation": "eukaryogenesis",

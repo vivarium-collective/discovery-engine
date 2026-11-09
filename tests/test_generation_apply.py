@@ -4,12 +4,12 @@ import sys
 import pytest
 import yaml
 
-from discovery_engine.generation import (
+from discovery_engine.phases.generation import (
     GenerationRequest,
     GenerationResult,
     validate_result,
 )
-from discovery_engine.generation_apply import (
+from discovery_engine.phases.generation_apply import (
     apply_result,
     run_requests,
     subprocess_filler,

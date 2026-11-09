@@ -25,7 +25,7 @@ from pathlib import Path
 import pytest
 import yaml
 
-from discovery_engine.report_linter import (
+from discovery_engine.reporting.linter import (
     _check_narrative_spine_completeness,
     _LintContext,
     has_blocking_errors,

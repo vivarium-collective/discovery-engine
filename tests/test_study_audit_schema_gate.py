@@ -13,7 +13,7 @@ import json
 
 import yaml
 
-from discovery_engine.study_audit import audit_workspace
+from discovery_engine.study.audit import audit_workspace
 
 
 _SCHEMA = {

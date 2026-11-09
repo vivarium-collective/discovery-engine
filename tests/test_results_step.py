@@ -1,4 +1,4 @@
-"""Tests for ResultsHandle/ResultsStep (discovery_engine.post_sim) and the
+"""Tests for ResultsHandle/ResultsStep (discovery_engine.integration.post_sim) and the
 deterministic composite-wiring proof for the post-sim Step family.
 
 Covers:
@@ -24,7 +24,7 @@ from process_bigraph import Composite, allocate_core
 
 import viva_emitters
 
-from discovery_engine.post_sim import (
+from discovery_engine.integration.post_sim import (
     AnalysisStep,
     ReportCardStep,
     ResultsHandle,

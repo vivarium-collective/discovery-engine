@@ -18,7 +18,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from discovery_engine.report_linter import (
+from discovery_engine.reporting.linter import (
     CHECKS,
     _CHECK_FUNCTIONS,
     _LintContext,

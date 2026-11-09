@@ -1,6 +1,4 @@
-from discovery_engine import study_status
-
-
+from discovery_engine.study import status as study_status
 def test_count_uses_canonical_flag_not_last_run():
     spec = {
         "tests": [{"name": "t1"}, {"name": "t2"}],

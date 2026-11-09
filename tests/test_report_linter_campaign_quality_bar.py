@@ -22,7 +22,7 @@ from pathlib import Path
 
 import yaml
 
-from discovery_engine.report_linter import (
+from discovery_engine.reporting.linter import (
     _LintContext,
     _check_authored_confidence_diverges,
     _check_decision_viz_single_run,
@@ -30,9 +30,7 @@ from discovery_engine.report_linter import (
     _check_investigation_missing_adversarial,
     lint_workspace_report,
 )
-from discovery_engine import study_verdict
-
-
+from discovery_engine.study import verdict as study_verdict
 def _run(check_fn, spec: dict, ws_root: Path | None = None, slug: str = "s1"):
     ctx = _LintContext(ws_root=ws_root or Path("."), slug=slug, spec=spec)
     check_fn(ctx)
@@ -236,7 +234,7 @@ def test_investigation_check_runs_via_workspace_report(tmp_path):
 
 
 def test_campaign_rules_are_opt_in_not_default(tmp_path):
-    from discovery_engine import report_linter as rl
+    from discovery_engine.reporting import linter as rl
     campaign = set(rl._RULESETS["campaign"][0]) | set(rl._RULESETS["campaign"][1])
     assert campaign
     assert not campaign & (set(rl._CHECK_FUNCTIONS) | set(rl._INVESTIGATION_CHECK_FUNCTIONS))
@@ -244,7 +242,7 @@ def test_campaign_rules_are_opt_in_not_default(tmp_path):
 
 
 def test_workspace_yaml_enables_ruleset(tmp_path):
-    from discovery_engine import report_linter as rl
+    from discovery_engine.reporting import linter as rl
     (tmp_path / "workspace.yaml").write_text("lint:\n  rulesets: [campaign]\n")
     assert rl._workspace_rulesets(tmp_path) == ["campaign"]
     assert rl._workspace_rulesets(tmp_path / "nope") == []

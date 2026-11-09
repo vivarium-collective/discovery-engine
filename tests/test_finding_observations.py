@@ -212,7 +212,7 @@ findings:
 
 def test_populate_import():
     """The module and function are importable."""
-    from discovery_engine.finding_observations import populate_finding_observations  # noqa: F401
+    from discovery_engine.study.finding_observations import populate_finding_observations  # noqa: F401
 
 
 def test_populate_returns_filled_skipped(tmp_path):
@@ -221,7 +221,7 @@ def test_populate_returns_filled_skipped(tmp_path):
     study_dir.mkdir()
     _write_study(study_dir / "study.yaml", _BASE_STUDY)
 
-    from discovery_engine.finding_observations import populate_finding_observations
+    from discovery_engine.study.finding_observations import populate_finding_observations
     result = populate_finding_observations(study_dir)
     assert isinstance(result, dict), "must return dict"
     assert "filled" in result and "skipped" in result
@@ -235,7 +235,7 @@ def test_populate_fills_evidence_observed(tmp_path):
     study_dir.mkdir()
     _write_study(study_dir / "study.yaml", _BASE_STUDY)
 
-    from discovery_engine.finding_observations import populate_finding_observations
+    from discovery_engine.study.finding_observations import populate_finding_observations
     result = populate_finding_observations(study_dir)
 
     assert result["filled"] == 1
@@ -251,7 +251,7 @@ def test_populate_fills_evidence_units(tmp_path):
     study_dir.mkdir()
     _write_study(study_dir / "study.yaml", _BASE_STUDY)
 
-    from discovery_engine.finding_observations import populate_finding_observations
+    from discovery_engine.study.finding_observations import populate_finding_observations
     populate_finding_observations(study_dir)
 
     doc = _load(study_dir / "study.yaml")
@@ -265,7 +265,7 @@ def test_populate_fills_expected_range(tmp_path):
     study_dir.mkdir()
     _write_study(study_dir / "study.yaml", _BASE_STUDY)
 
-    from discovery_engine.finding_observations import populate_finding_observations
+    from discovery_engine.study.finding_observations import populate_finding_observations
     populate_finding_observations(study_dir)
 
     doc = _load(study_dir / "study.yaml")
@@ -279,7 +279,7 @@ def test_populate_fills_expected_cites(tmp_path):
     study_dir.mkdir()
     _write_study(study_dir / "study.yaml", _BASE_STUDY)
 
-    from discovery_engine.finding_observations import populate_finding_observations
+    from discovery_engine.study.finding_observations import populate_finding_observations
     populate_finding_observations(study_dir)
 
     doc = _load(study_dir / "study.yaml")
@@ -293,7 +293,7 @@ def test_populate_fills_provenance_run_ids(tmp_path):
     study_dir.mkdir()
     _write_study(study_dir / "study.yaml", _BASE_STUDY)
 
-    from discovery_engine.finding_observations import populate_finding_observations
+    from discovery_engine.study.finding_observations import populate_finding_observations
     populate_finding_observations(study_dir)
 
     doc = _load(study_dir / "study.yaml")
@@ -307,7 +307,7 @@ def test_populate_fills_divergence_factor_inside_band(tmp_path):
     study_dir.mkdir()
     _write_study(study_dir / "study.yaml", _BASE_STUDY)
 
-    from discovery_engine.finding_observations import populate_finding_observations
+    from discovery_engine.study.finding_observations import populate_finding_observations
     populate_finding_observations(study_dir)
 
     doc = _load(study_dir / "study.yaml")
@@ -346,7 +346,7 @@ findings:
     study_dir.mkdir()
     _write_study(study_dir / "study.yaml", study_yaml)
 
-    from discovery_engine.finding_observations import populate_finding_observations
+    from discovery_engine.study.finding_observations import populate_finding_observations
     populate_finding_observations(study_dir)
 
     doc = _load(study_dir / "study.yaml")
@@ -386,7 +386,7 @@ findings:
     study_dir.mkdir()
     _write_study(study_dir / "study.yaml", study_yaml)
 
-    from discovery_engine.finding_observations import populate_finding_observations
+    from discovery_engine.study.finding_observations import populate_finding_observations
     populate_finding_observations(study_dir)
 
     doc = _load(study_dir / "study.yaml")
@@ -401,7 +401,7 @@ def test_populate_skips_finding_with_no_test_link(tmp_path):
     study_dir.mkdir()
     _write_study(study_dir / "study.yaml", _STUDY_NO_TEST_LINK)
 
-    from discovery_engine.finding_observations import populate_finding_observations
+    from discovery_engine.study.finding_observations import populate_finding_observations
     result = populate_finding_observations(study_dir)
 
     assert result["skipped"] >= 1
@@ -420,7 +420,7 @@ def test_populate_idempotent(tmp_path):
     study_dir.mkdir()
     _write_study(study_dir / "study.yaml", _BASE_STUDY)
 
-    from discovery_engine.finding_observations import populate_finding_observations
+    from discovery_engine.study.finding_observations import populate_finding_observations
     r1 = populate_finding_observations(study_dir)
     mtime1 = (study_dir / "study.yaml").stat().st_mtime
 
@@ -473,7 +473,7 @@ findings:
     study_dir.mkdir()
     _write_study(study_dir / "study.yaml", study_yaml)
 
-    from discovery_engine.finding_observations import populate_finding_observations
+    from discovery_engine.study.finding_observations import populate_finding_observations
     populate_finding_observations(study_dir)
 
     doc = _load(study_dir / "study.yaml")
@@ -521,7 +521,7 @@ findings:
     study_dir.mkdir()
     _write_study(study_dir / "study.yaml", study_yaml)
 
-    from discovery_engine.finding_observations import populate_finding_observations
+    from discovery_engine.study.finding_observations import populate_finding_observations
     populate_finding_observations(study_dir)
 
     doc = _load(study_dir / "study.yaml")
@@ -535,7 +535,7 @@ def test_populate_mixed_findings_only_fills_linked(tmp_path):
     study_dir.mkdir()
     _write_study(study_dir / "study.yaml", _STUDY_MIXED)
 
-    from discovery_engine.finding_observations import populate_finding_observations
+    from discovery_engine.study.finding_observations import populate_finding_observations
     result = populate_finding_observations(study_dir)
 
     assert result["filled"] == 1
@@ -554,7 +554,7 @@ def test_populate_calibration_anchor_fills_observed_value(tmp_path):
     study_dir.mkdir()
     _write_study(study_dir / "study.yaml", _STUDY_WITH_CALIBRATION_ANCHOR)
 
-    from discovery_engine.finding_observations import populate_finding_observations
+    from discovery_engine.study.finding_observations import populate_finding_observations
     populate_finding_observations(study_dir)
 
     doc = _load(study_dir / "study.yaml")
@@ -575,7 +575,7 @@ def test_populate_calibration_anchor_never_touches_literature_target(tmp_path):
     study_dir.mkdir()
     _write_study(study_dir / "study.yaml", _STUDY_WITH_CALIBRATION_ANCHOR)
 
-    from discovery_engine.finding_observations import populate_finding_observations
+    from discovery_engine.study.finding_observations import populate_finding_observations
     populate_finding_observations(study_dir)
 
     doc = _load(study_dir / "study.yaml")
@@ -590,7 +590,7 @@ def test_populate_comments_preserved(tmp_path):
     study_dir.mkdir()
     _write_study(study_dir / "study.yaml", _BASE_STUDY)
 
-    from discovery_engine.finding_observations import populate_finding_observations
+    from discovery_engine.study.finding_observations import populate_finding_observations
     populate_finding_observations(study_dir)
 
     text = (study_dir / "study.yaml").read_text(encoding="utf-8")
@@ -627,7 +627,7 @@ findings:
     study_dir.mkdir()
     _write_study(study_dir / "study.yaml", study_yaml)
 
-    from discovery_engine.finding_observations import populate_finding_observations
+    from discovery_engine.study.finding_observations import populate_finding_observations
     result = populate_finding_observations(study_dir)
 
     # skipped when measured_value is absent
@@ -658,7 +658,7 @@ findings:
     study_dir.mkdir()
     _write_study(study_dir / "study.yaml", study_yaml)
 
-    from discovery_engine.finding_observations import populate_finding_observations
+    from discovery_engine.study.finding_observations import populate_finding_observations
     result = populate_finding_observations(study_dir)
 
     assert result["filled"] == 0
@@ -700,7 +700,7 @@ findings:
     study_dir.mkdir()
     _write_study(study_dir / "study.yaml", study_yaml)
 
-    from discovery_engine.finding_observations import populate_finding_observations
+    from discovery_engine.study.finding_observations import populate_finding_observations
     result = populate_finding_observations(study_dir)
     # Should not raise; divergence_factor may be computed or None
     assert result["filled"] >= 0  # at minimum, doesn't crash
@@ -730,7 +730,7 @@ runs:
     study_dir.mkdir()
     _write_study(study_dir / "study.yaml", study_yaml)
 
-    from discovery_engine.finding_observations import populate_finding_observations
+    from discovery_engine.study.finding_observations import populate_finding_observations
     result = populate_finding_observations(study_dir)
 
     assert result["filled"] == 0
@@ -746,7 +746,7 @@ runs:
 
 def test_divergence_factor_scalar_still_computes_exactly_as_before():
     """Sanity: scalar measured_value arithmetic is unchanged by the type guard."""
-    from discovery_engine.finding_observations import _divergence_factor
+    from discovery_engine.study.finding_observations import _divergence_factor
 
     band = {"low": 0.2, "high": 0.5}
     assert _divergence_factor(0.28, band, None) == pytest.approx(0.0)
@@ -758,7 +758,7 @@ def test_divergence_factor_dict_measured_value_returns_none_not_raise():
     """A per-generation dict measured_value (e.g. from in_range_every_generation)
     must not raise TypeError from the ``low <= measured <= high`` comparison —
     it is not a well-defined single scalar, so divergence arithmetic is skipped."""
-    from discovery_engine.finding_observations import _divergence_factor
+    from discovery_engine.study.finding_observations import _divergence_factor
 
     band = {"low": 0.2, "high": 0.5}
     per_gen_measured = {"0": 0.28, "1": 0.31, "2": 0.19}
@@ -814,7 +814,7 @@ findings:
     study_dir.mkdir()
     _write_study(study_dir / "study.yaml", study_yaml)
 
-    from discovery_engine.finding_observations import populate_finding_observations
+    from discovery_engine.study.finding_observations import populate_finding_observations
 
     # Must not raise (this reproduces the /viva-biology-forward crash).
     result = populate_finding_observations(study_dir)
@@ -842,11 +842,11 @@ def test_sync_includes_findings_key(tmp_path, monkeypatch):
     _write_study(study_dir / "study.yaml", "name: sync-test-study\nruns: []\n")
 
     # Monkeypatch populate_finding_observations to return a known value
-    import discovery_engine.finding_observations as fo
+    import discovery_engine.study.finding_observations as fo
     monkeypatch.setattr(fo, "populate_finding_observations",
                         lambda *a, **k: {"filled": 2, "skipped": 1})
 
-    from discovery_engine import study_outcomes as so
+    from discovery_engine.study import outcomes as so
     result = so.sync(study_dir)
 
     assert "findings" in result, "sync must include findings key"
@@ -862,10 +862,10 @@ def test_sync_findings_best_effort_does_not_raise_on_error(tmp_path, monkeypatch
     def _boom(*a, **k):
         raise RuntimeError("boom")
 
-    import discovery_engine.finding_observations as fo
+    import discovery_engine.study.finding_observations as fo
     monkeypatch.setattr(fo, "populate_finding_observations", _boom)
 
-    from discovery_engine import study_outcomes as so
+    from discovery_engine.study import outcomes as so
     result = so.sync(study_dir)
 
     assert "findings" in result
@@ -972,7 +972,7 @@ def test_golden_synthetic_dnaa_like_populate(tmp_path):
     study_dir.mkdir()
     _write_study(study_dir / "study.yaml", _DNAA_LIKE_STUDY)
 
-    from discovery_engine.finding_observations import populate_finding_observations
+    from discovery_engine.study.finding_observations import populate_finding_observations
     result = populate_finding_observations(study_dir)
 
     assert result["filled"] == 2, f"both findings should be filled; got {result}"
@@ -1014,7 +1014,7 @@ def test_golden_synthetic_dnaa_like_comments_preserved(tmp_path):
     study_dir.mkdir()
     _write_study(study_dir / "study.yaml", _DNAA_LIKE_STUDY)
 
-    from discovery_engine.finding_observations import populate_finding_observations
+    from discovery_engine.study.finding_observations import populate_finding_observations
     populate_finding_observations(study_dir)
 
     text = (study_dir / "study.yaml").read_text(encoding="utf-8")
@@ -1030,7 +1030,7 @@ def test_golden_synthetic_dnaa_like_idempotent(tmp_path):
     study_dir.mkdir()
     _write_study(study_dir / "study.yaml", _DNAA_LIKE_STUDY)
 
-    from discovery_engine.finding_observations import populate_finding_observations
+    from discovery_engine.study.finding_observations import populate_finding_observations
     r1 = populate_finding_observations(study_dir)
     mtime1 = (study_dir / "study.yaml").stat().st_mtime
 
@@ -1062,7 +1062,7 @@ def test_golden_dnaa2_v2einvest_untouched(tmp_path):
     """
     import subprocess
 
-    from discovery_engine.finding_observations import populate_finding_observations
+    from discovery_engine.study.finding_observations import populate_finding_observations
 
     # Record mtime before
     original_mtime = DNAA2_STUDY_YAML.stat().st_mtime
@@ -1114,6 +1114,6 @@ def test_backing_plugin_symbols_still_importable():
     workbench-free STAY modules), so its symbol must remain importable even
     though the skill no longer references it. expert_search moved into the
     workbench in Phase 2.1k (batch 1) — it is no longer a plugin module."""
-    from discovery_engine.finding_observations import populate_finding_observations  # noqa: F401
+    from discovery_engine.study.finding_observations import populate_finding_observations  # noqa: F401
 
 

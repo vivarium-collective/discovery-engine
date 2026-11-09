@@ -1,7 +1,7 @@
 """Tests for visualization appropriateness (prototype)."""
 from __future__ import annotations
 
-from discovery_engine.viz_appropriateness import (
+from discovery_engine.viz.appropriateness import (
     INVESTIGATION,
     MISPLACED_SCOPE,
     STUDY,
@@ -215,7 +215,7 @@ def test_covers_inputs_map_values_count_as_ties():
 
 
 def test_covers_agrees_with_viz_proposals_covered_observables():
-    from discovery_engine.viz_proposals import covered_observables
+    from discovery_engine.viz.proposals import covered_observables
     entry = {"address": "local:SpeciesDynamics", "covers": ["a"], "requires": ["b"],
              "config": {"inputs_map": {"x": "c", "y": 3}}}
     assert set(classify_viz(entry, None)["covers"]) == covered_observables({"visualizations": [entry]}, None)
@@ -270,8 +270,8 @@ def test_scope_normalization_case_and_whitespace():
 
 def test_appropriateness_is_non_blocking():
     # fires if any real appropriateness kind is ever added to the closure-blocking set
-    from discovery_engine import discovery_engine as de
-    from discovery_engine import viz_appropriateness as va
+    from discovery_engine.projection import engine as de
+    from discovery_engine.viz import appropriateness as va
     kinds = {va.MISPLACED_SCOPE, va.UNTIED, va.NOT_ASSESSED,
              "viz_misplaced", "viz_untied", "viz_duplicated", "viz_not_assessed"}
     assert kinds.isdisjoint(de._CLOSURE_BLOCKING)

@@ -1,6 +1,6 @@
 import json
 from pathlib import Path
-from discovery_engine.viz_freshness import (
+from discovery_engine.viz.freshness import (
     stamp_meta, read_meta, chart_freshness, manifest_diff,
 )
 

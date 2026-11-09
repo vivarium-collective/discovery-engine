@@ -11,7 +11,7 @@ call `name(rows)`) is the follow-up (G2), a cross-package convergence.
 from __future__ import annotations
 
 from discovery_engine.discover import run_readiness
-from discovery_engine.study_evaluator import evaluate_test
+from discovery_engine.study.evaluator import evaluate_test
 
 
 def _study_with_bare_string_measure() -> dict:

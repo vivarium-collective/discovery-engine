@@ -13,7 +13,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from discovery_engine.report_linter import (
+from discovery_engine.reporting.linter import (
     _CHECK_FUNCTIONS,
     _LintContext,
     _check_render_guarantee_baseline,

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from discovery_engine import discover
-from discovery_engine.study_io import load_yaml, save_yaml_atomic
+from discovery_engine.study.io import load_yaml, save_yaml_atomic
 from tests.test_closed_loop_two_cycle import C2D, C3D, _ws
 
 
@@ -37,7 +37,7 @@ def test_composite_swap_candidate_through_real_pipeline(tmp_path):
 
 
 def test_anomaly_proposal_uses_slug_not_spec_name(tmp_path):
-    from discovery_engine.model_revision import propose_model_revisions
+    from discovery_engine.phases.model_revision import propose_model_revisions
     inv = {"studies": ["slug-a"], "hypotheses": [
         {"id": "h1", "study": "slug-a", "status": "open",
          "predictions": [{"observable": "x", "expected": {"op": "range", "low": 0, "high": 1}}]},

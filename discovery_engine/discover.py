@@ -38,14 +38,14 @@ from pathlib import Path
 
 from ruamel.yaml import YAML
 
-from .argument_store import derive_argument, merge_argument
-from .investigation_import import investigation_members, investigations_dir, studies_dir
-from .knowledge_store import canonical_verdict, derive_knowledge, merge_knowledge
-from .narrative import audit, narrate
-from .run_command import render_command, run_command
-from .study_io import atomic_write, load_yaml, load_yaml_mapping, save_yaml_atomic
-from .synthesis import open_calls, synthesize_gates
-from .validation import ValidationContext, run_validators
+from discovery_engine.projection.argument import derive_argument, merge_argument
+from discovery_engine.investigation.import_ import investigation_members, investigations_dir, studies_dir
+from discovery_engine.projection.knowledge import canonical_verdict, derive_knowledge, merge_knowledge
+from discovery_engine.projection.narrative import audit, narrate
+from discovery_engine.study.run_command import render_command, run_command
+from discovery_engine.study.io import atomic_write, load_yaml, load_yaml_mapping, save_yaml_atomic
+from discovery_engine.projection.synthesis import open_calls, synthesize_gates
+from discovery_engine.reporting.validation import ValidationContext, run_validators
 
 
 def _ruamel() -> YAML:
@@ -188,7 +188,7 @@ def declare_viz(ws_root: Path | str, inv_slug: str, target: str, declare: dict,
                 if isinstance(e, dict) and e.get("name") == name), None)
     if ent is None:
         raise ValueError(f"{study} declares no visualization named {name!r}")
-    from .viz_freshness import BROKEN_STUB, normalize_entry
+    from discovery_engine.viz.freshness import BROKEN_STUB, normalize_entry
     if normalize_entry(dict(ent))["kind"] != BROKEN_STUB:
         raise ValueError(f"{target} is not a broken stub — --declare only repairs a figure with "
                          "no renderable identity; re-author a healthy entry through the normal "
@@ -227,7 +227,7 @@ def accept_viz_proposal(ws_root: Path | str, inv_slug: str, vp: str, *, address:
     suggested catalog address when omitted; a ``needs_author`` proposal has none, so the
     author must supply it). The entry is declared but unrendered -> the frontier item becomes
     ``viz_missing``. Never dispatched by ``advance``. Returns the updated proposal."""
-    from .viz_proposals import slugify
+    from discovery_engine.viz.proposals import slugify
     if not (rationale or "").strip():
         raise ValueError("a rationale is required — accepting a proposal edits an authored list")
     inv_path = investigations_dir(Path(ws_root)) / inv_slug / "investigation.yaml"
@@ -273,7 +273,7 @@ def refresh_narrative(ws_root: Path | str, inv_slug: str, *, rationale: str, by:
     """Accept-gated refresh of the Narrative tab: stamp ``executive.narrative_basis`` to the
     current member-study basis and append a ``narrative_history`` entry. A blank rationale is
     refused (a human must have re-read the prose); never called from ``persist_cycle``."""
-    from .narrative_freshness import stamp_narrative
+    from discovery_engine.projection.narrative_freshness import stamp_narrative
     if not (rationale or "").strip():
         raise ValueError("a rationale is required — refreshing the narrative certifies the prose was re-read")
     inv_path, spec, studies = load_cycle_inputs(ws_root, inv_slug)
@@ -287,7 +287,7 @@ def accept_verdict(ws_root: Path | str, inv_slug: str, *, rationale: str, by: st
     """Accept-gated verdict accept: set ``executive.verdict_status`` to the engine-computed
     ``executive.computed_verdict_status`` and append a ``verdict_history`` entry. Blank rationale
     refused; errors when no computed status exists yet."""
-    from .narrative_freshness import renew_executive
+    from discovery_engine.projection.narrative_freshness import renew_executive
     if not (rationale or "").strip():
         raise ValueError("a rationale is required — accepting the verdict edits authored prose")
     inv_path = investigations_dir(Path(ws_root)) / inv_slug / "investigation.yaml"
@@ -330,7 +330,7 @@ def accept_capability_gap(ws_root: Path | str, inv_slug: str, cg: str, *, ration
                           by: str = "human") -> dict:
     """Rationale-gated accept of a persisted capability gap (load -> module validate -> atomic
     save). Authorizes a build; never builds. Returns the updated gap."""
-    from . import capability_gaps as _cg
+    from discovery_engine.feedback import capability_gaps as _cg
     inv_path, spec, gap = _cap_gap_load(ws_root, inv_slug, cg)
     _cg.accept_capability_gap(gap, rationale=rationale, by=by)
     save_yaml_atomic(inv_path, spec)
@@ -340,7 +340,7 @@ def accept_capability_gap(ws_root: Path | str, inv_slug: str, cg: str, *, ration
 def reject_capability_gap(ws_root: Path | str, inv_slug: str, cg: str, *, rationale: str,
                           by: str = "human") -> dict:
     """Terminal reject (rationale required); the content-addressed id never re-emits."""
-    from . import capability_gaps as _cg
+    from discovery_engine.feedback import capability_gaps as _cg
     inv_path, spec, gap = _cap_gap_load(ws_root, inv_slug, cg)
     _cg.reject_capability_gap(gap, rationale=rationale, by=by)
     save_yaml_atomic(inv_path, spec)
@@ -352,7 +352,7 @@ def load_workspace_build_hook(ws_root: Path | str | None):
     ``registry['build_capability']`` (``fn(gap, ws_root) -> {status, process, detail, gap_id}``).
     Same package discovery as ``register_evaluators``. None if absent; a broken hook is skipped."""
     import sys
-    from .study_evaluator import _workspace_evaluator_packages
+    from discovery_engine.study.evaluator import _workspace_evaluator_packages
     if ws_root is None:
         return None
     key = str(Path(ws_root).resolve())
@@ -375,8 +375,8 @@ def _close_built_viz_proposals(on_disk: dict, viz_state: dict, studies: dict) ->
     """§2E: flip an ``accepted`` proposal to ``built`` once its materialized entry (matched by
     ``origin.ref``) classifies ``fresh`` (rendered AND current). Mutates ``on_disk``;
     ``rejected``/``built`` are terminal and untouched. Returns the closed ids."""
-    from .viz_freshness import FRESH, classify_viz, normalize_entry
-    from . import model_architect as _ma
+    from discovery_engine.viz.freshness import FRESH, classify_viz, normalize_entry
+    from discovery_engine.phases import model_architect as _ma
     try:
         bound = _ma.bind_model_versions(studies or {})
     except Exception:  # noqa: BLE001
@@ -471,10 +471,10 @@ def apply_revision(ws_root: Path | str, inv_slug: str, proposal_id: str,
     Refuses (writes nothing; ``status: needs_build`` + ``mechanism``) unless the candidate
     composite resolves and the child is run-ready. Engine-written hypotheses / finding stubs
     carry ``origin`` and ``statement: null`` — the engine never writes prose."""
-    from . import evaluation as _ev
-    from . import study_refinement as _sr
-    from . import study_seeding as _ss
-    from .model_architect import model_version, resolve_composite
+    from discovery_engine.phases import evaluation as _ev
+    from discovery_engine.growth import refinement as _sr
+    from discovery_engine.growth import seeding as _ss
+    from discovery_engine.phases.model_architect import model_version, resolve_composite
 
     ws = Path(ws_root)
     inv_path, inv_spec, studies = load_cycle_inputs(ws, inv_slug)
@@ -634,13 +634,13 @@ def run_cycle(inv_spec: dict, studies_by_slug: dict[str, dict], *,
     bundle["suggestions"] = suggest_studies(bundle, inv_spec, studies_by_slug)
     # Closed-loop feedback (pure): the raw signals and the typed revision proposals they
     # yield, so the frontier can raise them as non-blocking items.
-    from . import evaluation as _ev
-    from .hypotheses import anomalies as _anoms
-    from .model_architect import build_catalog
-    from .model_revision import propose_model_revisions
+    from discovery_engine.phases import evaluation as _ev
+    from discovery_engine.phases.hypotheses import anomalies as _anoms
+    from discovery_engine.phases.model_architect import build_catalog
+    from discovery_engine.phases.model_revision import propose_model_revisions
     mvs = project_model_versions(studies_by_slug, inv_spec.get("model_versions"))
     evaluation = _ev.compare_hypotheses(inv_spec, studies_by_slug, evidence_state)
-    from .model_revision import _contradicted_studies
+    from discovery_engine.phases.model_revision import _contradicted_studies
     bad = _contradicted_studies(evidence_state, evaluation)  # evidence problem -> REPAIR, not revise
     bundle["signals"] = {
         "model_disagreements": [r for r in _ev.model_disagreement_map(inv_spec, studies_by_slug)
@@ -652,15 +652,15 @@ def run_cycle(inv_spec: dict, studies_by_slug: dict[str, dict], *,
         inv_spec, studies_by_slug, evaluation, evidence_state, mvs,
         catalog if catalog is not None else build_catalog(studies_by_slug))
     if viz_state:  # hermetic: no harvested viz state -> no viz proposals
-        from .viz_proposals import propose_visualizations
+        from discovery_engine.viz.proposals import propose_visualizations
         bundle["viz_proposals"] = propose_visualizations(
             inv_spec, studies_by_slug, bundle, viz_state, viz_catalog)
     # Always assessed. Headless (no catalog): scope_of is None for every address, so an unresolved
     # port is `not_assessed` (no false alarm) while an AUTHORED `scope:` is still honored.
-    from .viz_appropriateness import investigation_viz_appropriateness
+    from discovery_engine.viz.appropriateness import investigation_viz_appropriateness
     bundle["viz_appropriateness"] = investigation_viz_appropriateness(
         studies_by_slug, _viz_scope_of(viz_catalog))
-    from .capability_gaps import propose_capability_gaps
+    from discovery_engine.feedback.capability_gaps import propose_capability_gaps
     # The catalog (carrying `capability` + `builds`) is the same one the acquisition route reads.
     gaps = propose_capability_gaps(
         inv_spec, studies_by_slug, catalog if catalog is not None else build_catalog(studies_by_slug))
@@ -682,10 +682,10 @@ def _viz_scope_of(viz_catalog):
 def _cycle_with_evidence(ws_root, inv_slug, inv_spec, studies) -> dict:
     """run_cycle with the Phase-A evidence state computed FIRST, so contradicted
     (evidence-problem) studies are known to the revision proposer and the frontier."""
-    from . import evidence_integrity as _ei
+    from discovery_engine.phases import evidence_integrity as _ei
     ev = _ei.reconcile_evidence_state(
         inv_spec, studies, _load_runs_by_study(Path(ws_root), inv_slug, studies))
-    from .model_architect import build_catalog
+    from discovery_engine.phases.model_architect import build_catalog
     viz = viz_inventory(ws_root, inv_slug, studies)  # the one impure viz harvest
     return run_cycle(inv_spec, studies, evidence_state=ev,
                      catalog=build_catalog(studies, ws_root),  # resolved: enables composite swaps
@@ -807,7 +807,7 @@ def build_cycle_state(result: dict, inv_spec: dict, *, model_versions: list | No
     forward: the value-ranked opportunities, suggestions, diagnosis, validator census,
     and drift. The full `knowledge`/`argument`/`narrative` are recomputable on demand
     via :func:`run_cycle`, so they are not dumped here."""
-    from . import discovery_engine as de
+    from discovery_engine.projection import engine as de
     clo = de.closure(result, inv_spec)
     na = de.next_action(result, inv_spec)
     opps = de.opportunities(result, inv_spec)
@@ -819,7 +819,7 @@ def build_cycle_state(result: dict, inv_spec: dict, *, model_versions: list | No
         st = (r.get("result") or {}).get("execution_status")
         census[st] = census.get(st, 0) + 1
     sugg = result.get("suggestions") or []
-    from .validation import stale_records
+    from discovery_engine.reporting.validation import stale_records
     state = {
         "generated_at": _dt.datetime.now(_dt.timezone.utc).isoformat(timespec="seconds"),
         "closed": clo["closed"],
@@ -873,8 +873,8 @@ def build_cycle_state(result: dict, inv_spec: dict, *, model_versions: list | No
         state["model_versions"] = [m["id"] for m in model_versions]
     if studies is not None:
         # ScientificState snapshot (decision §3.5): what the next cycle diffs against.
-        from . import evaluation as _ev
-        from .hypotheses import anomalies as _anoms
+        from discovery_engine.phases import evaluation as _ev
+        from discovery_engine.phases.hypotheses import anomalies as _anoms
         cmp = _ev.compare_hypotheses(inv_spec, studies, evidence_state)
         n_anoms = len(_anoms(inv_spec or {}, _ev._keyed_specs(studies)))
         state["evaluation_snapshot"] = _ev.snapshot_evaluation(
@@ -885,7 +885,7 @@ def build_cycle_state(result: dict, inv_spec: dict, *, model_versions: list | No
 def _tab_freshness(inv_spec: dict, studies: dict) -> dict:
     """Per-tab freshness for the summary. The computed verdict is what ``investigation_status``
     already wrote on the executive -- not recomputed here."""
-    from .narrative_freshness import investigation_freshness
+    from discovery_engine.projection.narrative_freshness import investigation_freshness
     return investigation_freshness(
         inv_spec, studies,
         computed_verdict_status=(inv_spec.get("executive") or {}).get("computed_verdict_status"))
@@ -902,7 +902,7 @@ def persist_cycle(inv_path: Path | str, inv_spec: dict, result: dict, *, studies
     multi-thousand-line dump of the full projection that nothing read); the full
     projection is recomputable via :func:`run_cycle`.
     """
-    from .validation import _DEPRECATED_INV_FIELDS, _RETIRED_INV_CACHES
+    from discovery_engine.reporting.validation import _DEPRECATED_INV_FIELDS, _RETIRED_INV_CACHES
     path = Path(inv_path)
     on_disk = load_yaml_mapping(path) if path.exists() else dict(inv_spec)
     for dead in (*_RETIRED_INV_CACHES, *_DEPRECATED_INV_FIELDS):
@@ -945,8 +945,8 @@ def persist_cycle(inv_path: Path | str, inv_spec: dict, result: dict, *, studies
         _validate_extensions({"capability_gaps": haveg})
         on_disk["capability_gaps"] = haveg
     if studies is not None and on_disk.get("capability_gaps"):
-        from .capability_gaps import close_built_capability_gaps
-        from .model_architect import build_catalog
+        from discovery_engine.feedback.capability_gaps import close_built_capability_gaps
+        from discovery_engine.phases.model_architect import build_catalog
         close_built_capability_gaps(on_disk["capability_gaps"],
                                     catalog if catalog is not None else build_catalog(studies), studies)
     on_disk["cycle_state"] = build_cycle_state(result, inv_spec, model_versions=mvs, studies=studies,
@@ -975,7 +975,7 @@ def _evaluate_applied_proposals(on_disk: dict, studies: dict, fingerprint: str |
 
     Writes ``evaluated: {cycle_fingerprint, outcome}``, ``status: evaluated`` and a history
     event. Mutates ``on_disk``; returns evaluated ids."""
-    from . import evaluation as _ev
+    from discovery_engine.phases import evaluation as _ev
     done: list[str] = []
     live = None
     for p in on_disk.get("revision_proposals") or []:
@@ -1029,7 +1029,7 @@ def _reproduces_gap(prop: dict, child: dict | None) -> bool:
 def project_model_versions(studies: dict, existing: list | None = None) -> list[dict]:
     """Regenerable ``model_versions[]``: a projection of the bound arms. ``bound_to`` and
     ``resolves`` are recomputed; ``origin`` is the one non-derivable field, kept from disk once written."""
-    from .model_architect import bind_model_versions, resolve_composite
+    from discovery_engine.phases.model_architect import bind_model_versions, resolve_composite
     prior = {m.get("id"): m for m in (existing or []) if isinstance(m, dict)}
     out: dict[str, dict] = {}
     for slug, arms in bind_model_versions(studies).items():
@@ -1193,7 +1193,7 @@ def suggest_studies(cycle_result: dict, inv_spec: dict, studies: dict) -> list[d
     #    generates the next study" a first-class part of the cycle.
     import dataclasses as _dc
 
-    from .seed_from_followup import build_child_seed_from_finding
+    from discovery_engine.growth.seed_from_followup import build_child_seed_from_finding
     refutations: list[tuple[str, str]] = []
     for slug, spec in (studies or {}).items():
         if not isinstance(spec, dict):
@@ -1278,7 +1278,7 @@ def _latest_run_id_for_command(command: str, ws_root: Path | str) -> str | None:
         db = Path(ws_root) / base / slug / "runs.db" if base else Path(ws_root) / slug / "runs.db"
         if db.exists():
             try:
-                from .run_registry import list_runs
+                from discovery_engine.study.run_registry import list_runs
                 rows = list_runs(db) or []
                 if rows:
                     last = rows[-1]
@@ -1330,7 +1330,7 @@ def execute_action(ws_root: Path | str, inv_slug: str, *, autonomous: bool = Fal
     Executed actions are appended to the investigation's ``executed_actions`` log and the
     frontier is re-derived so the caller sees the change. Returns a record of what
     happened."""
-    from . import discovery_engine as de
+    from discovery_engine.projection import engine as de
     inv_path, inv_spec, studies = load_cycle_inputs(ws_root, inv_slug)
     cyc = _cycle_with_evidence(ws_root, inv_slug, inv_spec, studies)
     before = de.closure(cyc, inv_spec)["open_items"]
@@ -1397,7 +1397,7 @@ def execute_action(ws_root: Path | str, inv_slug: str, *, autonomous: bool = Fal
                                   "address/render) — declare one: discover viz <inv> "
                                   f"{top['source']} --declare address=… --rationale '…'"}
             else:
-                from .viz_freshness import normalize_entry
+                from discovery_engine.viz.freshness import normalize_entry
                 vstudy, vname = vt
                 sdir = _study_dir_on_disk(ws_root, inv_slug, vstudy)
                 latest = viz_inventory(ws_root, inv_slug, {vstudy: studies[vstudy]})[vstudy]["_latest"]
@@ -1423,7 +1423,7 @@ def execute_action(ws_root: Path | str, inv_slug: str, *, autonomous: bool = Fal
                     # Never launder a stale figure as fresh: `ok` counts only if the figure
                     # actually CHANGED, or the hook stamped valid meta for the latest run
                     # during this render. Otherwise the render produced nothing -> failed.
-                    from .viz_freshness import read_meta
+                    from discovery_engine.viz.freshness import read_meta
                     after = _snap()
                     changed = after is not None and after != before_snap
                     m = read_meta(chart) if after is not None else None
@@ -1525,8 +1525,8 @@ def execute_action(ws_root: Path | str, inv_slug: str, *, autonomous: bool = Fal
                 rec["outcome"] = {"ok": None, "detail": "accepted but no build_hook (or no accept rationale) — "
                                   "register <pkg>.build_hook.register_build_hook"}
             else:
-                from .capability_gaps import build_capability_gap
-                from .model_architect import build_catalog
+                from discovery_engine.feedback.capability_gaps import build_capability_gap
+                from discovery_engine.phases.model_architect import build_catalog
                 inv_path_, spec_, gap_ = _cap_gap_load(ws_root, inv_slug, top["source"])
                 build_capability_gap(gap_, hook, ws_root=ws_root,
                                      catalog=lambda: build_catalog(load_cycle_inputs(ws_root, inv_slug)[2], ws_root))
@@ -1615,7 +1615,7 @@ def run_readiness(study_spec: dict, ws_root: Path | str | None = None) -> dict:
                 "unevaluable_tests": [], "unresolved_measures": [],
                 "has_emitter": False, "has_visualizations": False, "visualizations_rendered": False,
                 "has_tests": False, "has_contracts": False}
-    from .study_evaluator import load_workspace_derived_scalars, required_observables_for_measure
+    from discovery_engine.study.evaluator import load_workspace_derived_scalars, required_observables_for_measure
     tests = study_spec.get("behavior_tests") or study_spec.get("tests") or []
     required: set = set()
     # The derived-scalar registry THIS environment can see. A non-empty registry means the
@@ -1686,7 +1686,7 @@ def run_readiness(study_spec: dict, ws_root: Path | str | None = None) -> dict:
     # on a real workspace: all 5 baseline composites were ModuleNotFoundError while readiness said
     # ready). Resolve WITHOUT executing composite code (find_spec), and only when the workspace
     # package is importable at all, so a missing package isn't misread as a missing model.
-    from .model_architect import _top_importable, resolve_composite
+    from discovery_engine.phases.model_architect import _top_importable, resolve_composite
     composite_missing: str | None = None
     _baseline = study_spec.get("baseline") or []
     comp = (_baseline[0].get("composite")
@@ -1759,7 +1759,7 @@ def _viz_entry(studies: dict, study: str, name: str) -> dict | None:
 def _viz_resolvable(entry: dict) -> bool:
     """A declared entry the render executor can act on: a `class` or `command` kind. Never
     a broken_stub (no identity) or a static figure with no `render:` recipe."""
-    from .viz_freshness import normalize_entry
+    from discovery_engine.viz.freshness import normalize_entry
     return normalize_entry(entry)["kind"] in ("class", "command")
 
 
@@ -1782,7 +1782,7 @@ def _post_render_stamp(sdir, entry: dict, latest: dict | None, command: str | No
         return False
     try:
         import time
-        from .viz_freshness import normalize_entry, read_meta, stamp_meta
+        from discovery_engine.viz.freshness import normalize_entry, read_meta, stamp_meta
         out = normalize_entry(entry)["output"]
         chart = Path(sdir) / out if out else None
         if chart is None or not chart.is_file():
@@ -1815,7 +1815,7 @@ def _advance_study_for(source, studies: dict) -> str | None:
 
 
 def _arm_mvs(slug: str, spec: dict) -> dict:
-    from .model_architect import bind_model_versions
+    from discovery_engine.phases.model_architect import bind_model_versions
     try:
         return bind_model_versions({slug: spec}).get(slug) or {}
     except Exception:  # noqa: BLE001 -- a malformed arm must not break advance
@@ -1825,7 +1825,7 @@ def _arm_mvs(slug: str, spec: dict) -> dict:
 def _run_mv_id(run: dict, arms: dict) -> str | None:
     """A run's model-version id: the id stamped at run time, else (legacy run) derived from
     its recorded params + its arm's composite."""
-    from .model_architect import model_version
+    from discovery_engine.phases.model_architect import model_version
     if run.get("model_version"):
         return str(run["model_version"])
     arm = arms.get(run.get("variant")) if run.get("variant") else next(iter(arms.values()), None)
@@ -1889,7 +1889,7 @@ def _dispatch_classify(p: dict, studies: dict, ws_root, inv_slug: str) -> tuple[
         entry = _viz_entry(studies, *vt) if vt else None
         if p["consequence"] != "render" or entry is None or not _viz_resolvable(entry):
             return ("skip", None, [])          # review-tier / unresolvable render stays gated
-        from .viz_freshness import normalize_entry, read_meta
+        from discovery_engine.viz.freshness import normalize_entry, read_meta
         sd = _study_dir_on_disk(ws_root, inv_slug, vt[0])
         lat = viz_inventory(ws_root, inv_slug, {vt[0]: studies[vt[0]]})[vt[0]]["_latest"]
         chart = sd / normalize_entry(entry)["output"] if sd else None
@@ -1919,7 +1919,7 @@ def dispatchable_actions(ws_root, inv_slug: str, cycle_result: dict, inv_spec: d
     (:func:`_dispatch_classify`): run-ready ``test``/``branch`` on an on-disk study not
     already run at its current model version, plus resolvable, not-already-stamped renders.
     Pure / read-only — runs nothing. ``N runnable == what advance_cycle would dispatch``."""
-    from . import discovery_engine as de
+    from discovery_engine.projection import engine as de
     plan = de.execute_plan(cycle_result, inv_spec)
     return [p for p in plan
             if _dispatch_classify(p, studies, ws_root, inv_slug)[0] == "run"]
@@ -1935,7 +1935,7 @@ def _post_run_sync(sdir, before_runs: set) -> None:
         spec = load_yaml_mapping(sdir / "study.yaml")
         new = [r for r in spec.get("runs") or [] if isinstance(r, dict) and r.get("name") not in before_runs]
         if not new or not all(r.get("computed_outcomes") for r in new):
-            from . import study_outcomes
+            from discovery_engine.study import outcomes as study_outcomes
             study_outcomes.sync(sdir)
         from io import StringIO
         arms = _arm_mvs(sdir.name, load_yaml_mapping(sdir / "study.yaml"))
@@ -1958,7 +1958,7 @@ def _post_run_sync(sdir, before_runs: set) -> None:
         # resolvable registered run". Fill-absent-only: never overwrites an authored
         # observed value or verdict. This is the write-back that turns an executed run
         # into a defensible (or honestly-contradicted) finding.
-        from . import finding_observations
+        from discovery_engine.study import finding_observations
         finding_observations.populate_finding_observations(sdir)
     except Exception:  # noqa: BLE001 -- sync is best-effort, never fails an advance
         pass
@@ -1979,7 +1979,7 @@ def advance_cycle(ws_root: Path | str, inv_slug: str, *, autonomous: bool = Fals
     This makes "run the open questions" a defined phase of a cycle, not an afterthought.
     Without ``autonomous`` it reports what it WOULD run (dry). Returns
     ``{runs, needs_build, frontier_before, frontier_after}``."""
-    from . import discovery_engine as de
+    from discovery_engine.projection import engine as de
     ran: list[dict] = []
     needs_build: list[dict] = []
     seen: set = set()
@@ -2077,7 +2077,7 @@ def build_completion_map(ws_root: Path | str, inv_slug: str) -> dict:
     verification debt (gates met by verdict only), the expert decisions that gate the
     next studies, and the ordered next-step commands. Pure read — assembles the frontier,
     closure, suggestions, and the execution plan into one map."""
-    from . import discovery_engine as de
+    from discovery_engine.projection import engine as de
     _, inv_spec, studies = load_cycle_inputs(ws_root, inv_slug)
     cyc = _cycle_with_evidence(ws_root, inv_slug, inv_spec, studies)
     clo = de.closure(cyc, inv_spec)
@@ -2176,7 +2176,7 @@ def snapshot_validations(ws_root: Path | str, slug: str) -> dict:
     (an accepted judgment an upstream model/run change moved past). Returns the
     snapshot. Like :func:`persist_cycle`, re-reads on-disk so authored edits are not
     clobbered and writes only this regenerable cache."""
-    from .validation import snapshot_of
+    from discovery_engine.reporting.validation import snapshot_of
     inv_path, inv_spec, studies = load_cycle_inputs(ws_root, slug)
     snap = snapshot_of(run_cycle(inv_spec, studies)["validations"])
     path = Path(inv_path)
@@ -2239,7 +2239,7 @@ def missing_members(ws_root: Path | str, slug: str) -> list[str]:
 def _load_runs_by_study(ws: Path, inv_slug: str, studies: dict) -> dict[str, list]:
     """``{study_slug: [registered runs]}`` from each study's ``runs.db`` (flat path
     first, then the nested investigation path). Shared by the Phase A/B/F commands."""
-    from . import run_registry as _rr
+    from discovery_engine.study import run_registry as _rr
     runs_by_study: dict[str, list] = {}
     for slug in studies:
         runs: list = []
@@ -2270,7 +2270,7 @@ def viz_inventory(ws_root, inv_slug: str, studies: dict) -> dict:
     ``visualizations[]`` entry ``{path, exists, meta, mtime, content_hash}``, plus
     ``_latest`` (latest run ``{run_id, completed_at}`` or None) and ``_orphans``
     (``viz/*.html`` on disk but not declared). Fed to ``run_cycle`` as data."""
-    from .viz_freshness import _hash, normalize_entry, read_meta
+    from discovery_engine.viz.freshness import _hash, normalize_entry, read_meta
     ws = Path(ws_root)
     runs_by = _load_runs_by_study(ws, inv_slug, studies)
     out: dict = {}
@@ -2392,7 +2392,7 @@ def _summarize_hypotheses(inv_spec: dict, study_specs: list) -> str:
     observable, and the ▲supports/▼weakens/⊘excludes tally its studies' runs give
     it (empty until the studies run). Marks which studies are *discriminable* —
     carry competing hypotheses a single run would separate."""
-    from . import hypotheses as _hyp
+    from discovery_engine.phases import hypotheses as _hyp
     rolled = _hyp.rollup_support(inv_spec or {}, study_specs or [])
     hyps = rolled.get("hypotheses") or []
     if not hyps:
@@ -2440,7 +2440,7 @@ def _summarize_hypotheses(inv_spec: dict, study_specs: list) -> str:
 # CLI
 def _summarize_evidence_reconciliation(result: dict) -> str:
     """Render the Cycle N+1 Phase A evidence ledger — which findings can be trusted."""
-    from .evidence_integrity import VERIFIED, PROVISIONAL, CONTRADICTED, UNSUPPORTED
+    from discovery_engine.phases.evidence_integrity import VERIFIED, PROVISIONAL, CONTRADICTED, UNSUPPORTED
     mark = {VERIFIED: "✓ verified", PROVISIONAL: "~ provisional",
             CONTRADICTED: "✗ contradicted", UNSUPPORTED: "· unsupported"}
     s = result.get("summary", {})
@@ -2467,7 +2467,7 @@ def _summarize_evidence_reconciliation(result: dict) -> str:
 
 def _summarize_portfolio(portfolio: list) -> str:
     """Render the Cycle N+1 Phase B CandidateAction portfolio."""
-    from .candidate_action import REPAIR, RESOLVE, EXTEND
+    from discovery_engine.phases.candidate_action import REPAIR, RESOLVE, EXTEND
     tag = {REPAIR: "REPAIR ", RESOLVE: "RESOLVE", EXTEND: "EXTEND "}
     by_kind = {k: sum(1 for a in portfolio if a["kind"] == k) for k in (REPAIR, RESOLVE, EXTEND)}
     lines = [f"portfolio: {len(portfolio)} candidate action(s) — "
@@ -2530,7 +2530,7 @@ def _summarize_model_build(request: dict, catalog: list, routes: dict, mv: dict)
 
 
 def _mod_coupling_issues(routes, catalog):
-    from .model_architect import validate_coupling
+    from discovery_engine.phases.model_architect import validate_coupling
     return validate_coupling(routes, catalog)
 
 
@@ -2845,7 +2845,7 @@ def main(argv: list[str] | None = None) -> int:
         result = _cycle_with_evidence(ws, args.investigation, inv_spec, studies)
         print(summarize(result))
         if args.cmd == "cycle" and not args.no_write:
-            from . import evidence_integrity as _ei
+            from discovery_engine.phases import evidence_integrity as _ei
             ev_state = _ei.reconcile_evidence_state(
                 inv_spec, studies, _load_runs_by_study(ws, args.investigation, studies))
             persist_cycle(inv_path, inv_spec, result, studies=studies, evidence_state=ev_state,
@@ -2855,7 +2855,7 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.cmd == "ingest-feedback":
         import json as _json
-        from . import feedback_compiler
+        from discovery_engine.feedback import compiler as feedback_compiler
         result = feedback_compiler.ingest_feedback(args.request, ws, write=args.write)
         print(_json.dumps(result["summary"], indent=2, default=str))
         if result["wrote"]:
@@ -3003,7 +3003,7 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     if args.cmd == "crank":
-        from . import discovery_engine
+        from discovery_engine.projection import engine as discovery_engine
         _, inv_spec, studies = load_cycle_inputs(ws, args.investigation)
         result = _cycle_with_evidence(ws, args.investigation, inv_spec, studies)
         print(discovery_engine.summarize(discovery_engine.crank(result, inv_spec)))
@@ -3016,7 +3016,7 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     if args.cmd == "diagnose":
-        from . import discovery_engine
+        from discovery_engine.projection import engine as discovery_engine
         _, inv_spec, studies = load_cycle_inputs(ws, args.investigation)
         result = _cycle_with_evidence(ws, args.investigation, inv_spec, studies)
         diag = discovery_engine.diagnose(result, inv_spec)
@@ -3030,7 +3030,7 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     if args.cmd == "opportunities":
-        from . import discovery_engine
+        from discovery_engine.projection import engine as discovery_engine
         _, inv_spec, studies = load_cycle_inputs(ws, args.investigation)
         result = _cycle_with_evidence(ws, args.investigation, inv_spec, studies)
         opps = discovery_engine.opportunities(result, inv_spec)
@@ -3040,9 +3040,9 @@ def main(argv: list[str] | None = None) -> int:
     if args.cmd == "requests":
         import json as _json
 
-        from . import discovery_engine
-        from .generation import GateConfig
-        from .generation_emit import generation_requests, summarize_requests
+        from discovery_engine.projection import engine as discovery_engine
+        from discovery_engine.phases.generation import GateConfig
+        from discovery_engine.phases.generation_emit import generation_requests, summarize_requests
         _, inv_spec, studies = load_cycle_inputs(ws, args.investigation)
         result = _cycle_with_evidence(ws, args.investigation, inv_spec, studies)
         opps = discovery_engine.opportunities(result, inv_spec)
@@ -3054,7 +3054,7 @@ def main(argv: list[str] | None = None) -> int:
                      if isinstance(gc, dict) else GateConfig())
         reqs = generation_requests(opps, gates=gates, inv_spec=inv_spec)
         if getattr(args, "fill", False):
-            from .generation_apply import run_requests, subprocess_filler
+            from discovery_engine.phases.generation_apply import run_requests, subprocess_filler
             outcomes = run_requests(reqs, fill=subprocess_filler(),
                                     ws_root=ws, inv_slug=args.investigation)
             print(_json.dumps(outcomes, indent=2, default=str))
@@ -3072,7 +3072,7 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     if args.cmd == "reconcile-evidence":
-        from . import evidence_integrity as _ei
+        from discovery_engine.phases import evidence_integrity as _ei
         _, inv_spec, studies = load_cycle_inputs(ws, args.investigation)
         runs_by_study = _load_runs_by_study(ws, args.investigation, studies)
         print(_summarize_evidence_reconciliation(
@@ -3080,11 +3080,11 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     if args.cmd == "plan":
-        from . import evidence_integrity as _ei, candidate_action as _ca
+        from discovery_engine.phases import evidence_integrity as _ei, candidate_action as _ca
         _, inv_spec, studies = load_cycle_inputs(ws, args.investigation)
         runs_by_study = _load_runs_by_study(ws, args.investigation, studies)
         ev_state = _ei.reconcile_evidence_state(inv_spec, studies, runs_by_study)
-        from .model_architect import build_catalog
+        from discovery_engine.phases.model_architect import build_catalog
         result = run_cycle(inv_spec, studies, evidence_state=ev_state,
                            catalog=build_catalog(studies, ws))
         portfolio = _ca.select_portfolio(_ca.plan_candidate_actions(result, inv_spec, ev_state))
@@ -3092,7 +3092,7 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     if args.cmd == "evaluate":
-        from . import evaluation as _ev, evidence_integrity as _ei
+        from discovery_engine.phases import evaluation as _ev, evidence_integrity as _ei
         _, inv_spec, studies = load_cycle_inputs(ws, args.investigation)
         runs_by_study = _load_runs_by_study(ws, args.investigation, studies)
         ev_state = _ei.reconcile_evidence_state(inv_spec, studies, runs_by_study)
@@ -3102,7 +3102,7 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     if args.cmd == "delta":
-        from . import evaluation as _ev, evidence_integrity as _ei
+        from discovery_engine.phases import evaluation as _ev, evidence_integrity as _ei
         _, inv_spec, studies = load_cycle_inputs(ws, args.investigation)
         runs_by_study = _load_runs_by_study(ws, args.investigation, studies)
         ev_state = _ei.reconcile_evidence_state(inv_spec, studies, runs_by_study)
@@ -3112,14 +3112,14 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     if args.cmd == "design":
-        from . import experiment_design as _ed
+        from discovery_engine.phases import experiment_design as _ed
         _, inv_spec, _studies = load_cycle_inputs(ws, args.investigation)
         design = _ed.design_discriminating_study(inv_spec, args.study, args.require_control or None)
         print(_summarize_design(design, args.study))
         return 0
 
     if args.cmd == "build-model":
-        from . import model_architect as _ma
+        from discovery_engine.phases import model_architect as _ma
         _, inv_spec, studies = load_cycle_inputs(ws, args.investigation)
         catalog = _ma.build_catalog(studies)
         req = _ma.ModelBuildRequest(question_id=args.question, required_mechanisms=args.mechanism,
@@ -3130,7 +3130,7 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     if args.cmd == "seed-study":
-        from . import study_seeding as _ss
+        from discovery_engine.growth import seeding as _ss
         _, inv_spec, studies = load_cycle_inputs(ws, args.investigation)
         parent = studies.get(args.parent)
         if not isinstance(parent, dict):
@@ -3151,7 +3151,7 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     if args.cmd == "refine-study":
-        from . import study_refinement as _sr
+        from discovery_engine.growth import refinement as _sr
         _, inv_spec, studies = load_cycle_inputs(ws, args.investigation)
         study = studies.get(args.study)
         if not isinstance(study, dict):
@@ -3179,7 +3179,7 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     if args.cmd == "execute":
-        from . import discovery_engine
+        from discovery_engine.projection import engine as discovery_engine
         _, inv_spec, studies = load_cycle_inputs(ws, args.investigation)
         plan = discovery_engine.execute_plan(_cycle_with_evidence(ws, args.investigation, inv_spec, studies), inv_spec)
         print(discovery_engine.summarize_execute_plan(plan))

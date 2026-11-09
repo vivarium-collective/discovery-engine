@@ -6,7 +6,7 @@ each supporting finding). A finding whose status is `planned` describes intended
 future work — like `exploratory`, it cannot back a conclusion that has not been
 reached yet, so it must not be treated as supporting.
 """
-from discovery_engine.study_verdict import is_supporting_finding
+from discovery_engine.study.verdict import is_supporting_finding
 
 
 def test_planned_finding_is_not_supporting():

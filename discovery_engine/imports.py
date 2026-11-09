@@ -6,7 +6,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Literal
 
-from .workspace_yaml import load_workspace, save_workspace, WorkspaceValidationError
+from discovery_engine.workspace_yaml import load_workspace, save_workspace, WorkspaceValidationError
 
 
 ImportMode = Literal["reference", "fork-source", "in-place"]

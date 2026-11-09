@@ -1,7 +1,7 @@
 """P3 Task 3 — report_linter surfaces declared-but-unemitted contract.face ports."""
 from pathlib import Path
 
-import discovery_engine.report_linter as rl
+import discovery_engine.reporting.linter as rl
 
 
 def _ctx(spec):

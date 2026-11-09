@@ -10,9 +10,7 @@ import types
 
 import pytest
 
-from discovery_engine import study_evaluator as se
-
-
+from discovery_engine.study import evaluator as se
 @pytest.fixture
 def stub_resolver(monkeypatch):
     """Inject a fake viva_emitters.measure_resolver.grade_bare_string_measure that returns the

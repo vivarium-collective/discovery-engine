@@ -1,7 +1,7 @@
 """Study-level contract.face audit + reconciliation, on the shared
 bigraph-schema audit kernel — the viva-superpowers half of unifying the
 composite contract audit and the L0-L5 study audit."""
-from discovery_engine.study_contract import study_face_findings, contract_face_diff
+from discovery_engine.study.contract import study_face_findings, contract_face_diff
 
 
 def test_study_face_findings_uses_the_kernel_to_flag_bad_range_and_units():

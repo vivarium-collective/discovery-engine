@@ -24,7 +24,7 @@ from pathlib import Path
 
 import yaml
 
-from discovery_engine.report_linter import (
+from discovery_engine.reporting.linter import (
     CHECKS,
     _CHECK_FUNCTIONS,
     _LintContext,
@@ -436,21 +436,21 @@ def _fwe_spec(verdict, status="confirms"):
 
 
 def test_finding_without_evidence_errors_for_supporting_of_accepted(tmp_path):
-    from discovery_engine.report_linter import _check_finding_without_evidence
+    from discovery_engine.reporting.linter import _check_finding_without_evidence
     got = _by_check(_run(_check_finding_without_evidence, tmp_path,
                          _fwe_spec("accepted")), "finding_without_evidence")
     assert [f.level for f in got] == ["error"]
 
 
 def test_finding_without_evidence_warns_when_not_accepted(tmp_path):
-    from discovery_engine.report_linter import _check_finding_without_evidence
+    from discovery_engine.reporting.linter import _check_finding_without_evidence
     got = _by_check(_run(_check_finding_without_evidence, tmp_path,
                          _fwe_spec(None)), "finding_without_evidence")
     assert [f.level for f in got] == ["warning"]
 
 
 def test_finding_without_evidence_warns_for_caveat_in_accepted(tmp_path):
-    from discovery_engine.report_linter import _check_finding_without_evidence
+    from discovery_engine.reporting.linter import _check_finding_without_evidence
     got = _by_check(_run(_check_finding_without_evidence, tmp_path,
                          _fwe_spec("accepted", status="partial")),
                     "finding_without_evidence")

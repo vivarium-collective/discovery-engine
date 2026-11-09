@@ -11,7 +11,7 @@ the heuristic:
   - The convenience ``apply_from_finding`` loads a real parent yaml,
     rejects a missing finding id, and produces a ChildSeed mergeable
     into a fresh child template.
-  - The CLI smoke (``python -m discovery_engine.seed_from_followup``)
+  - The CLI smoke (``python -m discovery_engine.growth.seed_from_followup``)
     prints a non-empty preview and exits 0 on the happy path; exits 2
     when the finding doesn't exist.
 """
@@ -25,9 +25,7 @@ from pathlib import Path
 import pytest
 import yaml
 
-from discovery_engine import seed_from_followup as sff
-
-
+from discovery_engine.growth import seed_from_followup as sff
 # ---------------------------------------------------------------------------
 # Fixture: a parent study with one finding + one proposal
 # ---------------------------------------------------------------------------
@@ -438,7 +436,7 @@ def test_apply_from_finding_rejects_missing_parent(tmp_path):
 def test_cli_happy_path_exits_zero_and_prints_diffs(tmp_path):
     parent_yaml = _make_parent_study(tmp_path)
     cp = subprocess.run(
-        [sys.executable, "-m", "discovery_engine.seed_from_followup",
+        [sys.executable, "-m", "discovery_engine.growth.seed_from_followup",
          str(parent_yaml), "calibrate-dars", "F-03",
          "--new-slug", "dnaa-02-dars-calibration"],
         capture_output=True, text=True,
@@ -458,7 +456,7 @@ def test_cli_happy_path_exits_zero_and_prints_diffs(tmp_path):
 def test_cli_unknown_finding_exits_2(tmp_path):
     parent_yaml = _make_parent_study(tmp_path)
     cp = subprocess.run(
-        [sys.executable, "-m", "discovery_engine.seed_from_followup",
+        [sys.executable, "-m", "discovery_engine.growth.seed_from_followup",
          str(parent_yaml), "calibrate-dars", "F-99"],
         capture_output=True, text=True,
     )

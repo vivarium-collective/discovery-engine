@@ -1,4 +1,4 @@
-from discovery_engine.study_evaluator import _expected_from_pass_if
+from discovery_engine.study.evaluator import _expected_from_pass_if
 
 
 def test_band_ops_map_to_band():
@@ -9,7 +9,7 @@ def test_band_ops_map_to_band():
 
 def test_comparator_ops_map_to_value():
     assert _expected_from_pass_if({"op": "<=", "value": 5}, "<=") == \
-        __import__("discovery_engine.test_contract", fromlist=["value"]).value(5, op="<=")
+        __import__("discovery_engine.reporting.test_contract", fromlist=["value"]).value(5, op="<=")
     assert _expected_from_pass_if({"op": "max_le", "value": 5}, "max_le").op == "<="
     assert _expected_from_pass_if({"op": "min_ge", "threshold": 2}, "min_ge").op == ">="
     assert _expected_from_pass_if({"op": "at_most", "value": 5}, "at_most").op == "<="
@@ -68,7 +68,7 @@ def test_unknown_op_returns_none():
     assert _expected_from_pass_if({"op": "ratio_at_most", "value": 1}, "ratio_at_most") is None
 
 
-from discovery_engine.study_evaluator import _grade_axis_from_outcome
+from discovery_engine.study.evaluator import _grade_axis_from_outcome
 
 
 def _outcome(result, measured_value):
@@ -117,7 +117,7 @@ def test_unmapped_op_yields_no_axis():
 
 
 def test_evaluate_test_attaches_axis_and_preserves_result(monkeypatch):
-    import discovery_engine.study_evaluator as se
+    import discovery_engine.study.evaluator as se
 
     # Stub the measurement layer so the test is pure: _apply_op returns a known
     # code outcome; evaluate_test must attach the axis and keep result/measured_value.
@@ -141,6 +141,6 @@ def test_evaluate_test_attaches_axis_and_preserves_result(monkeypatch):
 
 
 def test_agent_bucket_has_no_axis(monkeypatch):
-    import discovery_engine.study_evaluator as se
+    import discovery_engine.study.evaluator as se
     out = se.evaluate_test({"measure": {"kind": "totally_unknown"}}, reader=object())
     assert out["evaluated_by"] == "agent" and "axis" not in out

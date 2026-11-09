@@ -1,4 +1,4 @@
-"""Tests for discovery_engine.investigation_import (selection guard + parsing)."""
+"""Tests for discovery_engine.investigation.import_ (selection guard + parsing)."""
 
 from __future__ import annotations
 
@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from discovery_engine.investigation_import import (
+from discovery_engine.investigation.import_ import (
     _pkg_stem,
     _preferred_spelling,
     assert_selection_ok,

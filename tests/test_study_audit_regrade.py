@@ -1,8 +1,8 @@
-"""Tests for the L4 verdict re-grade (discovery_engine.study_audit)."""
+"""Tests for the L4 verdict re-grade (discovery_engine.study.audit)."""
 import json
 
-from discovery_engine.card_grade import grade_card, verdict_json
-from discovery_engine.study_audit import audit_workspace
+from discovery_engine.reporting.card_grade import grade_card, verdict_json
+from discovery_engine.study.audit import audit_workspace
 
 _STUDY = "name: s\n"
 

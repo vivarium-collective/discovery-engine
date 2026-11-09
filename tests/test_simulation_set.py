@@ -1,4 +1,4 @@
-"""Tests for discovery_engine.simulation_set (spine stage #4).
+"""Tests for discovery_engine.study.simulation_set (spine stage #4).
 
 TDD order: Task 1 → Task 2 → Task 3 → Task 4.
 Run with: .venv/bin/python -m pytest tests/test_simulation_set.py -v
@@ -57,7 +57,7 @@ def _v4_spec() -> dict:
 
 
 def test_derive_baseline_entry():
-    from discovery_engine.simulation_set import derive_entries
+    from discovery_engine.study.simulation_set import derive_entries
 
     entries = derive_entries(_v4_spec())
     baseline = next(e for e in entries if e.get("is_baseline"))
@@ -69,7 +69,7 @@ def test_derive_baseline_entry():
 
 
 def test_derive_variant_entries():
-    from discovery_engine.simulation_set import derive_entries
+    from discovery_engine.study.simulation_set import derive_entries
 
     entries = derive_entries(_v4_spec())
     names = [e["name"] for e in entries]
@@ -84,7 +84,7 @@ def test_derive_variant_entries():
 
 
 def test_derive_metrics_and_pass_fail():
-    from discovery_engine.simulation_set import derive_entries
+    from discovery_engine.study.simulation_set import derive_entries
 
     entries = derive_entries(_v4_spec())
     baseline = next(e for e in entries if e.get("is_baseline"))
@@ -94,7 +94,7 @@ def test_derive_metrics_and_pass_fail():
 
 
 def test_derive_status_ready_when_no_completed_runs():
-    from discovery_engine.simulation_set import derive_entries
+    from discovery_engine.study.simulation_set import derive_entries
 
     spec = {
         "name": "s",
@@ -109,7 +109,7 @@ def test_derive_status_ready_when_no_completed_runs():
 
 
 def test_derive_legacy_top_level_baseline():
-    from discovery_engine.simulation_set import derive_entries
+    from discovery_engine.study.simulation_set import derive_entries
 
     spec = {
         "name": "legacy-study",
@@ -129,7 +129,7 @@ def test_derive_legacy_top_level_baseline():
 
 
 def test_derive_no_baseline_returns_empty():
-    from discovery_engine.simulation_set import derive_entries
+    from discovery_engine.study.simulation_set import derive_entries
 
     spec = {"name": "empty", "conditions": {"variants": []}, "runs": []}
     entries = derive_entries(spec)
@@ -137,7 +137,7 @@ def test_derive_no_baseline_returns_empty():
 
 
 def test_derive_variant_perturbation_field():
-    from discovery_engine.simulation_set import derive_entries
+    from discovery_engine.study.simulation_set import derive_entries
 
     entries = derive_entries(_v4_spec())
     var_a = next(e for e in entries if e["name"] == "var-a")
@@ -145,7 +145,7 @@ def test_derive_variant_perturbation_field():
 
 
 def test_derive_seeds_union_deduped_sorted():
-    from discovery_engine.simulation_set import _seeds_from_runs
+    from discovery_engine.study.simulation_set import _seeds_from_runs
 
     runs = [
         {"seeds": [2, 0, 1]},
@@ -158,7 +158,7 @@ def test_derive_seeds_union_deduped_sorted():
 
 def test_derive_pass_fail_tests_intersection_with_test_names():
     """Only outcomes that match a test name are included in pass_fail_tests."""
-    from discovery_engine.simulation_set import derive_entries
+    from discovery_engine.study.simulation_set import derive_entries
 
     spec = {
         "name": "s",
@@ -226,8 +226,8 @@ def _study_dir(tmp_path: Path, raw_yaml: str) -> Path:
 
 
 def test_populate_creates_entries_no_simset(tmp_path: Path):
-    from discovery_engine import study_io
-    from discovery_engine.simulation_set import populate_simulation_set
+    from discovery_engine.study import io as study_io
+    from discovery_engine.study.simulation_set import populate_simulation_set
 
     d = _study_dir(tmp_path, _RAW_STUDY_NO_SIMSET)
     result = populate_simulation_set(d)
@@ -241,7 +241,7 @@ def test_populate_creates_entries_no_simset(tmp_path: Path):
 
 
 def test_populate_preserves_comments(tmp_path: Path):
-    from discovery_engine.simulation_set import populate_simulation_set
+    from discovery_engine.study.simulation_set import populate_simulation_set
 
     d = _study_dir(tmp_path, _RAW_STUDY_NO_SIMSET)
     populate_simulation_set(d)
@@ -252,8 +252,8 @@ def test_populate_preserves_comments(tmp_path: Path):
 
 def test_populate_fills_absent_fields_only(tmp_path: Path):
     """Existing authored entry with prose base_model and notes: seeds/status filled, prose untouched."""
-    from discovery_engine import study_io
-    from discovery_engine.simulation_set import populate_simulation_set
+    from discovery_engine.study import io as study_io
+    from discovery_engine.study.simulation_set import populate_simulation_set
 
     raw = """\
 name: my-study
@@ -287,8 +287,8 @@ simulation_set:
 
 def test_populate_never_deletes_authored_entry(tmp_path: Path):
     """An authored entry whose name the deriver doesn't produce is left untouched."""
-    from discovery_engine import study_io
-    from discovery_engine.simulation_set import populate_simulation_set
+    from discovery_engine.study import io as study_io
+    from discovery_engine.study.simulation_set import populate_simulation_set
 
     raw = """\
 name: my-study
@@ -314,7 +314,7 @@ simulation_set:
 
 def test_populate_idempotent(tmp_path: Path):
     """Second populate is byte-identical and returns {added:0, updated:0}."""
-    from discovery_engine.simulation_set import populate_simulation_set
+    from discovery_engine.study.simulation_set import populate_simulation_set
 
     d = _study_dir(tmp_path, _RAW_STUDY_NO_SIMSET)
     populate_simulation_set(d)
@@ -326,7 +326,7 @@ def test_populate_idempotent(tmp_path: Path):
 
 def test_populate_no_baseline_no_write(tmp_path: Path):
     """Study with no baseline/composite → no write, returns {added:0, updated:0}."""
-    from discovery_engine.simulation_set import populate_simulation_set
+    from discovery_engine.study.simulation_set import populate_simulation_set
 
     raw = """\
 name: no-baseline
@@ -348,8 +348,7 @@ runs: []
 
 def test_sync_includes_simulation_set(tmp_path: Path):
     """sync() returns summary['simulation_set'] with added/updated counts."""
-    from discovery_engine import study_outcomes as so
-
+    from discovery_engine.study import outcomes as so
     raw = """\
 name: sync-study
 conditions:
@@ -382,13 +381,12 @@ runs:
 
 def test_sync_simulation_set_error_does_not_raise(tmp_path: Path, monkeypatch):
     """If populate_simulation_set raises, sync returns {'error': ...} and does NOT raise."""
-    from discovery_engine import study_io, study_outcomes as so
-
+    from discovery_engine.study import io as study_io, outcomes as so
     d = tmp_path / "study"
     d.mkdir()
     study_io.save_yaml_atomic(d / "study.yaml", {"name": "err-study", "runs": []})
 
-    import discovery_engine.simulation_set as ss_mod
+    import discovery_engine.study.simulation_set as ss_mod
 
     monkeypatch.setattr(ss_mod, "populate_simulation_set", _raise_runtime)
 
@@ -416,8 +414,8 @@ _V2E_INVEST_ROOT = Path("/Users/eranagmon/code/v2e-invest")
     not _REAL_STUDY_DIR.exists(), reason="v2e-invest/dnaa-2 not present on this machine"
 )
 def test_golden_dnaa2(tmp_path: Path):
-    from discovery_engine import study_io
-    from discovery_engine.simulation_set import populate_simulation_set
+    from discovery_engine.study import io as study_io
+    from discovery_engine.study.simulation_set import populate_simulation_set
 
     # Copy to tmp — NEVER modify v2e-invest
     study_copy = tmp_path / "dnaa-2-nucleotide-balance"

@@ -1,5 +1,5 @@
 import json
-from discovery_engine.post_sim import (
+from discovery_engine.integration.post_sim import (
     TestReportStep, StudyContext, build_report, tests_dir as _tests_dir, history_dir,
 )
 # Imported under a leading-underscore alias: pytest's default python_functions

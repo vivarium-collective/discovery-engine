@@ -6,11 +6,11 @@ import pytest
 import yaml
 
 from discovery_engine import discover as D
-from discovery_engine import discovery_engine as de
-from discovery_engine.investigation_import import investigations_dir, studies_dir
-from discovery_engine.run_command import (render_command, reset_run_command,
+from discovery_engine.projection import engine as de
+from discovery_engine.investigation.import_ import investigations_dir, studies_dir
+from discovery_engine.study.run_command import (render_command, reset_run_command,
                                           set_render_command_template)
-from discovery_engine.viz_freshness import read_meta, stamp_meta
+from discovery_engine.viz.freshness import read_meta, stamp_meta
 
 RUNS = [{"run_id": "r1", "completed_at": 10.0}]
 

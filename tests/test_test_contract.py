@@ -1,7 +1,7 @@
 # tests/test_test_contract.py
 import json
 import math
-from discovery_engine.test_contract import Expected, value, band, predicate, check, sanitize
+from discovery_engine.reporting.test_contract import Expected, value, band, predicate, check, sanitize
 
 def test_band_inside_edge_outside():
     a = check("flux", "Acetate flux", 3.2, band(2.5, 4.0), units="mM/h", cite="Nanchen2006")

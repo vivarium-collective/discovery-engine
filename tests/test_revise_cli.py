@@ -5,8 +5,8 @@ from __future__ import annotations
 import pytest
 
 from discovery_engine import discover
-from discovery_engine import discovery_engine as de
-from discovery_engine.study_io import load_yaml, save_yaml_atomic
+from discovery_engine.projection import engine as de
+from discovery_engine.study.io import load_yaml, save_yaml_atomic
 
 PID = "rp:s3:mv1:abcd1234"
 

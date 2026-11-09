@@ -18,10 +18,8 @@ from pathlib import Path
 import pytest
 import yaml
 
-from discovery_engine import study_evaluator as se
-from discovery_engine import grader_freshness as gf
-
-
+from discovery_engine.study import evaluator as se
+from discovery_engine.reporting import grader_freshness as gf
 @pytest.fixture(autouse=True)
 def _evict(tmp_path):
     se.clear_workspace_evaluator_cache()
@@ -38,7 +36,7 @@ def _ws_storeless(tmp_path: Path) -> Path:
     (ws / "workspace.yaml").write_text("name: slws\n", encoding="utf-8")
     (pkg / "__init__.py").write_text("", encoding="utf-8")
     (pkg / "evaluators.py").write_text(textwrap.dedent("""
-        from discovery_engine.study_evaluator import storeless
+        from discovery_engine.study.evaluator import storeless
         @storeless
         def _recovery(test, reader, ws_root):
             return {"result": "FAIL", "evaluated_by": "code", "measured_value": 0.58}
@@ -124,7 +122,7 @@ def test_annotate_freshness_bakes_the_flag():
 # --- report_linter stale-grade rule ------------------------------------------
 
 def _lint(spec, tmp_path):
-    from discovery_engine.report_linter import _LintContext, _check_stale_computed_grades
+    from discovery_engine.reporting.linter import _LintContext, _check_stale_computed_grades
     ctx = _LintContext(ws_root=tmp_path, slug="s1", spec=spec)
     _check_stale_computed_grades(ctx)
     return [f for f in ctx.findings if f.check == "stale_computed_grades"]

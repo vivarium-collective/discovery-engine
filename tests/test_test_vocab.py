@@ -1,7 +1,6 @@
 # tests/test_test_vocab.py
 import pytest
-from discovery_engine import test_vocab as v
-
+from discovery_engine.reporting import test_vocab as v
 def test_canonical_set_is_exact():
     assert v.CANONICAL == ("within_tol", "drift", "mismatch", "ungraded")
     assert v.SEVERITY == ("hard", "soft", "directional")
@@ -33,7 +32,7 @@ def test_agent_and_display_status():
     assert v.display_status("ungraded") == "not assessable"
 
 def test_verdict_to_result_maps_all_verdicts():
-    from discovery_engine.test_vocab import verdict_to_result
+    from discovery_engine.reporting.test_vocab import verdict_to_result
     assert verdict_to_result("within_tol") == "PASS"
     assert verdict_to_result("drift") == "PASS"        # a soft/directional warning still passes the gate
     assert verdict_to_result("mismatch") == "FAIL"

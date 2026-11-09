@@ -7,9 +7,9 @@ from pathlib import Path
 import jsonschema
 
 from discovery_engine import discover
-from discovery_engine.study_io import load_yaml, save_yaml_atomic
+from discovery_engine.study.io import load_yaml, save_yaml_atomic
 
-C = "discovery_engine.model_architect.build_catalog"
+C = "discovery_engine.phases.model_architect.build_catalog"
 SCHEMA = Path(discover.__file__).parent / "schemas" / "investigation-extensions.schema.json"
 
 

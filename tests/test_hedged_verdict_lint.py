@@ -3,7 +3,7 @@ the indicative, not hedge it ("should"/"likely"/"seems"). Wording symptom from
 obra's verification-before-completion lesson."""
 from pathlib import Path
 
-from discovery_engine.report_linter import (
+from discovery_engine.reporting.linter import (
     _LintContext,
     _check_hedged_verdict_when_passed,
 )

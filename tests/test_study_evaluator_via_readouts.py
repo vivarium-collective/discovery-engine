@@ -10,9 +10,7 @@ from __future__ import annotations
 import polars as pl
 import pytest
 
-from discovery_engine import study_evaluator as se
-
-
+from discovery_engine.study import evaluator as se
 # ---------------------------------------------------------------------------
 # Fake reader that supports both series() and select()
 # ---------------------------------------------------------------------------
@@ -195,7 +193,7 @@ def test_literal_index_routes_through_resolver():
     """A literal-index path is routed through the canonical readout_resolver
     (kind == "element") and produces the SAME selector / series as the old
     in-evaluator literal-index fast path — byte-identical select dict."""
-    from discovery_engine.readout_resolver import resolve_readout, ResolvedReadout
+    from discovery_engine.study.readout_resolver import resolve_readout, ResolvedReadout
 
     # The resolver classifies it as element and its select dict is byte-identical
     # to the dict the old fast path passed to reader.select.
@@ -221,7 +219,7 @@ def test_bare_bulk_id_still_resolves_via_fallback():
     """The resolver gives up on a bare bracket bulk id (UnresolvedReadout), so
     _resolve_series must fall through to the unchanged evaluator body, which
     resolves it via the bulk_id select fallback — no regression."""
-    from discovery_engine.readout_resolver import resolve_readout, UnresolvedReadout
+    from discovery_engine.study.readout_resolver import resolve_readout, UnresolvedReadout
 
     # Confirm the resolver does NOT claim this one (so the fast path falls through).
     r = resolve_readout({"identifier": "MONOMER0-160[c]"})

@@ -1,4 +1,4 @@
-"""Tests for discovery_engine.relations — the unified typed relations accessor.
+"""Tests for discovery_engine.projection.relations — the unified typed relations accessor.
 
 RFC-0006 Tier 2: four keys name the same parent studies with different facets
 (parent_studies = organizational gate, parent_relations = epistemic, builds_on =
@@ -9,7 +9,7 @@ are merged in for back-compat so nothing breaks before migration.
 """
 from __future__ import annotations
 
-from discovery_engine.relations import study_relations, epistemic_relations
+from discovery_engine.projection.relations import study_relations, epistemic_relations
 
 
 def _by_study(rels):

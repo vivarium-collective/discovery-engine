@@ -1,7 +1,7 @@
-"""Tests for the L1 preregistration check (discovery_engine.study_audit)."""
+"""Tests for the L1 preregistration check (discovery_engine.study.audit)."""
 import yaml
 
-from discovery_engine.study_audit import audit_workspace
+from discovery_engine.study.audit import audit_workspace
 
 _PASS_IF = {"metric": "growth_rate", "op": ">=", "value": 0.5}
 

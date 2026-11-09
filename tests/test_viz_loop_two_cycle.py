@@ -5,10 +5,10 @@ import time
 import yaml
 
 from discovery_engine import discover as D
-from discovery_engine import discovery_engine as de
-from discovery_engine.investigation_import import investigations_dir, studies_dir
-from discovery_engine.viz_freshness import read_meta, stamp_meta
-from discovery_engine.viz_proposals import propose_visualizations
+from discovery_engine.projection import engine as de
+from discovery_engine.investigation.import_ import investigations_dir, studies_dir
+from discovery_engine.viz.freshness import read_meta, stamp_meta
+from discovery_engine.viz.proposals import propose_visualizations
 
 RUNS = [{"run_id": "r2", "completed_at": 100.0}]
 OBS = "pop/survivors"

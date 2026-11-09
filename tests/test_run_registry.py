@@ -1,7 +1,7 @@
 import json
 import sqlite3
 from pathlib import Path
-from discovery_engine.run_registry import (
+from discovery_engine.study.run_registry import (
     latest_run, register_run, get_run_params, RUNS_META_DDL, build_run_manifest,
 )
 

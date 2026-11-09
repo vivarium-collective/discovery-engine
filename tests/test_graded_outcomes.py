@@ -7,8 +7,8 @@ computed authoritative; authored is only a tagged fallback when there's no compu
 """
 from __future__ import annotations
 
-from discovery_engine.study_outcomes import canonical_graded_outcomes, graded_outcomes_for_run
-from discovery_engine.study_verdict import roll_up_verdict
+from discovery_engine.study.outcomes import canonical_graded_outcomes, graded_outcomes_for_run
+from discovery_engine.study.verdict import roll_up_verdict
 
 
 def _spec(computed_result, authored_result, **run_extra):

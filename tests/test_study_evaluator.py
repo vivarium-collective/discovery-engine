@@ -1,4 +1,4 @@
-"""Tests for discovery_engine.study_evaluator (Tasks 1–4).
+"""Tests for discovery_engine.study.evaluator (Tasks 1–4).
 
 Run with: .venv/bin/python -m pytest tests/test_study_evaluator.py -v
 """
@@ -7,9 +7,7 @@ from __future__ import annotations
 import polars as pl
 import pytest
 
-from discovery_engine import study_evaluator as se
-
-
+from discovery_engine.study import evaluator as se
 # ---------------------------------------------------------------------------
 # Fake reader for unit tests
 # ---------------------------------------------------------------------------

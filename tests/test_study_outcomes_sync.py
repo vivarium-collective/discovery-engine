@@ -13,9 +13,7 @@ import polars as pl
 import pytest
 import yaml
 
-from discovery_engine import run_registry, study_io, study_outcomes as so
-
-
+from discovery_engine.study import run_registry, io as study_io, outcomes as so
 # ---------------------------------------------------------------------------
 # Shared helpers (same style as test_computed_outcomes.py)
 # ---------------------------------------------------------------------------
@@ -209,7 +207,7 @@ def test_sync_degradation_on_compute_error(tmp_path: Path, monkeypatch):
         completed_at="2026-01-01T00:01:00Z",
     )
 
-    import discovery_engine.study_evaluator as se
+    import discovery_engine.study.evaluator as se
     monkeypatch.setattr(se, "compute_outcomes", _raise_runtime)
 
     # Must not raise
@@ -264,7 +262,7 @@ def test_sync_findings_best_effort_on_error(tmp_path: Path, monkeypatch):
         {"name": "err-study", "runs": []},
     )
 
-    import discovery_engine.finding_observations as fo
+    import discovery_engine.study.finding_observations as fo
     monkeypatch.setattr(fo, "populate_finding_observations", _raise_runtime)
 
     result = so.sync(study_dir)
@@ -300,7 +298,7 @@ def test_sync_degradation_on_import_error(tmp_path: Path, monkeypatch):
     real_import = builtins.__import__
 
     def _block_evaluator(name, *args, **kwargs):
-        if "study_evaluator" in name:
+        if "study.evaluator" in name:
             raise ImportError(f"simulated missing extra: {name}")
         return real_import(name, *args, **kwargs)
 

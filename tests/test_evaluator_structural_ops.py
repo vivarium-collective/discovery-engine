@@ -3,7 +3,7 @@ division-count, max-oriC (re-init), and within-cycle trend tests become
 spine-computable (previously agent-only)."""
 import polars as pl
 
-from discovery_engine.study_evaluator import _apply_op
+from discovery_engine.study.evaluator import _apply_op
 
 
 def _flat(values, gen=1):

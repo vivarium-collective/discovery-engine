@@ -1,4 +1,4 @@
-"""Tests for the G1 gate-class machinery in discovery_engine.study_verdict.
+"""Tests for the G1 gate-class machinery in discovery_engine.study.verdict.
 
 The review's central M1 fix: a ``regression_pin`` (threshold set AFTER
 observing the run — a rerun guard) must never be conflated with an
@@ -13,7 +13,7 @@ observing the run — a rerun guard) must never be conflated with an
 """
 from __future__ import annotations
 
-from discovery_engine.study_verdict import (
+from discovery_engine.study.verdict import (
     classify_gates,
     is_expected_fail,
     preregistration_gate_alignment,

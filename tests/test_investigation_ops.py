@@ -1,4 +1,4 @@
-"""Tests for discovery_engine.investigation_ops — Slice-2a: branch + link.
+"""Tests for discovery_engine.investigation.ops — Slice-2a: branch + link.
 
 The investigation-operations algebra is a set of NON-DESTRUCTIVE, pure
 functions over plain study / investigation dicts (the on-disk study.yaml and
@@ -25,7 +25,7 @@ import copy
 
 import pytest
 
-from discovery_engine.investigation_ops import branch, link
+from discovery_engine.investigation.ops import branch, link
 
 
 # ---------------------------------------------------------------------------

@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import pytest
 
-from discovery_engine.capability_gaps import (
+from discovery_engine.feedback.capability_gaps import (
     accept_capability_gap,
     build_capability_gap,
     close_built_capability_gaps,
@@ -143,7 +143,7 @@ def test_close_only_accepted_and_no_fuzzy_substring():
 
 
 def test_non_blocking_kind():
-    import discovery_engine.discovery_engine as de
+    import discovery_engine.projection.engine as de
     assert "capability_gap" not in de._CLOSURE_BLOCKING
     assert "needs_build" not in de._CLOSURE_BLOCKING
 
@@ -239,7 +239,7 @@ def test_no_inv_name_and_empty_override():
 
 
 def test_public_provides():
-    from discovery_engine.model_architect import provides
+    from discovery_engine.phases.model_architect import provides
     assert provides(TOOL_CATALOG[0], "rate-law-fitter") is True
     assert provides(TOOL_CATALOG[0], "zzz") is False
 
@@ -261,7 +261,7 @@ def test_build_with_empty_catalog_fails():
 
 # ── G4 (trial finding): prose "mechanisms" must not each become a capability gap ──
 def test_is_buildable_mechanism_predicate():
-    from discovery_engine.capability_gaps import _is_buildable_mechanism
+    from discovery_engine.feedback.capability_gaps import _is_buildable_mechanism
     assert _is_buildable_mechanism("proto_endosymbiosis_integration")
     assert _is_buildable_mechanism("rate-law-fitter")
     assert _is_buildable_mechanism("viva_genesis.composites.x")

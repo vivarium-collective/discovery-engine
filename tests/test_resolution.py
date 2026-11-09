@@ -1,4 +1,4 @@
-"""DE 2.0 gap-resolution taxonomy (discovery_engine.resolution).
+"""DE 2.0 gap-resolution taxonomy (discovery_engine.projection.resolution).
 
 The engine owns the canonical {acquire_data, develop_method, request_expert, spawn_research}
 enum; workspace cards (e.g. sbml-cycle's recovery studies, PR #13) are conforming fixtures.
@@ -7,8 +7,8 @@ from __future__ import annotations
 
 import pytest
 
-from discovery_engine import resolution as R
-from discovery_engine.resolution import (
+from discovery_engine.projection import resolution as R
+from discovery_engine.projection.resolution import (
     ResolutionRouteError,
     normalize_resolution_route as norm,
     resolution_route_of,
@@ -115,7 +115,7 @@ def test_resolution_route_of_reads_and_normalizes():
 
 # ── capability gaps carry a default resolution_route (develop_method) ─────────
 def test_capability_gap_carries_a_valid_default_resolution_route():
-    from discovery_engine.capability_gaps import propose_capability_gaps
+    from discovery_engine.feedback.capability_gaps import propose_capability_gaps
     catalog = [{"id": "Tool", "composite": "pkg.Tool", "capability": ["rate", "law"], "observables": []}]
     gaps = propose_capability_gaps({"name": "inv"}, {}, catalog,
                                    required_mechanisms=["totally-novel-mechanism"])

@@ -10,9 +10,7 @@ from pathlib import Path
 
 import yaml
 
-from discovery_engine import investigation_reconcile as IR
-
-
+from discovery_engine.investigation import reconcile as IR
 def _mk(ws: Path, inv: str, *, studies_key="studies", declared=(), on_disk=(), narrative=None):
     """Build a tmp workspace: workspace.yaml + investigations/<inv>/investigation.yaml
     (declared members under `studies_key`) + flat studies/<slug>/ with a back-ref."""

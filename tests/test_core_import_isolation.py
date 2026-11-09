@@ -5,15 +5,15 @@ import sys
 import textwrap
 
 CORE = (
-    "discovery_engine", "discovery_engine.discover", "discovery_engine.evaluation",
-    "discovery_engine.model_architect", "discovery_engine.hypotheses",
-    "discovery_engine.knowledge_store", "discovery_engine.argument_store",
-    "discovery_engine.narrative", "discovery_engine.evidence_integrity",
-    "discovery_engine.report_linter", "discovery_engine.study_evaluator",
+    "discovery_engine", "discovery_engine.discover", "discovery_engine.phases.evaluation",
+    "discovery_engine.phases.model_architect", "discovery_engine.phases.hypotheses",
+    "discovery_engine.projection.knowledge", "discovery_engine.projection.argument",
+    "discovery_engine.projection.narrative", "discovery_engine.phases.evidence_integrity",
+    "discovery_engine.reporting.linter", "discovery_engine.study.evaluator",
 )
 PLUMBING = (
-    "discovery_engine.integration", "discovery_engine.scaffold",
-    "discovery_engine.server_preflight", "discovery_engine.workspace_catalog",
+    "discovery_engine.integration", "discovery_engine.integration.scaffold",
+    "discovery_engine.integration.server_preflight", "discovery_engine.integration.workspace_catalog",
 )
 
 
@@ -24,7 +24,7 @@ def test_core_imports_pull_in_no_plumbing():
             importlib.import_module(m)
         bad = [m for m in {PLUMBING!r} if m in sys.modules]
         assert not bad, bad
-        import discovery_engine.report_linter as rl
+        import discovery_engine.reporting.linter as rl
         assert rl._server_url.__name__  # lazy hook only; not imported above
     """)
     r = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True)

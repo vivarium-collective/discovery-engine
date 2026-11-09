@@ -1,4 +1,4 @@
-"""Tests for discovery_engine.investigation_status (Task 3).
+"""Tests for discovery_engine.investigation.status (Task 3).
 
 Covers:
 - roll_up_acceptance: all-pass, any-fail, partial, in-progress, mixed
@@ -12,8 +12,8 @@ from pathlib import Path
 
 import pytest
 
-from discovery_engine import study_io
-from discovery_engine.investigation_status import (
+from discovery_engine.study import io as study_io
+from discovery_engine.investigation.status import (
     roll_up_acceptance,
     write_investigation_acceptance,
 )

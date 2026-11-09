@@ -1,10 +1,10 @@
-"""Tests for the L0-L5 study-reproducibility audit (discovery_engine.study_audit)."""
+"""Tests for the L0-L5 study-reproducibility audit (discovery_engine.study.audit)."""
 import json
 from types import SimpleNamespace
 
-import discovery_engine.study_audit as study_audit
+import discovery_engine.study.audit as study_audit
 
-from discovery_engine.study_audit import (
+from discovery_engine.study.audit import (
     CheckResult,
     StudyAudit,
     AuditReport,
@@ -401,7 +401,7 @@ def test_l5_dangling_member_edge_fails_hard(tmp_path):
 # ---------------------------------------------------------------------------
 
 def test_investigation_execution_order_a_b_c(tmp_path):
-    from discovery_engine.study_audit import investigation_execution_order
+    from discovery_engine.study.audit import investigation_execution_order
 
     _ws(tmp_path)
     _study_with_input(tmp_path, "A")
@@ -414,7 +414,7 @@ def test_investigation_execution_order_a_b_c(tmp_path):
 
 
 def test_investigation_execution_order_ignores_non_member_producer(tmp_path):
-    from discovery_engine.study_audit import investigation_execution_order
+    from discovery_engine.study.audit import investigation_execution_order
 
     _ws(tmp_path)
     _study_with_input(tmp_path, "upstream")
@@ -430,7 +430,7 @@ def test_investigation_execution_order_ignores_non_member_producer(tmp_path):
 
 
 def test_investigation_execution_order_cycle_falls_back_to_declared_order(tmp_path):
-    from discovery_engine.study_audit import investigation_execution_order
+    from discovery_engine.study.audit import investigation_execution_order
 
     _ws(tmp_path)
     _study_with_input(tmp_path, "A", producer="B")
@@ -658,7 +658,7 @@ def test_gate_zero_on_populated_clean_workspace(tmp_path, monkeypatch):
 # B1 — allowlist / ratchet mechanism
 
 def test_load_allowlist_parses_and_skips_comments(tmp_path):
-    from discovery_engine.study_audit import load_allowlist
+    from discovery_engine.study.audit import load_allowlist
     f = tmp_path / "known.txt"
     f.write_text(
         "# accepted debt\n"
@@ -691,7 +691,7 @@ def test_stale_allowlist_entry_detected(tmp_path):
 
 
 def test_gate_with_allowlist(tmp_path, capsys):
-    from discovery_engine.study_audit import main
+    from discovery_engine.study.audit import main
     _ws(tmp_path)
     _study(tmp_path, "s1",
            "name: s1\nconditions:\n  baseline:\n    composite: pkg.missing\n  model_settings: []\n")
@@ -705,7 +705,7 @@ def test_gate_with_allowlist(tmp_path, capsys):
 
 
 def test_gate_fails_on_stale_allowlist_entry(tmp_path):
-    from discovery_engine.study_audit import main
+    from discovery_engine.study.audit import main
     _ws(tmp_path)   # empty workspace: no studies, so NO hard failures at all
     al = tmp_path / "known.txt"
     al.write_text("ghost:composite-resolves\n", encoding="utf-8")  # matches nothing -> stale

@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import pytest
 
-from discovery_engine.readout_resolver import (
+from discovery_engine.study.readout_resolver import (
     ResolvedReadout,
     UnresolvedReadout,
     resolve_readout,
@@ -237,7 +237,7 @@ def test_bulk_expression_dnaa_atp_fraction():
 def test_expression_reuses_study_evaluator_tokenizer():
     """Verify that the tokenizer used is the same one from study_evaluator
     (by checking it finds the same tokens for an expression)."""
-    from discovery_engine.study_evaluator import _extract_observable_tokens
+    from discovery_engine.study.evaluator import _extract_observable_tokens
 
     expr = "MONOMER0-160[c] / (PD03831[c] + MONOMER0-160[c] + MONOMER0-4565[c])"
     tokens = _extract_observable_tokens(expr)

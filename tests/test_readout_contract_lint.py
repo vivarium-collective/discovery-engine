@@ -15,8 +15,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from discovery_engine import report_linter
-from discovery_engine.report_linter import _LintContext, _check_readout_contract
+from discovery_engine.reporting import linter as report_linter
+from discovery_engine.reporting.linter import _LintContext, _check_readout_contract
 
 
 def _ctx(tmp_path: Path, readouts: list[dict] | None = None) -> _LintContext:

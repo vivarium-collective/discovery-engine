@@ -8,8 +8,7 @@ from __future__ import annotations
 
 import pytest
 
-from discovery_engine import hypotheses as _H, model_architect as M
-
+from discovery_engine.phases import hypotheses as _H, model_architect as M
 # Domain vocabulary is workspace-supplied, not a framework default: register it here.
 _DOMAIN_SYNONYMS = {
     "exchange": ("exchange", "metabolite", "metabolic", "cross_lineage", "flux", "syntroph"),
@@ -110,9 +109,9 @@ def test_search_ranks_providers():
 
 
 def test_resolve_composite_true_and_false(tmp_path):
-    ok = M.resolve_composite("discovery_engine.model_architect.build_catalog", tmp_path)
+    ok = M.resolve_composite("discovery_engine.phases.model_architect.build_catalog", tmp_path)
     assert ok["resolves"] is True
-    assert ok["module"] == "discovery_engine.model_architect"
+    assert ok["module"] == "discovery_engine.phases.model_architect"
     assert ok["spec_path"] and ok["spec_path"].endswith("model_architect.py")
     bad = M.resolve_composite("discovery_engine.no_such_mod.thing", tmp_path)
     assert bad["resolves"] is False
@@ -121,11 +120,11 @@ def test_resolve_composite_true_and_false(tmp_path):
 
 
 def test_build_catalog_with_ws_root_marks_components(tmp_path):
-    studies = {"s": {"baseline": [{"composite": "discovery_engine.model_architect.build_catalog"}],
+    studies = {"s": {"baseline": [{"composite": "discovery_engine.phases.model_architect.build_catalog"}],
                      "variants": [{"composite": "nonexistent_pkg_xyz.mod.f"}]}}
     cat = {c["composite"]: c for c in M.build_catalog(studies, tmp_path)}
-    assert cat["discovery_engine.model_architect.build_catalog"]["resolves"] is True
-    assert cat["discovery_engine.model_architect.build_catalog"]["module"] == "discovery_engine.model_architect"
+    assert cat["discovery_engine.phases.model_architect.build_catalog"]["resolves"] is True
+    assert cat["discovery_engine.phases.model_architect.build_catalog"]["module"] == "discovery_engine.phases.model_architect"
     assert cat["nonexistent_pkg_xyz.mod.f"]["resolves"] is False
 
 
