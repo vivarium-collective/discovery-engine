@@ -27,7 +27,7 @@ def _to_plain(obj: Any) -> Any:
     return obj
 
 
-def _resolve_run_store(
+def resolve_run_store(
     run: dict,
     study_dir: Any,
     ws_root: Any = None,
@@ -176,7 +176,7 @@ def _build_run_opener(runs: list, study_dir: Any, ws_root: Any):
         entry = _select_run_entry(runs, selector or {})
         if entry is None:
             return None
-        store = _resolve_run_store(entry, study_dir, ws_root)
+        store = resolve_run_store(entry, study_dir, ws_root)
         if store is None:
             return None
         if store not in cache:
@@ -273,7 +273,7 @@ def compute_outcomes(
     tests_agent = 0
 
     for run in doc.get("runs") or []:
-        store_path = _resolve_run_store(run, study_dir, ws_root)
+        store_path = resolve_run_store(run, study_dir, ws_root)
 
         # Phase 2 freshness stamp: the inputs_hash anchors staleness AND idempotency — carry the
         # prior graded_at forward when the inputs are unchanged, so a re-grade never churns the YAML.
@@ -418,3 +418,8 @@ def compute_outcomes(
         "tests_code": tests_code,
         "tests_agent": tests_agent,
     }
+
+
+# Back-compat alias. `resolve_run_store` is the public run-store resolver
+# consumers depend on; the former private name keeps working.
+_resolve_run_store = resolve_run_store

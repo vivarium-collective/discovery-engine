@@ -116,6 +116,7 @@ from .measures import (
 from .outcomes import (
     _build_run_opener,
     _resolve_run_store,
+    resolve_run_store,
     _select_run_entry,
     _to_plain,
     compute_outcomes,
