@@ -77,7 +77,8 @@ def _evaluate_run_delta(test: dict, reader, run_opener) -> dict:
     resolved via ``run_opener``) — aligns them, reduces to a scalar distance, and
     applies the ``pass_if`` comparator.
     """
-    measure = test.get("measure") or {}
+    measure = test.get("measure")
+    measure = measure if isinstance(measure, dict) else {}
     pass_if = test.get("pass_if")
     if not pass_if:
         return _agent("missing pass_if block")

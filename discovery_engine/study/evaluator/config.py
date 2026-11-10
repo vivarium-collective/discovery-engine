@@ -63,7 +63,8 @@ def _evaluate_config_value(test: dict, config: dict | None) -> dict:
     No run data / windowing — the measured value is the config field itself, so
     this supports categorical (string) params that the numeric series path can't.
     """
-    measure = test.get("measure") or {}
+    measure = test.get("measure")
+    measure = measure if isinstance(measure, dict) else {}
     pass_if = test.get("pass_if")
     if not pass_if:
         return _agent("missing pass_if block")
