@@ -5,8 +5,8 @@ End-to-end on a disk fixture: load -> run_cycle -> frontier -> closure -> persis
 import yaml
 
 from discovery_engine import discover as D
-from discovery_engine import discovery_engine as de
-from discovery_engine.investigation_import import investigations_dir, studies_dir
+from discovery_engine.projection import engine as de
+from discovery_engine.investigation.import_ import investigations_dir, studies_dir
 
 CAT = [{"address": "local:Cross", "inputs": {"arms": "list[string]", "labels": "list[string]"}},
        {"address": "local:Per", "inputs": {"time": "list[float]"}}]

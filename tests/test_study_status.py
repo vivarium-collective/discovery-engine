@@ -1,5 +1,5 @@
-"""Tests for discovery_engine.study_status (derive-on-read status, friction #2)."""
-from discovery_engine.study_status import (
+"""Tests for discovery_engine.study.status (derive-on-read status, friction #2)."""
+from discovery_engine.study.status import (
     derive_simulation_status, derive_evaluation_status,
     derive_status, status_disagreements,
     count_test_outcomes, study_clarity_summary,

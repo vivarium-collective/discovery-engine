@@ -3,9 +3,9 @@ import pytest
 import yaml
 
 from discovery_engine import discover as D
-from discovery_engine import discovery_engine as de
-from discovery_engine.investigation_import import investigations_dir, studies_dir
-from discovery_engine.narrative_freshness import EXPIRED, FRESH, UNSTAMPED
+from discovery_engine.projection import engine as de
+from discovery_engine.investigation.import_ import investigations_dir, studies_dir
+from discovery_engine.projection.narrative_freshness import EXPIRED, FRESH, UNSTAMPED
 
 RUNS = [{"run_id": "r1", "completed_at": 100.0}]
 INV = {"slug": "inv", "studies": ["s1"],

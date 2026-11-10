@@ -1,4 +1,4 @@
-"""Tests for the shared post-sim Step family (discovery_engine.post_sim):
+"""Tests for the shared post-sim Step family (discovery_engine.integration.post_sim):
 registry auto-registration + funnel, write_card sanitization, and the
 report-card gating verdict convention.
 """
@@ -7,7 +7,7 @@ import json
 import pytest
 import yaml
 
-from discovery_engine.post_sim import (
+from discovery_engine.integration.post_sim import (
     ANALYSIS_REGISTRY,
     KINDS,
     POST_SIM_REGISTRY,

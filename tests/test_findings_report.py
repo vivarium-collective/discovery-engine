@@ -20,7 +20,7 @@ from pathlib import Path
 import pytest
 import yaml
 
-from discovery_engine.report import (
+from discovery_engine.reporting.report import (
     render_workspace_findings_index,
     render_workspace_report,
     _harvest_findings,

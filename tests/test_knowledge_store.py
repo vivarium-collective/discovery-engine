@@ -1,4 +1,4 @@
-"""Tests for discovery_engine.knowledge_store — the derived Concept + canonical
+"""Tests for discovery_engine.projection.knowledge — the derived Concept + canonical
 Verdict knowledge projection.
 
 Covers:
@@ -13,7 +13,7 @@ Covers:
 """
 from __future__ import annotations
 
-from discovery_engine.knowledge_store import (
+from discovery_engine.projection.knowledge import (
     _study_behaviors,
     canonical_verdict,
     derive_knowledge,
@@ -254,7 +254,7 @@ class TestMergeKnowledge:
 
 
 def test_canonical_verdict_reads_conclusion_verdict_when_verdict_absent():
-    from discovery_engine.knowledge_store import canonical_verdict
+    from discovery_engine.projection.knowledge import canonical_verdict
     scalar = canonical_verdict({"conclusion_verdict": "supported"})
     assert scalar["verdict"] == "supported" and scalar["verdict_source"] == "authored"
     obj = canonical_verdict({"conclusion_verdict": {"verdict": "refuted"}})

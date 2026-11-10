@@ -1,6 +1,5 @@
 from discovery_engine import discover as D
-from discovery_engine import discovery_engine as de
-
+from discovery_engine.projection import engine as de
 INV = {"slug": "inv", "studies": ["s5"]}
 
 
@@ -94,7 +93,7 @@ def test_resolution_kinds():
 
 
 def test_crashed_visual_validator_surfaces(monkeypatch):
-    from discovery_engine import validation as V
+    from discovery_engine.reporting import validation as V
     reg = [v for v in V._REGISTRY if v["id"] == "visual.figure.freshness"][0]
     monkeypatch.setitem(reg, "fn", lambda ctx: (_ for _ in ()).throw(RuntimeError("boom")))
     res, _ = _run([{"name": "a", "address": "local:x.A"}], _vs(a=_row()))

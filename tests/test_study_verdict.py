@@ -1,4 +1,4 @@
-"""Tests for discovery_engine.study_verdict (Task 1 + Task 2).
+"""Tests for discovery_engine.study.verdict (Task 1 + Task 2).
 
 Covers:
 - roll_up_verdict: all-pass, any-fail, partial, not-started, blocked
@@ -12,8 +12,8 @@ from pathlib import Path
 
 import pytest
 
-from discovery_engine import study_io
-from discovery_engine.study_verdict import (
+from discovery_engine.study import io as study_io
+from discovery_engine.study.verdict import (
     diverges_from_authored,
     roll_up_verdict,
     write_gate_evaluator,
@@ -61,7 +61,7 @@ class TestRollUpVerdictPassed:
 
     def test_pass_predicate_matches_server_condition_satisfied(self):
         """The passed rule MUST equal: fail==0 and pass>0 (server.py:9561)."""
-        from discovery_engine import study_status
+        from discovery_engine.study import status as study_status
         spec = _spec(_named("t1", "t2"),
                      {"t1": {"result": "PASS"}, "t2": {"result": "ok"}})
         counts = study_status.count_test_outcomes(spec, spec.get("runs"))
@@ -338,7 +338,7 @@ runs:
 # Wave 3a — preregistration_status (critique #18)
 # ---------------------------------------------------------------------------
 
-from discovery_engine.study_verdict import preregistration_status
+from discovery_engine.study.verdict import preregistration_status
 
 
 def test_preregistration_status_absent_block_degrades():
@@ -400,7 +400,7 @@ def test_derive_confidence_reconciles_rail_and_graph():
     and study badge agree: a study with runs but no coded tests (computed verdict
     = not_started) falls back to the AUTHORED report.verdict the rail reads,
     instead of the stale lifecycle status."""
-    from discovery_engine.study_verdict import derive_confidence
+    from discovery_engine.study.verdict import derive_confidence
     # runs, no coded tests, authored passing verdict, status still "running":
     # the graph should read Accepted (matching the green rail), not Investigating.
     spec = {"status": "running", "runs": [{"name": "baseline", "status": "completed"}],

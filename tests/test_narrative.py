@@ -1,4 +1,4 @@
-"""Tests for discovery_engine.narrative — Narrate + Audit (RFC-0005 §5, §7.3).
+"""Tests for discovery_engine.projection.narrative — Narrate + Audit (RFC-0005 §5, §7.3).
 
 narrate(GE, question, audience) -> N: an ordered projection of the argument graph
 (topological over prerequisite+support, ties by id), units = study-level claims,
@@ -11,7 +11,7 @@ follow-up study (the investigate<->narrate loop-closer).
 """
 from __future__ import annotations
 
-from discovery_engine.narrative import narrate, audit
+from discovery_engine.projection.narrative import narrate, audit
 
 
 def _claim(cid, verdict="supported", **extra):

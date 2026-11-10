@@ -1,4 +1,4 @@
-from discovery_engine.study_canonicalize import canonicalize_models, canonicalize_ordering, migrate_study_file, backfill_question, normalize_tests_shape
+from discovery_engine.study.canonicalize import canonicalize_models, canonicalize_ordering, migrate_study_file, backfill_question, normalize_tests_shape
 
 STYLE_B_WITH_COMMENTS = """\
 # Hand-authored research log — MUST survive migration.

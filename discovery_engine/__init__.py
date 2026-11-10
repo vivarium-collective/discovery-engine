@@ -18,20 +18,15 @@ that drive it) and vivarium-workbench (the UI/server).
 """
 from __future__ import annotations
 
-from . import (  # noqa: F401  submodule access for the full surface
-    argument_store,
-    discover,
-    discovery_engine,
-    feedback_compiler,
-    knowledge_store,
-    narrative,
-    resolution,
-    study_evaluator,
-    synthesis,
-    validation,
-)
-from .argument_store import derive_argument, merge_argument  # noqa: F401
-from .resolution import (  # noqa: F401
+# The package is organized, per docs/architecture.md, into subpackages:
+#   projection/ phases/ growth/ study/ investigation/ reporting/ viz/
+#   feedback/ integration/ migrations/
+# Only the headline API is re-exported here; import a subpackage by path for the
+# rest (e.g. `from discovery_engine.study.verdict import ...`). The workspace/
+# server plumbing (integration/) is deliberately NOT imported eagerly, so
+# `import discovery_engine` stays light (see tests/test_core_import_isolation.py).
+from .projection.argument import derive_argument, merge_argument  # noqa: F401
+from .projection.resolution import (  # noqa: F401
     RESOLUTION_MODES,
     RESOLUTION_ROUTES,
     ResolutionRouteError,
@@ -39,7 +34,7 @@ from .resolution import (  # noqa: F401
     resolution_route_of,
     resolution_satisfied,
 )
-from .feedback_compiler import (  # noqa: F401
+from .feedback.compiler import (  # noqa: F401
     FeedbackValidationError,
     compile_feedback,
     ingest_feedback,
@@ -56,7 +51,7 @@ from .discover import (  # noqa: F401
     run_readiness,
     set_verdict,
 )
-from .discovery_engine import (  # noqa: F401
+from .projection.engine import (  # noqa: F401
     closure,
     crank,
     diagnose,
@@ -66,7 +61,7 @@ from .discovery_engine import (  # noqa: F401
     next_action,
     opportunities,
 )
-from .knowledge_store import (  # noqa: F401
+from .projection.knowledge import (  # noqa: F401
     canonical_verdict,
     derive_knowledge,
     merge_knowledge,

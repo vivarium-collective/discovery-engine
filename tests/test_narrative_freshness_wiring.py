@@ -6,8 +6,8 @@ import pytest
 import yaml
 
 from discovery_engine import discover as D
-from discovery_engine.narrative_freshness import EXPIRED, FRESH, UNSTAMPED
-from discovery_engine.investigation_import import investigations_dir, studies_dir
+from discovery_engine.projection.narrative_freshness import EXPIRED, FRESH, UNSTAMPED
+from discovery_engine.investigation.import_ import investigations_dir, studies_dir
 
 INV = {"name": "inv", "studies": ["s5"],
        "executive": {"verdict_status": "planning", "computed_verdict_status": "passing",

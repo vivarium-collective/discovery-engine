@@ -9,9 +9,7 @@ from __future__ import annotations
 
 import polars as pl
 
-from discovery_engine import study_evaluator as se
-
-
+from discovery_engine.study import evaluator as se
 class FakeReader:
     def __init__(self, data: dict[str, pl.DataFrame]):
         self._data = data

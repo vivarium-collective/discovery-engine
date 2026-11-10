@@ -6,8 +6,8 @@ dependents; the DiscoveryDelta records what the cycle established and what it ga
 """
 from __future__ import annotations
 
-from discovery_engine import evaluation as E
-from discovery_engine.evidence_integrity import VERIFIED, PROVISIONAL
+from discovery_engine.phases import evaluation as E
+from discovery_engine.phases.evidence_integrity import VERIFIED, PROVISIONAL
 
 
 def test_claim_support_gated_by_evidence_integrity():
@@ -159,7 +159,7 @@ def test_identical_snapshots_unchanged():
 
 
 def test_n_anomalies_is_load_bearing_for_fingerprint():
-    from discovery_engine.hypotheses import anomalies
+    from discovery_engine.phases.hypotheses import anomalies
     inv, studies = _inv_and_studies()
     # 7e-23 sits in the gap between h-s2-spatial (>=1e-22) and h-s2-null (<=5e-23)
     studies["s2"]["findings"][0]["evidence"]["observed"] = 7e-23

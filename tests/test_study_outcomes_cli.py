@@ -1,7 +1,5 @@
 from pathlib import Path
-from discovery_engine import study_io, run_registry, study_outcomes as so
-
-
+from discovery_engine.study import io as study_io, run_registry, outcomes as so
 def test_cli_syncs_named_study(tmp_path, capsys):
     (tmp_path / "workspace.yaml").write_text("name: ws\n")
     d = tmp_path / "studies" / "s1"; d.mkdir(parents=True)

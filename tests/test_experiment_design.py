@@ -5,9 +5,7 @@ carries control arms, and commits a decision rule before any run.
 """
 from __future__ import annotations
 
-from discovery_engine import experiment_design as D
-
-
+from discovery_engine.phases import experiment_design as D
 def _inv():
     return {"studies": ["s2"], "hypotheses": [
         {"id": "h-spatial", "study": "s2", "status": "open", "predictions": [

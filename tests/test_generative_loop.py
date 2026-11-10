@@ -7,7 +7,7 @@ A finding-level refutation is ``status: contradicts`` (the live finding-status e
 from __future__ import annotations
 
 from discovery_engine.discover import suggest_studies
-from discovery_engine.study_seeding import AUTONOMOUS, select_for_launch
+from discovery_engine.growth.seeding import AUTONOMOUS, select_for_launch
 
 
 def _suggest(studies: dict) -> list[dict]:

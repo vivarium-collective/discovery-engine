@@ -11,12 +11,12 @@ import polars as pl
 import yaml
 
 from discovery_engine import discover
-from discovery_engine import run_registry as rr
-from discovery_engine.model_architect import model_version
-from discovery_engine.study_io import load_yaml, save_yaml_atomic
+from discovery_engine.study import run_registry as rr
+from discovery_engine.phases.model_architect import model_version
+from discovery_engine.study.io import load_yaml, save_yaml_atomic
 
 C1 = "json.tool.main"                                   # resolves (stdlib)
-C2 = "discovery_engine.model_architect.build_catalog"   # resolves
+C2 = "discovery_engine.phases.model_architect.build_catalog"   # resolves
 PARAMS = {"x": 1.0}
 
 
@@ -143,7 +143,7 @@ def test_resolver_only_names_on_disk_studies():
 def test_gated_op_does_not_stop_or_preclaim(tmp_path, monkeypatch):
     # A GATED branch op (placeholder command) on study x is ranked first. It must not stop the
     # loop (y still runs) nor pre-claim x (x's own runnable test op still runs).
-    from discovery_engine import discovery_engine as de
+    from discovery_engine.projection import engine as de
     _ws(tmp_path, {"x": _study("x"), "y": _study("y")})
     real = de.execute_plan
 

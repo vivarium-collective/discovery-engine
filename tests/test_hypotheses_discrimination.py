@@ -4,9 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from discovery_engine import hypotheses as H
-
-
+from discovery_engine.phases import hypotheses as H
 def test_two_opposed_bands_on_one_observable_are_discriminable():
     inv = {"hypotheses": [
         {"id": "hi", "study": "s", "status": "open",

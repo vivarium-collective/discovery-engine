@@ -3,8 +3,8 @@ import re
 
 import pytest
 
-from discovery_engine import hypotheses, model_architect as ma, seed_from_followup as sff
-
+from discovery_engine.phases import hypotheses, model_architect as ma
+from discovery_engine.growth import seed_from_followup as sff
 BIO = re.compile(r"syntroph|bioenerg|membrane|enclosure|atp|heritab|endosymb|v2ecoli|genesis", re.I)
 
 

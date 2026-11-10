@@ -1,6 +1,4 @@
-from discovery_engine import study_outcomes as so
-
-
+from discovery_engine.study import outcomes as so
 def test_canonical_prefers_flag_over_position():
     spec = {"runs": [
         {"name": "a", "status": "completed", "canonical": True},
@@ -32,9 +30,7 @@ def test_canonical_none_when_no_runs():
 # record_runs tests
 # ---------------------------------------------------------------------------
 from pathlib import Path
-from discovery_engine import study_io, run_registry
-
-
+from discovery_engine.study import io as study_io, run_registry
 def _study(tmp_path: Path, spec: dict) -> Path:
     d = tmp_path / "studies" / "s1"; d.mkdir(parents=True)
     study_io.save_yaml_atomic(d / "study.yaml", spec)

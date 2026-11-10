@@ -1,4 +1,4 @@
-"""Tests for the composed workspace-lint entrypoint (discovery_engine.workspace_lint).
+"""Tests for the composed workspace-lint entrypoint (discovery_engine.integration.workspace_lint).
 
 Covers the composition seam: shared report-linter findings + workspace-local
 ``CHECKS`` (string-or-LintFinding, raising checks non-fatal) + the str->warning
@@ -10,8 +10,8 @@ from __future__ import annotations
 import shutil
 from pathlib import Path
 
-from discovery_engine.report_linter import LintFinding
-from discovery_engine.workspace_lint import (
+from discovery_engine.reporting.linter import LintFinding
+from discovery_engine.integration.workspace_lint import (
     _coerce,
     lint_workspace,
     load_workspace_lint_checks,

@@ -1,6 +1,6 @@
 """Missing member studies must surface, not vanish silently."""
 from discovery_engine import discover
-from discovery_engine.study_io import save_yaml_atomic
+from discovery_engine.study.io import save_yaml_atomic
 
 
 def _ws(tmp_path):

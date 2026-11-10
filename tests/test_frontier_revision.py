@@ -3,9 +3,9 @@
 from __future__ import annotations
 
 from discovery_engine import discover
-from discovery_engine import discovery_engine as de
-from discovery_engine.candidate_action import plan_candidate_actions
-from discovery_engine.study_io import load_yaml, save_yaml_atomic
+from discovery_engine.projection import engine as de
+from discovery_engine.phases.candidate_action import plan_candidate_actions
+from discovery_engine.study.io import load_yaml, save_yaml_atomic
 
 C2D = "viva_x.composites.membrane_2d.build"
 
@@ -85,7 +85,7 @@ def test_plan_emits_revise_between_repair_and_resolve_with_consequence():
     rev = [a for a in acts if a["kind"] == "revise"][0]
     assert rev["consequence"] == "review" and rev["target"] == "rp:s3:mv1:abcd1234"
     assert all("consequence" in a for a in acts)
-    from discovery_engine.candidate_action import select_portfolio, _KIND_RANK
+    from discovery_engine.phases.candidate_action import select_portfolio, _KIND_RANK
     assert _KIND_RANK["repair"] < _KIND_RANK["revise"] < _KIND_RANK["resolve"]
     assert [a["kind"] for a in select_portfolio(acts)][0] == "repair"
 
@@ -146,7 +146,7 @@ def test_contradicted_study_spawns_no_revise_items_via_ledger(monkeypatch):
 
 
 def test_contradicted_study_spawns_no_revise_items_via_evaluation(monkeypatch):
-    from discovery_engine import evaluation as E
+    from discovery_engine.phases import evaluation as E
     monkeypatch.setattr(E, "compare_hypotheses", lambda *a, **k: {"s3": {"status": "contradicted"}})
     inv = {"studies": ["s3"], "hypotheses": []}
     res = discover.run_cycle(inv, _studies())

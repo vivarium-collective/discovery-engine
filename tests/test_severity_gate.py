@@ -4,8 +4,8 @@ Only HARD-severity axis mismatches fail the study; soft mismatches + drift are a
 non-failing 'warn' (calibration outstanding); directional axes never emit
 'mismatch' so they never gate. Operates on a build_report() test_report/v1 doc.
 """
-from discovery_engine.study_verdict import severity_gate
-from discovery_engine.post_sim import build_report
+from discovery_engine.study.verdict import severity_gate
+from discovery_engine.integration.post_sim import build_report
 
 
 def _card(overall, axes):  # axes: list[(id, verdict, severity)]

@@ -1,8 +1,7 @@
 import pytest
 
 from discovery_engine import discover as D
-from discovery_engine import discovery_engine as de
-
+from discovery_engine.projection import engine as de
 CAT = [{"address": "local:Cross", "inputs": {"arms": "list[string]", "labels": "list[string]"}},
        {"address": "local:Per", "inputs": {"time": "list[float]", "species": "tree"}}]
 INV = {"slug": "inv", "studies": ["a", "b", "syn"]}

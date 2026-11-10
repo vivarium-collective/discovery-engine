@@ -12,7 +12,7 @@ import math
 
 import polars as pl
 
-from discovery_engine.study_evaluator import (
+from discovery_engine.study.evaluator import (
     _clean_floats,
     _complete_generations,
     _eval_expression,

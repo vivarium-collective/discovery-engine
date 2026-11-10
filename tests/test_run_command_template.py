@@ -1,7 +1,7 @@
 import pytest
 
-from discovery_engine import run_command as rc
-from discovery_engine.discovery_engine import _executor_for
+from discovery_engine.study import run_command as rc
+from discovery_engine.projection.engine import _executor_for
 
 
 @pytest.fixture(autouse=True)

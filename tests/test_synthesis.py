@@ -1,4 +1,4 @@
-"""Tests for discovery_engine.synthesis — the gate synthesis spine + open calls.
+"""Tests for discovery_engine.projection.synthesis — the gate synthesis spine + open calls.
 
 Formalizes the Plan-progress and Decisions tabs onto the canonical structure
 (RFC-0005): a plan gate's verdict is rolled up from its member studies' canonical
@@ -7,7 +7,7 @@ derived open items (audit gaps, open-question claims, verdict divergences).
 """
 from __future__ import annotations
 
-from discovery_engine.synthesis import gate_verdict, synthesize_gates, open_calls
+from discovery_engine.projection.synthesis import gate_verdict, synthesize_gates, open_calls
 
 
 # --- gate_verdict ----------------------------------------------------------

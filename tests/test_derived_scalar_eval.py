@@ -1,7 +1,7 @@
 import polars as pl
 import pytest
 
-import discovery_engine.study_evaluator as se
+import discovery_engine.study.evaluator as se
 
 
 class FakeReader:

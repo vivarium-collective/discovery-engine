@@ -1,4 +1,4 @@
-from discovery_engine.viz_freshness import (
+from discovery_engine.viz.freshness import (
     normalize_entry, classify_viz, chart_freshness, stamp_meta, read_meta)
 import os
 
@@ -118,7 +118,7 @@ def test_local_with_render_is_command():
 
 
 def test_chart_freshness_forwards_mv(tmp_path):
-    from discovery_engine.viz_freshness import stamp_meta
+    from discovery_engine.viz.freshness import stamp_meta
     (tmp_path / "viz").mkdir()
     f = tmp_path / "viz" / "x.html"; f.write_text("h")
     stamp_meta(f, source_run_id=None, generation_id=None, rendered_at=1.0,

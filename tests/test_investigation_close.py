@@ -29,7 +29,7 @@ from pathlib import Path
 import pytest
 import yaml
 
-from discovery_engine.investigation_close import (
+from discovery_engine.investigation.close import (
     close_investigation,
     derive_contributors,
 )

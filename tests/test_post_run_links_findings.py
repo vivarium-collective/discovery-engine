@@ -5,9 +5,7 @@ classify, instead of leaving it 'provisional — no resolvable registered run'."
 from pathlib import Path
 
 from discovery_engine import discover as D
-from discovery_engine import finding_observations, study_outcomes
-
-
+from discovery_engine.study import finding_observations, outcomes as study_outcomes
 def test_post_run_sync_populates_finding_observations(tmp_path, monkeypatch):
     sdir = tmp_path / "s-demo"
     sdir.mkdir()

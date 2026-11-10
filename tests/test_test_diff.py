@@ -1,5 +1,5 @@
 # tests/test_test_diff.py
-from discovery_engine.test_diff import diff_reports
+from discovery_engine.reporting.test_diff import diff_reports
 
 def _doc(axes):  # axes: list of (group, id, verdict, margin)
     groups = {}

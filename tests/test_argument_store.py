@@ -1,4 +1,4 @@
-"""Tests for discovery_engine.argument_store — the derived Claim + argument-graph
+"""Tests for discovery_engine.projection.argument — the derived Claim + argument-graph
 projection (RFC-0005 §7, §10.3).
 
 A Claim is the first-class epistemic assertion (proposition, scope, qualifiers,
@@ -14,7 +14,7 @@ warrants, evidence, rebuttals) carrying the canonical Verdict. The argument grap
 """
 from __future__ import annotations
 
-from discovery_engine.argument_store import (
+from discovery_engine.projection.argument import (
     canonical_claim,
     derive_argument,
     merge_argument,

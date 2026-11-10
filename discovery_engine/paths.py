@@ -89,7 +89,7 @@ def workspace_dir(name: str, *, root: Path | str | None = None) -> Path:
     notes, experiments, reports, pbg, scripts, tests, docs, package.
     `root` defaults to the nearest workspace.yaml at/above CWD.
     """
-    from .workspace_paths import WorkspacePaths
+    from discovery_engine.workspace_paths import WorkspacePaths
     if root is not None:
         ws = Path(root).resolve()
     else:
@@ -112,7 +112,7 @@ def _main(argv=None) -> int:
         # -> $STUDIES_DIR, $INVESTIGATIONS_DIR, $REFERENCES_DIR, ...
     """
     import argparse
-    from .workspace_paths import WorkspacePaths, LAYOUT_DEFAULTS
+    from discovery_engine.workspace_paths import WorkspacePaths, LAYOUT_DEFAULTS
 
     ap = argparse.ArgumentParser(prog="discovery_engine.paths")
     ap.add_argument("name", nargs="?", help="logical dir (studies, investigations, ...)")

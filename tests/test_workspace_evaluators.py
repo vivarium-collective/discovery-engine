@@ -8,9 +8,7 @@ import polars as pl
 import pytest
 import yaml
 
-from discovery_engine import study_evaluator as se
-
-
+from discovery_engine.study import evaluator as se
 @pytest.fixture(autouse=True)
 def _evict_fixture_packages():
     yield

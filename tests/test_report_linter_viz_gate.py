@@ -18,7 +18,7 @@ Uses the direct ``_LintContext`` call style of the ``viz_stale`` tests —
 """
 from __future__ import annotations
 
-from discovery_engine.report_linter import (
+from discovery_engine.reporting.linter import (
     _LintContext,
     _check_missing_visualizations,
 )

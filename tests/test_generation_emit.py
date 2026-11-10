@@ -1,6 +1,6 @@
 """Phase 1 emission projection: opportunities -> GenerationRequests."""
-from discovery_engine.generation import GateConfig
-from discovery_engine.generation_emit import generation_requests
+from discovery_engine.phases.generation import GateConfig
+from discovery_engine.phases.generation_emit import generation_requests
 
 
 def _opp(op, source="og-x", kind="k", value=None, oid=None, question="why"):

@@ -48,13 +48,13 @@ _BOOL_VALUE_TEST = {
 
 
 def test_canonical_has_numeric_band_detects_value_band():
-    from discovery_engine.band_provenance import has_numeric_band
+    from discovery_engine.study.band_provenance import has_numeric_band
 
     assert has_numeric_band(_VALUE_BAND_TEST) is True
 
 
 def test_canonical_has_numeric_band_rejects_non_numeric_value():
-    from discovery_engine.band_provenance import has_numeric_band
+    from discovery_engine.study.band_provenance import has_numeric_band
 
     assert has_numeric_band(_CONFIG_SELECTOR_TEST) is False
     assert has_numeric_band(_BOOL_VALUE_TEST) is False
@@ -63,9 +63,9 @@ def test_canonical_has_numeric_band_rejects_non_numeric_value():
 def test_all_three_consumers_agree_on_value_band():
     """rigor.py and report_linter.py now import the same function
     band_provenance.py uses — identity, not just equal behavior."""
-    from discovery_engine.band_provenance import has_numeric_band
-    from discovery_engine.rigor import _has_numeric_band
-    from discovery_engine.report_linter import _is_numeric_band
+    from discovery_engine.study.band_provenance import has_numeric_band
+    from discovery_engine.reporting.rigor import _has_numeric_band
+    from discovery_engine.reporting.linter import _is_numeric_band
 
     # Same underlying function (single source of truth, not 3 copies).
     assert _has_numeric_band is has_numeric_band
@@ -79,7 +79,7 @@ def test_value_band_test_now_visible_to_citation_gap_worklist():
     """The /viva-cite-bands citation-gap surface (band_provenance's
     bands_missing_provenance) must see an uncited pass_if.value band — this
     was the concrete bug: previously invisible here, but flagged by rigor."""
-    from discovery_engine.band_provenance import bands_missing_provenance
+    from discovery_engine.study.band_provenance import bands_missing_provenance
 
     spec = {"tests": [_VALUE_BAND_TEST]}
     result = bands_missing_provenance(spec)
@@ -93,7 +93,7 @@ def test_value_band_test_now_visible_to_citation_gap_worklist():
 def test_config_selector_test_never_flagged_as_band():
     """A non-numeric pass_if.value (config-selection) must never surface as a
     band-missing-citation entry — it isn't a quantitative acceptance band."""
-    from discovery_engine.band_provenance import bands_missing_provenance
+    from discovery_engine.study.band_provenance import bands_missing_provenance
 
     spec = {"tests": [_CONFIG_SELECTOR_TEST]}
     result = bands_missing_provenance(spec)
@@ -105,7 +105,7 @@ def test_report_linter_check_now_fires_on_value_band(tmp_path):
     pass_if.value band, matching rigor's existing gate."""
     import yaml
 
-    from discovery_engine.report_linter import lint_workspace_report
+    from discovery_engine.reporting.linter import lint_workspace_report
 
     ws = tmp_path / "ws"
     study_dir = ws / "studies" / "value-band-study"
@@ -133,8 +133,8 @@ def test_rigor_gate_and_citation_gap_worklist_now_agree_end_to_end():
     """Before the fix: rigor.study_rigor counted the value-band test in its
     numeric-band-provenance dimension while band_provenance's citation-gap
     worklist didn't see it at all. Now both see exactly the same band tests."""
-    from discovery_engine.band_provenance import bands_missing_provenance
-    from discovery_engine.rigor import _numeric_band_tests
+    from discovery_engine.study.band_provenance import bands_missing_provenance
+    from discovery_engine.reporting.rigor import _numeric_band_tests
 
     spec = {"tests": [_VALUE_BAND_TEST, _CONFIG_SELECTOR_TEST]}
 

@@ -136,7 +136,7 @@ def _main(argv: list[str] | None = None) -> int:
     import argparse
 
     parser = argparse.ArgumentParser(
-        prog="discovery_engine.server_preflight",
+        prog="discovery_engine.integration.server_preflight",
         description="Warn (never fail) if the workbench server version skews "
         "from these skills.",
     )

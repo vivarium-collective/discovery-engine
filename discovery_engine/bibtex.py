@@ -39,7 +39,7 @@ def bib_file(ws_root: Path) -> Path | None:
     """
     # 1) layout-aware references dir (covers both nested and flat layouts).
     try:
-        from .paths import workspace_dir
+        from discovery_engine.paths import workspace_dir
         ref_dir = Path(workspace_dir("references", root=ws_root))
         for fname in ("papers.bib", "references.bib"):
             p = ref_dir / fname

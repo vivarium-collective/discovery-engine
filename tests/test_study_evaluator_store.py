@@ -1,5 +1,5 @@
 from pathlib import Path
-from discovery_engine.study_evaluator import _resolve_run_store
+from discovery_engine.study.evaluator import _resolve_run_store
 
 
 def test_resolves_store_path(tmp_path):
@@ -29,7 +29,7 @@ def test_emitter_store_still_preferred(tmp_path):
 def test_falls_back_to_shared_runs_db_for_a_storeless_entry(tmp_path, monkeypatch):
     # `vivarium-workbench run study` writes into <study_dir>/runs.db but can leave the run
     # entry with no store pointer; resolve to that shared DB when the entry's run_id is in it.
-    import discovery_engine.run_registry as rr
+    import discovery_engine.study.run_registry as rr
     shared = tmp_path / "runs.db"
     shared.write_bytes(b"")
     monkeypatch.setattr(rr, "list_runs", lambda p: [{"run_id": "run-xyz"}])
@@ -37,15 +37,14 @@ def test_falls_back_to_shared_runs_db_for_a_storeless_entry(tmp_path, monkeypatc
 
 
 def test_no_shared_fallback_when_run_id_absent(tmp_path, monkeypatch):
-    import discovery_engine.run_registry as rr
+    import discovery_engine.study.run_registry as rr
     (tmp_path / "runs.db").write_bytes(b"")
     monkeypatch.setattr(rr, "list_runs", lambda p: [{"run_id": "other"}])
     assert _resolve_run_store({"name": "run-xyz"}, tmp_path) is None
 
 
 def test_declares_sources_and_required_observables(monkeypatch):
-    from discovery_engine import study_evaluator as SE
-
+    from discovery_engine.study import evaluator as SE
     @SE.declares_sources("enrichment_factor")
     def _log10(reader, test, ws):
         return 0.0

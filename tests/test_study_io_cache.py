@@ -8,9 +8,7 @@ import time
 
 import pytest
 
-from discovery_engine import study_io
-
-
+from discovery_engine.study import io as study_io
 def test_load_yaml_deep_copy_isolation(tmp_path):
     f = tmp_path / "s.yaml"
     f.write_text("name: a\nruns: [{name: r1}]\n")

@@ -6,9 +6,7 @@ model — the symmetric partner to study_seeding.
 """
 from __future__ import annotations
 
-from discovery_engine import study_refinement as R
-
-
+from discovery_engine.growth import refinement as R
 def _thin_study():
     return {
         "name": "s4-energetic",

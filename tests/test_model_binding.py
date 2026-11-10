@@ -3,10 +3,10 @@ from __future__ import annotations
 
 import copy
 
-from discovery_engine import model_architect as M
-from discovery_engine.finding_observations import _fill_finding
+from discovery_engine.phases import model_architect as M
+from discovery_engine.study.finding_observations import _fill_finding
 
-C = "discovery_engine.model_architect.build_catalog"
+C = "discovery_engine.phases.model_architect.build_catalog"
 
 
 def _studies():
@@ -54,7 +54,7 @@ def test_fill_finding_sets_model_version_only_when_absent():
 
 
 def test_backcompat_no_provenance(tmp_path):
-    from discovery_engine.finding_observations import populate_finding_observations
+    from discovery_engine.study.finding_observations import populate_finding_observations
     d = tmp_path / "s"
     d.mkdir()
     (d / "study.yaml").write_text(
@@ -75,8 +75,8 @@ def test_seeded_child_identical_to_parent_has_no_self_parent():
 
 
 def test_backcompat_no_provenance_end_to_end(tmp_path):
-    from discovery_engine.finding_observations import populate_finding_observations
-    from discovery_engine.study_io import load_yaml
+    from discovery_engine.study.finding_observations import populate_finding_observations
+    from discovery_engine.study.io import load_yaml
     d = tmp_path / "s"
     d.mkdir()
     (d / "study.yaml").write_text(

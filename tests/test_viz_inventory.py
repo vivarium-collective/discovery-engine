@@ -2,8 +2,8 @@ import json
 from pathlib import Path
 
 from discovery_engine import discover as D
-from discovery_engine.investigation_import import studies_dir
-from discovery_engine.validation import ValidationContext
+from discovery_engine.investigation.import_ import studies_dir
+from discovery_engine.reporting.validation import ValidationContext
 
 
 def _mk(tmp_path):

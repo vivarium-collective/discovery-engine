@@ -1,4 +1,4 @@
-"""Tests for the Pass B report linter (discovery_engine.report_linter).
+"""Tests for the Pass B report linter (discovery_engine.reporting.linter).
 
 One test per check, plus override-file roundtrip + render-blocking
 integration tests.
@@ -15,7 +15,7 @@ from pathlib import Path
 
 import pytest
 
-from discovery_engine.report_linter import (
+from discovery_engine.reporting.linter import (
     LintFinding,
     apply_overrides,
     format_findings,
@@ -686,7 +686,7 @@ def test_write_override_is_idempotent(tmp_path):
 
 
 def test_render_workspace_report_blocks_on_lint_errors(tmp_path):
-    from discovery_engine.report import render_workspace_report, ReportLintBlocked
+    from discovery_engine.reporting.report import render_workspace_report, ReportLintBlocked
 
     ws = _copy_fixture("incomplete-summary", tmp_path / "ws")
     with pytest.raises(ReportLintBlocked) as excinfo:
@@ -698,7 +698,7 @@ def test_render_workspace_report_blocks_on_lint_errors(tmp_path):
 
 def test_render_workspace_report_force_logs_overrides_and_proceeds(tmp_path):
     """--force writes overrides AND renders. Re-run is then clean."""
-    from discovery_engine.report import render_workspace_report
+    from discovery_engine.reporting.report import render_workspace_report
 
     ws = _copy_fixture("incomplete-summary", tmp_path / "ws")
 
@@ -724,7 +724,7 @@ def test_render_workspace_report_force_logs_overrides_and_proceeds(tmp_path):
 
 def test_render_workspace_report_lint_false_bypasses_check(tmp_path):
     """lint=False preserves pre-Pass-B unconditional behavior."""
-    from discovery_engine.report import render_workspace_report
+    from discovery_engine.reporting.report import render_workspace_report
 
     ws = _copy_fixture("incomplete-summary", tmp_path / "ws")
     # The linter would otherwise block; with lint=False we skip it
@@ -733,12 +733,12 @@ def test_render_workspace_report_lint_false_bypasses_check(tmp_path):
     try:
         render_workspace_report(ws, today="2026-05-17", lint=False)
     except Exception as e:
-        from discovery_engine.report import ReportLintBlocked
+        from discovery_engine.reporting.report import ReportLintBlocked
         assert not isinstance(e, ReportLintBlocked)
 
 
 # ---------------------------------------------------------------------------
-# CLI: python -m discovery_engine.report_linter
+# CLI: python -m discovery_engine.reporting.linter
 # ---------------------------------------------------------------------------
 
 
@@ -839,9 +839,9 @@ def test_speculative_readout_paths_fires_per_entry(tmp_path):
 
 def test_viz_stale_vs_latest_run_fires_on_mismatch(tmp_path):
     import sqlite3
-    from discovery_engine.run_registry import RUNS_META_DDL
-    from discovery_engine.viz_freshness import stamp_meta
-    from discovery_engine.report_linter import _LintContext, _check_viz_stale_vs_latest_run
+    from discovery_engine.study.run_registry import RUNS_META_DDL
+    from discovery_engine.viz.freshness import stamp_meta
+    from discovery_engine.reporting.linter import _LintContext, _check_viz_stale_vs_latest_run
     sd = tmp_path / "studies" / "s1"; (sd / "charts").mkdir(parents=True)
     (sd / "charts" / "c.svg").write_text("x")
     stamp_meta(sd / "charts" / "c.svg", source_run_id="OLD",
@@ -862,7 +862,7 @@ def test_viz_stale_vs_latest_run_fires_on_mismatch(tmp_path):
 def test_viz_stale_folds_untracked_into_one_info(tmp_path):
     """N unregistered on-disk charts produce ONE info finding, not N warnings,
     so the viz_stale noise stops counting as a gap (gaps = error+warning)."""
-    from discovery_engine.report_linter import _LintContext, _check_viz_stale_vs_latest_run
+    from discovery_engine.reporting.linter import _LintContext, _check_viz_stale_vs_latest_run
     sd = tmp_path / "studies" / "s1"; (sd / "charts").mkdir(parents=True)
     for n in ("a", "b", "c"):
         (sd / "charts" / f"{n}.svg").write_text("x")
@@ -878,9 +878,9 @@ def test_viz_stale_folds_untracked_into_one_info(tmp_path):
 
 def test_viz_stale_error_under_strict(tmp_path):
     import sqlite3
-    from discovery_engine.run_registry import RUNS_META_DDL
-    from discovery_engine.viz_freshness import stamp_meta
-    from discovery_engine.report_linter import _LintContext, _check_viz_stale_vs_latest_run
+    from discovery_engine.study.run_registry import RUNS_META_DDL
+    from discovery_engine.viz.freshness import stamp_meta
+    from discovery_engine.reporting.linter import _LintContext, _check_viz_stale_vs_latest_run
     sd = tmp_path / "studies" / "s1"; (sd / "charts").mkdir(parents=True)
     (sd / "charts" / "c.svg").write_text("x")
     stamp_meta(sd / "charts" / "c.svg", source_run_id="OLD",
@@ -896,7 +896,7 @@ def test_viz_stale_error_under_strict(tmp_path):
 def test_finding_without_statement_fires_for_empty_or_missing(tmp_path):
     """finding_without_statement is error-level for empty/missing statements."""
     from pathlib import Path
-    from discovery_engine.report_linter import (
+    from discovery_engine.reporting.linter import (
         _LintContext,
         _check_finding_without_statement,
     )
@@ -1192,7 +1192,7 @@ def test_missing_visualizations_requires_a_DECLARED_viz(tmp_path):
 
 # --- Phase-aware completeness gating (issue #97) ----------------------------
 
-from discovery_engine.report_linter import (  # noqa: E402
+from discovery_engine.reporting.linter import (  # noqa: E402
     _LintContext,
     _check_missing_planned_runs,
     _completeness_level,
@@ -1249,8 +1249,8 @@ def test_missing_planned_runs_phase_gated(tmp_path, phase, expected_level):
 
 # --- Render-guarantee check (issue #96) -------------------------------------
 
-import discovery_engine.report_linter as _rl  # noqa: E402
-from discovery_engine.report_linter import _check_renders_via_dashboard  # noqa: E402
+import discovery_engine.reporting.linter as _rl  # noqa: E402
+from discovery_engine.reporting.linter import _check_renders_via_dashboard  # noqa: E402
 
 
 def _render_ctx(tmp_path, slug="s1"):
@@ -1502,7 +1502,7 @@ def test_workspace_scan_cache_is_not_stale_across_separate_lint_runs(tmp_path):
 
 # 4b. placeholder markers are standalone tokens, not hyphenated-compound words
 def test_placeholder_patterns_ignore_hyphenated_compounds():
-    from discovery_engine.report_linter import _PLACEHOLDER_PATTERNS
+    from discovery_engine.reporting.linter import _PLACEHOLDER_PATTERNS
 
     def hits(s):
         return [p.pattern for p in _PLACEHOLDER_PATTERNS if p.search(s)]
@@ -1519,7 +1519,7 @@ def test_placeholder_patterns_ignore_hyphenated_compounds():
 # verdict_divergence (H4)
 
 def _verdict_div(tmp_path, spec):
-    from discovery_engine.report_linter import _LintContext, _check_verdict_divergence
+    from discovery_engine.reporting.linter import _LintContext, _check_verdict_divergence
     ctx = _LintContext(ws_root=tmp_path, slug="s1", spec=spec)
     _check_verdict_divergence(ctx)
     return [f for f in ctx.findings if f.check == "verdict_divergence"]

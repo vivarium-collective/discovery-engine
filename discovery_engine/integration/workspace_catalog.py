@@ -8,7 +8,7 @@ Two files under ``$VIVA_HOME`` / ``$PBG_HOME`` (default ``~/.pbg``):
                                 on exit).
 
 Single writer surface for both. Usable as a Python API (imported by the
-dashboard backend) and as a CLI (``python -m discovery_engine.workspace_catalog
+dashboard backend) and as a CLI (``python -m discovery_engine.integration.workspace_catalog
 <subcommand>``) — the CLI is what skill shims and shell scripts invoke.
 """
 from __future__ import annotations
@@ -371,7 +371,7 @@ def remove_server_file(file_path: str | Path) -> bool:
 
 
 def _main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(prog="discovery_engine.workspace_catalog")
+    parser = argparse.ArgumentParser(prog="discovery_engine.integration.workspace_catalog")
     sub = parser.add_subparsers(dest="cmd", required=True)
 
     p_add = sub.add_parser("add")

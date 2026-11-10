@@ -1,7 +1,7 @@
 """A small-magnitude measured value must survive grading: round(x,6) zeroed any
 value below ~1e-6, so ~1e-22 flux findings could never match observed and never
 verify. _sig6 keeps significant figures instead."""
-from discovery_engine.study_evaluator import _sig6
+from discovery_engine.study.evaluator import _sig6
 
 
 def test_sig6_preserves_tiny_magnitude():

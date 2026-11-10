@@ -1,7 +1,5 @@
 from pathlib import Path
-from discovery_engine import run_registry
-
-
+from discovery_engine.study import run_registry
 def test_list_runs_returns_rows_newest_first(tmp_path: Path):
     db = tmp_path / "runs.db"
     run_registry.register_run(db, "r1", spec_id="s", status="completed",

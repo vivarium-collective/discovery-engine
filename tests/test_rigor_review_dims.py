@@ -5,7 +5,7 @@ dim): it only appears for the claim class it polices, so the dimension count of
 every other study is unchanged. For each dim: a spec that GAPs (missing field),
 a spec that passes (field present) — proving the dim is real, not vacuous.
 """
-from discovery_engine.rigor import study_rigor, GAP, WARN, OK
+from discovery_engine.reporting.rigor import study_rigor, GAP, WARN, OK
 
 
 def _sev(scorecard, dim_id):

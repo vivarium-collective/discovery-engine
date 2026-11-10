@@ -17,9 +17,7 @@ import polars as pl
 import pytest
 import yaml
 
-from discovery_engine import study_evaluator as se
-
-
+from discovery_engine.study import evaluator as se
 # ---------------------------------------------------------------------------
 # Shared helpers
 # ---------------------------------------------------------------------------
@@ -491,14 +489,14 @@ def test_compute_outcomes_no_runs_noop(tmp_path: Path):
 
 def test_compute_outcomes_cli_exists():
     """compute_outcomes_cli is importable from study_evaluator."""
-    from discovery_engine.study_evaluator import compute_outcomes_cli
+    from discovery_engine.study.evaluator import compute_outcomes_cli
     assert callable(compute_outcomes_cli)
 
 
 def test_compute_outcomes_cli_study_dir(study_with_real_store):
     """CLI with --study-dir produces non-zero exit 0 on a real study."""
     from click.testing import CliRunner
-    from discovery_engine.study_evaluator import compute_outcomes_cli
+    from discovery_engine.study.evaluator import compute_outcomes_cli
 
     study_dir, _store = study_with_real_store
 

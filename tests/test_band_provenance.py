@@ -16,7 +16,7 @@ from pathlib import Path
 import pytest
 import yaml
 
-from discovery_engine.report_linter import (
+from discovery_engine.reporting.linter import (
     LintFinding,
     lint_workspace_report,
 )
@@ -228,8 +228,8 @@ def test_band_cites_unknown_bib_key_silent_without_papers_bib(tmp_path):
 
 
 def test_bands_missing_provenance_import():
-    """The helper is importable from discovery_engine.band_provenance."""
-    from discovery_engine.band_provenance import bands_missing_provenance  # noqa: F401
+    """The helper is importable from discovery_engine.study.band_provenance."""
+    from discovery_engine.study.band_provenance import bands_missing_provenance  # noqa: F401
 
 
 def test_bands_missing_provenance_returns_uncited_band_entries():
@@ -239,7 +239,7 @@ def test_bands_missing_provenance_returns_uncited_band_entries():
     pass_if {low:0.2,high:0.5} no cites; readouts[] with the prose "Boesen 2024"
     band in notes, no cites) → both returned.'
     """
-    from discovery_engine.band_provenance import bands_missing_provenance
+    from discovery_engine.study.band_provenance import bands_missing_provenance
 
     spec = {
         "behavior_tests": [
@@ -296,7 +296,7 @@ def test_bands_missing_provenance_returns_uncited_band_entries():
 
 def test_bands_missing_provenance_calibration_anchor():
     """calibration_anchor.literature_target without cites is also flagged."""
-    from discovery_engine.band_provenance import bands_missing_provenance
+    from discovery_engine.study.band_provenance import bands_missing_provenance
 
     spec = {
         "behavior_tests": [
@@ -318,7 +318,7 @@ def test_bands_missing_provenance_calibration_anchor():
 
 def test_bands_missing_provenance_field_path():
     """Result includes field_path for each flagged entry."""
-    from discovery_engine.band_provenance import bands_missing_provenance
+    from discovery_engine.study.band_provenance import bands_missing_provenance
 
     spec = {
         "behavior_tests": [
@@ -337,7 +337,7 @@ def test_bands_missing_provenance_field_path():
 
 def test_bands_missing_provenance_empty_spec():
     """An empty spec returns an empty list."""
-    from discovery_engine.band_provenance import bands_missing_provenance
+    from discovery_engine.study.band_provenance import bands_missing_provenance
 
     assert bands_missing_provenance({}) == []
     assert bands_missing_provenance({"readouts": [], "tests": []}) == []
@@ -345,7 +345,7 @@ def test_bands_missing_provenance_empty_spec():
 
 def test_bands_missing_provenance_non_band_test_not_flagged():
     """A test with no low/high/threshold is not a band test and is not flagged."""
-    from discovery_engine.band_provenance import bands_missing_provenance
+    from discovery_engine.study.band_provenance import bands_missing_provenance
 
     spec = {
         "behavior_tests": [
@@ -376,7 +376,7 @@ DNAA2_BIB = Path("/Users/eranagmon/code/v2e-invest/references/papers.bib")
 def test_golden_dnaa2_bands_flagged_as_missing_provenance(tmp_path):
     """Real dnaa-2 study has [0.2,0.5] and [300,800] bands with no cites field.
     bands_missing_provenance should flag them. NEVER modifies v2e-invest."""
-    from discovery_engine.band_provenance import bands_missing_provenance
+    from discovery_engine.study.band_provenance import bands_missing_provenance
 
     # Make a read-only TMP copy — never touch v2e-invest
     tmp_study = tmp_path / "study.yaml"
@@ -401,7 +401,7 @@ def test_golden_dnaa2_bands_flagged_as_missing_provenance(tmp_path):
 )
 def test_golden_dnaa2_study_file_not_modified_by_this_test(tmp_path):
     """Confirm our tmp copy is independent: editing the copy doesn't touch v2e-invest."""
-    from discovery_engine.band_provenance import bands_missing_provenance
+    from discovery_engine.study.band_provenance import bands_missing_provenance
 
     original_mtime = DNAA2_STUDY.stat().st_mtime
     tmp_study = tmp_path / "study.yaml"

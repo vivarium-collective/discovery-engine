@@ -8,7 +8,7 @@ even though the run happened). These cover the run-log reader + its merge into
 import json
 from pathlib import Path
 
-from discovery_engine import run_registry
+from discovery_engine.study import run_registry
 from discovery_engine.discover import _load_runs_by_study
 
 

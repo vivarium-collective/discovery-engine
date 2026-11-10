@@ -7,7 +7,7 @@ passing. Version-tolerant: no units, or no registry, → unchanged behavior.
 """
 from __future__ import annotations
 
-from discovery_engine.test_contract import band, check
+from discovery_engine.reporting.test_contract import band, check
 
 
 def test_band_stores_unit():

@@ -1,4 +1,4 @@
-"""Tests for discovery_engine.feedback_compiler (P2/P3: feedback -> engine capability).
+"""Tests for discovery_engine.feedback.compiler (P2/P3: feedback -> engine capability).
 
 Synthetic, domain-neutral feedback — the compiler ships no domain vocabulary, so the
 tests prove it works from STRUCTURED fields alone (never prose), with strict schema
@@ -10,8 +10,8 @@ import copy
 
 import pytest
 
-from discovery_engine import feedback_compiler as fc
-from discovery_engine.feedback_compiler import (
+from discovery_engine.feedback import compiler as fc
+from discovery_engine.feedback.compiler import (
     FeedbackValidationError,
     compile_feedback,
     reconcile_and_reopen,
@@ -282,7 +282,7 @@ def test_competing_hypotheses_bind_to_their_discriminating_study():
     """The compiler binds each competing hypothesis to the seeded study measuring its observable,
     so discriminating_hypotheses (which groups by `study:`) reads the study as discriminable out of
     the box — no manual per-study binding after a reopen (a feedback-driven reopen gap)."""
-    from discovery_engine.hypotheses import discriminating_hypotheses
+    from discovery_engine.phases.hypotheses import discriminating_hypotheses
     compiled = compile_feedback(_request(), _feedback())
     bind = {a["hypothesis"]["id"]: a["hypothesis"].get("study")
             for a in compiled["actions"] if a["type"] == "register_hypothesis"}

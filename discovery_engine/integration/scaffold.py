@@ -1219,7 +1219,7 @@ def scaffold_investigation_from_wrapper(
     Returns a summary dict: ``{investigation_path, investigation_written,
     studies: [{slug, generator, path, written}]}``.
     """
-    from discovery_engine import study_io
+    from discovery_engine.study import io as study_io
     from discovery_engine.workspace_paths import WorkspacePaths
 
     if not studies:

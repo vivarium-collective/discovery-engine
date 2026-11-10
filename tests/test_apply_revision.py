@@ -6,14 +6,14 @@ import copy
 import pytest
 
 from discovery_engine import discover
-from discovery_engine import discovery_engine as de
-from discovery_engine import hypotheses as H
-from discovery_engine import model_architect as M
-from discovery_engine.study_io import load_yaml, save_yaml_atomic
+from discovery_engine.projection import engine as de
+from discovery_engine.phases import hypotheses as H
+from discovery_engine.phases import model_architect as M
+from discovery_engine.study.io import load_yaml, save_yaml_atomic
 
 PID = "rp:s3:mv:old:abcd1234"
 C2D = "json.tool.main"  # resolves (stdlib), stands in for the 2D composite
-C3D = "discovery_engine.model_architect.build_catalog"  # resolves
+C3D = "discovery_engine.phases.model_architect.build_catalog"  # resolves
 BAD = "nonexistent_pkg_xyz.mod.build"
 
 

@@ -1,7 +1,7 @@
 """Phase 1 contract types: GenerationRequest (id + schema) and GateConfig."""
 import pytest
 
-from discovery_engine.generation import (
+from discovery_engine.phases.generation import (
     GateConfig,
     GenerationRequest,
     validate_request,

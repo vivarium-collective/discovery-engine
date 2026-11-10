@@ -1,4 +1,4 @@
-"""Tests for discovery_engine.discovery_engine — the formal discovery crank.
+"""Tests for discovery_engine.projection.engine — the formal discovery crank.
 
 The engine turns one cycle projection (run_cycle's output) + the investigation spec
 into a prioritized FRONTIER of unresolved items, each with a recommended operation;
@@ -7,9 +7,7 @@ deterministic (same evidence -> same frontier), so turning the crank is reproduc
 """
 from __future__ import annotations
 
-from discovery_engine import discovery_engine as de
-
-
+from discovery_engine.projection import engine as de
 def _cycle(open_calls=None, edges=None, verdicts=None, behaviors=None, validations=None):
     return {
         "knowledge": {"verdicts": verdicts or {}, "behaviors": behaviors or {}},
@@ -72,7 +70,7 @@ def test_frontier_validation_finding_is_resolvable():
 
 
 def test_frontier_flags_stale_validation_against_snapshot():
-    from discovery_engine import validation as V
+    from discovery_engine.reporting import validation as V
     old = V.validation_record(type="logical", scope="claim", target="c",
                               execution_status="failed", findings=["x"], validator_id="v")
     snap = V.snapshot_of([old])
@@ -181,7 +179,7 @@ def test_execute_plan_marks_revalidate_auto_safe_and_steer_human_only():
                                "findings": ["x"]}],
                  open_calls=[{"kind": "decision", "title": "D (og-x): decide", "refs": []}])
     # inject a stale_validation by snapshotting a differing record
-    import discovery_engine.validation as V
+    import discovery_engine.reporting.validation as V
     snap = V.snapshot_of([V.validation_record(type="logical", scope="claim", target="claim:x",
                                               execution_status="passed", validator_id="v")])
     cyc["validations"][0]["provenance"] = {"validator_id": "v"}

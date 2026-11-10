@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import pytest
 
-from discovery_engine.narrative_freshness import (
+from discovery_engine.projection.narrative_freshness import (
     EXPIRED,
     FRESH,
     UNSTAMPED,
@@ -145,7 +145,7 @@ def test_unstamped_is_not_expired():
 
 
 def test_freshness_is_non_blocking():
-    from discovery_engine import discovery_engine as de
+    from discovery_engine.projection import engine as de
     for kind in ("narrative", "verdict", "decisions", "narrative_expired", "expired"):
         assert kind not in de._CLOSURE_BLOCKING
 

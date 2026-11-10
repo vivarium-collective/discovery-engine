@@ -1,5 +1,5 @@
 # tests/test_test_builder.py
-from discovery_engine.test_contract import TestBuilder, check, band, value
+from discovery_engine.reporting.test_contract import TestBuilder, check, band, value
 
 def test_builder_groups_and_overall():
     doc = (TestBuilder(model_ref="m@abc")

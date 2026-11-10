@@ -17,9 +17,7 @@ from pathlib import Path
 import pytest
 import yaml
 
-from discovery_engine import study_evaluator as se
-
-
+from discovery_engine.study import evaluator as se
 @pytest.fixture(autouse=True)
 def _evict_fixture_packages():
     se.clear_workspace_evaluator_cache()
@@ -38,7 +36,7 @@ def _ws_with_storeless(tmp_path: Path, kind: str = "recovery_check") -> Path:
     (ws / "workspace.yaml").write_text("name: slws\n", encoding="utf-8")
     (pkg / "__init__.py").write_text("", encoding="utf-8")
     (pkg / "evaluators.py").write_text(textwrap.dedent(f"""
-        from discovery_engine.study_evaluator import storeless
+        from discovery_engine.study.evaluator import storeless
         @storeless
         def _recovery(test, reader, ws_root):
             # re-derives its own result; must run even with reader=None
@@ -106,7 +104,7 @@ def test_storeless_grade_fills_finding(tmp_path):
     # The whole point: a store-less grade must reach findings[] (and thus the verdict + the
     # generative loop). With the old `_status: store_less_graded` marker, finding_observations
     # blanked the block and the finding never filled — this guards that bridge.
-    from discovery_engine import finding_observations as fo
+    from discovery_engine.study import finding_observations as fo
     ws = _ws_with_storeless(tmp_path)
     sd = tmp_path / "studies" / "recover-x"
     sd.mkdir(parents=True)
@@ -144,7 +142,7 @@ def test_storeless_graded_when_ws_root_omitted(tmp_path):
     (ws / "workspace.yaml").write_text("name: slws\n", encoding="utf-8")
     (pkg / "__init__.py").write_text("", encoding="utf-8")
     (pkg / "evaluators.py").write_text(textwrap.dedent("""
-        from discovery_engine.study_evaluator import storeless
+        from discovery_engine.study.evaluator import storeless
         @storeless
         def _recovery(test, reader, ws_root):
             return {"result": "FAIL", "evaluated_by": "code", "measured_value": 0.58,
