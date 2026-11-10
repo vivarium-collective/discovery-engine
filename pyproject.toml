@@ -7,7 +7,7 @@ build-backend = "hatchling.build"
 # name on PyPI is owned by an unrelated project). The IMPORT package is still
 # `discovery_engine` — only the distribution name is namespaced.
 name = "viva-discovery-engine"
-version = "0.2.1"
+version = "0.3.0"
 description = "A derive-first scientific-investigation discovery cycle engine for the Vivarium ecosystem."
 readme = "README.md"
 requires-python = ">=3.11"
