@@ -251,7 +251,8 @@ def compute_outcomes(
     _all_tests = spec.get(_tests_key) or []
     _cross_run_tests = [
         t for t in _all_tests
-        if isinstance(t, dict) and (t.get("measure") or {}).get("kind") == "run_delta"
+        if isinstance(t, dict) and isinstance(t.get("measure"), dict)
+        and t["measure"].get("kind") == "run_delta"
     ]
     per_run_spec = dict(spec)
     per_run_spec[_tests_key] = [t for t in _all_tests if t not in _cross_run_tests]
@@ -289,7 +290,8 @@ def compute_outcomes(
             # here, so don't blanket-skip when store-less tests are present.
             _sl = _storeless_kinds(ws_root)
             sl_tests = [t for t in (per_run_spec.get(_tests_key) or [])
-                        if isinstance(t, dict) and (t.get("measure") or {}).get("kind") in _sl]
+                        if isinstance(t, dict) and isinstance(t.get("measure"), dict)
+                        and t["measure"].get("kind") in _sl]
             if not sl_tests:
                 run["computed_outcomes"] = ruamel.yaml.CommentedMap(
                     {"_status": "store_unresolved",

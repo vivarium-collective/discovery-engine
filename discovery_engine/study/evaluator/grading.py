@@ -104,7 +104,8 @@ def _grade_axis_from_outcome(test: dict, pass_if: dict, op: str, outcome: dict) 
     label = test.get("description") or name
     cites = test.get("cites") or []
     cite = "; ".join(str(c) for c in cites) or None
-    units = (test.get("measure") or {}).get("units")
+    _m = test.get("measure")
+    units = (_m if isinstance(_m, dict) else {}).get("units")
     common = dict(severity=test.get("severity", "hard"), cite=cite, units=units)
     mv = outcome.get("measured_value")
 
