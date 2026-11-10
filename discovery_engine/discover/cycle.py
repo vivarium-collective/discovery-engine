@@ -1,4 +1,4 @@
-"""Discover cycle — the write/wire layer that drives the RFC-0005/0006 ops.
+"""Cycle orchestration — the write/wire layer that drives the RFC-0005/0006 ops.
 
 The knowledge / argument / narrate / audit / synthesize modules are pure
 derive-first projections: they take dicts, return dicts, and (by design) persist
@@ -25,6 +25,11 @@ This module closes that gap:
 
 The science advances by re-running the cycle: fill verdicts -> narrate the arc ->
 the audit surfaces the gaps -> close them by extending models/studies -> re-run.
+
+Imports: depends on :mod:`discovery_engine.discover._common` and on the author
+write-ops in :mod:`discovery_engine.discover.actions` (``execute_action`` and
+``persist_cycle`` compose them). ``actions`` only depends back on this module
+through a lazy in-function import, so the package stays acyclic.
 """
 from __future__ import annotations
 
@@ -47,304 +52,23 @@ from discovery_engine.study.io import atomic_write, load_yaml, load_yaml_mapping
 from discovery_engine.projection.synthesis import open_calls, synthesize_gates
 from discovery_engine.reporting.validation import ValidationContext, run_validators
 
-
-def _ruamel() -> YAML:
-    """Comment-preserving round-trip YAML — the same config the canonicalize/reconcile
-    writers use (``study_canonicalize._ruamel``). A ``width`` well past any real line
-    keeps long scalars on one line so an edge enrichment is a one-field diff, not a
-    whole-file reflow that drops load-bearing ``# …`` annotations."""
-    y = YAML()
-    y.preserve_quotes = True
-    y.width = 4096
-    y.indent(mapping=2, sequence=4, offset=2)
-    return y
-
-
-def _set_relation_inplace(spec, upstream: str, relation: str) -> bool:
-    """Set the epistemic ``relation`` to ``upstream`` on the edge where it already
-    lives, mutating ``spec`` in place (a plain dict OR a ruamel ``CommentedMap``).
-
-    Precedence: the canonical ``pipeline_gate.prerequisites`` entry first, then the
-    legacy ``parent_studies`` backbone (a bare ``{study}`` dict, or a plain string
-    promoted to ``{study, relation}``). If the dependency is declared nowhere, an
-    epistemic-only ``pipeline_gate.prerequisites`` entry is appended. Returns True iff
-    a change was made (idempotent: re-setting the same relation is a no-op)."""
-    pg = spec.get("pipeline_gate")
-    if isinstance(pg, dict):
-        for p in pg.get("prerequisites") or []:
-            if isinstance(p, dict) and p.get("study") == upstream:
-                if p.get("relation") == relation:
-                    return False
-                p["relation"] = relation
-                return True
-    ps = spec.get("parent_studies")
-    if isinstance(ps, list):
-        for i, e in enumerate(ps):
-            if isinstance(e, str) and e == upstream:
-                ps[i] = {"study": upstream, "relation": relation}
-                return True
-            if isinstance(e, dict) and e.get("study") == upstream:
-                if e.get("relation") == relation:
-                    return False
-                e["relation"] = relation
-                return True
-    pg = spec.setdefault("pipeline_gate", {})
-    prereqs = pg.setdefault("prerequisites", [])
-    prereqs.append({"study": upstream, "relation": relation})
-    return True
-
-
-def _enrich_file(path: Path | str, upstreams: list[str], relation: str) -> list[str]:
-    """Load a study.yaml round-trip (comments preserved), set ``relation`` in place for
-    each upstream where its edge lives, and write back only if something changed.
-    Returns the upstreams actually changed."""
-    y = _ruamel()
-    text = Path(path).read_text(encoding="utf-8")
-    spec = y.load(text) or {}
-    changed = [u for u in upstreams if _set_relation_inplace(spec, u, relation)]
-    if changed:
-        buf = StringIO()
-        y.dump(spec, buf)
-        atomic_write(path, buf.getvalue())
-    return changed
-
-#: the canonical scientific verdict vocabulary a human may author
-VERDICT_VOCAB = ("supported", "qualified", "inconclusive", "refuted", "unassessed")
-
-#: the epistemic relation vocabulary a prerequisite edge may carry (RFC-0005 §4).
-#: These are the facet ``argument_store`` reads to build claim->claim edges; a bare
-#: ``condition: tests-passed`` prerequisite is organizational only and yields no
-#: argument edge until its epistemic relation is authored.
-EPISTEMIC_RELATIONS = ("builds-on", "tests", "refutes", "alternative-to", "motivates")
-# The frontier-item kinds a resolution can discharge (mirror discovery_engine priorities).
-RESOLUTION_KINDS = ("unaddressed_criterion", "open_challenge", "narrative_gap",
-                    "open_decision", "divergence", "open_question",
-                    "validation_finding", "stale_validation", "pending_gate",
-                    "revision_proposed", "model_disagreement", "anomaly",
-                    "viz_broken", "viz_missing", "viz_proposed", "viz_stale",
-                    "viz_misplaced", "viz_duplicated", "viz_untied")
-
-
-def add_resolution(inv_spec: dict, kind: str, target: str, rationale: str,
-                   by: str | None = None) -> dict:
-    """Record a resolution ``{kind, target, rationale, by?}`` in an investigation spec —
-    the uniform discharge the discovery crank honors for every frontier-item kind. The op
-    that produced an artifact (an adjudication, a bridging study, a met criterion) records
-    it here, back-referenced via ``by``. Idempotent on ``(kind, target)``: a second call
-    updates the record rather than duplicating. A rationale is required — a resolution
-    documents *why* an item is discharged, it does not silently suppress it. Returns the
-    updated spec (pure; the caller persists)."""
-    if kind not in RESOLUTION_KINDS:
-        raise ValueError(f"kind must be one of {RESOLUTION_KINDS}, got {kind!r}")
-    if not target:
-        raise ValueError("target is required (the frontier item's target, as the crank prints it)")
-    if not (rationale or "").strip():
-        raise ValueError("a rationale is required — a resolution documents why the item is discharged")
-    rec = {"kind": kind, "target": target, "rationale": rationale}
-    if by:
-        rec["by"] = by
-    out = dict(inv_spec)
-    kept = [r for r in (out.get("resolutions") or [])
-            if not (isinstance(r, dict) and r.get("kind") == kind and r.get("target") == target)]
-    kept.append(rec)
-    out["resolutions"] = kept
-    return out
-
-
-def record_resolution(inv_path: Path | str, kind: str, target: str, rationale: str,
-                      by: str | None = None) -> dict:
-    """Load an investigation.yaml, add a resolution, save atomically. Returns the record."""
-    path = Path(inv_path)
-    spec = add_resolution(load_yaml_mapping(path), kind, target, rationale, by)
-    save_yaml_atomic(path, spec)
-    return spec["resolutions"][-1]
-
-
-def declare_viz(ws_root: Path | str, inv_slug: str, target: str, declare: dict,
-                rationale: str, by: str = "human") -> dict:
-    """Review-tier write-back for a ``viz_broken`` figure: set ``address`` / ``render`` /
-    ``requires`` on the named ``visualizations[]`` entry of ``fig:<study>/<name>``, drop a
-    ``rendered:`` field (read by nothing), stamp ``origin: {kind: derived_fix}``, and record
-    a ``viz_broken`` resolution. Authored-wins: a rationale is required, the entry must
-    exist, and only those three keys may be set. Never dispatched by ``advance``."""
-    if not (rationale or "").strip():
-        raise ValueError("a rationale is required — --declare edits an authored list")
-    vt = _viz_target(target)
-    if vt is None:
-        raise ValueError(f"target must be fig:<study>/<name>, got {target!r}")
-    bad = set(declare) - {"address", "render", "requires"}
-    if bad:
-        raise ValueError(f"--declare may set only address/render/requires, got {sorted(bad)}")
-    if not (declare.get("address") or declare.get("render")):
-        raise ValueError("--declare needs an address= or render= (else the entry stays a broken stub)")
-    study, name = vt
-    sdir = _study_dir_on_disk(ws_root, inv_slug, study)
-    if sdir is None:
-        raise ValueError(f"no study.yaml for {study!r}")
-    y = _ruamel()
-    sp = sdir / "study.yaml"
-    doc = y.load(sp.read_text(encoding="utf-8"))
-    ent = next((e for e in doc.get("visualizations") or []
-                if isinstance(e, dict) and e.get("name") == name), None)
-    if ent is None:
-        raise ValueError(f"{study} declares no visualization named {name!r}")
-    from discovery_engine.viz.freshness import BROKEN_STUB, normalize_entry
-    if normalize_entry(dict(ent))["kind"] != BROKEN_STUB:
-        raise ValueError(f"{target} is not a broken stub — --declare only repairs a figure with "
-                         "no renderable identity; re-author a healthy entry through the normal "
-                         "study authoring path")
-    for k, v in declare.items():
-        ent[k] = list(v) if k == "requires" else v
-    ent.pop("rendered", None)
-    ent["origin"] = {"kind": "derived_fix"}
-    from io import StringIO
-    buf = StringIO()
-    y.dump(doc, buf)
-    sp.write_text(buf.getvalue(), encoding="utf-8")
-    inv_path = investigations_dir(Path(ws_root)) / inv_slug / "investigation.yaml"
-    return record_resolution(inv_path, "viz_broken", target, rationale, by=by)
-
-
-def _viz_prop(spec: dict, vp: str) -> dict:
-    prop = next((p for p in spec.get("viz_proposals") or [] if isinstance(p, dict) and p.get("id") == vp), None)
-    if prop is None:
-        raise ValueError(f"unknown viz proposal {vp!r} — run `discover cycle` to persist proposals first")
-    if prop.get("status", "proposed") != "proposed":
-        raise ValueError(f"viz proposal {vp!r} is already {prop.get('status')!r}; only a 'proposed' "
-                         "proposal can be accepted or rejected")
-    return prop
-
-
-def _now() -> str:
-    return _dt.datetime.now(_dt.timezone.utc).isoformat(timespec="seconds")
-
-
-def accept_viz_proposal(ws_root: Path | str, inv_slug: str, vp: str, *, address: str | None = None,
-                        rationale: str, by: str = "human") -> dict:
-    """Author-gated accept: in one call, append a ``visualizations[]`` entry to the proposal's
-    study (``origin: {kind: viz_proposal, ref: vp}``, ``covers: [observable]``) and mark the
-    proposal ``accepted`` with a history event. Requires a rationale and an ``address`` (the
-    suggested catalog address when omitted; a ``needs_author`` proposal has none, so the
-    author must supply it). The entry is declared but unrendered -> the frontier item becomes
-    ``viz_missing``. Never dispatched by ``advance``. Returns the updated proposal."""
-    from discovery_engine.viz.proposals import slugify
-    if not (rationale or "").strip():
-        raise ValueError("a rationale is required — accepting a proposal edits an authored list")
-    inv_path = investigations_dir(Path(ws_root)) / inv_slug / "investigation.yaml"
-    spec = load_yaml_mapping(inv_path)
-    prop = _viz_prop(spec, vp)
-    sug = prop.get("suggested") or {}
-    address = address or sug.get("address")
-    if not address:
-        raise ValueError(f"{vp} is needs_author — supply address=… (a class or figure the author owns)")
-    obs = (prop.get("source") or {}).get("observable")
-    sdir = _study_dir_on_disk(ws_root, inv_slug, prop.get("study"))
-    if sdir is None:
-        raise ValueError(f"no study.yaml for {prop.get('study')!r}")
-    y = _ruamel()
-    sp = sdir / "study.yaml"
-    doc = y.load(sp.read_text(encoding="utf-8"))
-    vis = doc.get("visualizations")
-    if vis is None:
-        doc["visualizations"] = vis = []
-    name = slugify(sug.get("title") or obs)
-    taken = {e.get("name") for e in vis if isinstance(e, dict)}
-    if name in taken:
-        name = f"{name}-{str(vp).rsplit(':', 1)[-1]}"
-    entry: dict = {"name": name, "address": address}
-    if sug.get("inputs_map"):
-        entry["config"] = {"inputs_map": dict(sug["inputs_map"])}
-    entry["covers"] = [obs] if obs else []
-    entry["origin"] = {"kind": "viz_proposal", "ref": vp}
-    vis.append(entry)
-    from io import StringIO
-    buf = StringIO()
-    y.dump(doc, buf)
-    sp.write_text(buf.getvalue(), encoding="utf-8")
-    prop["status"] = "accepted"
-    prop["history"] = [*(prop.get("history") or []),
-                       {"at": _now(), "event": "accepted", "by": by, "rationale": rationale,
-                        "address": address, "entry": name}]
-    save_yaml_atomic(inv_path, spec)
-    return prop
-
-
-def refresh_narrative(ws_root: Path | str, inv_slug: str, *, rationale: str, by: str = "human") -> dict:
-    """Accept-gated refresh of the Narrative tab: stamp ``executive.narrative_basis`` to the
-    current member-study basis and append a ``narrative_history`` entry. A blank rationale is
-    refused (a human must have re-read the prose); never called from ``persist_cycle``."""
-    from discovery_engine.projection.narrative_freshness import stamp_narrative
-    if not (rationale or "").strip():
-        raise ValueError("a rationale is required — refreshing the narrative certifies the prose was re-read")
-    inv_path, spec, studies = load_cycle_inputs(ws_root, inv_slug)
-    stamp_narrative(spec, studies, rationale=rationale, by=by)
-    _validate_extensions({"executive": spec["executive"]})
-    save_yaml_atomic(inv_path, spec)
-    return spec["executive"]
-
-
-def accept_verdict(ws_root: Path | str, inv_slug: str, *, rationale: str, by: str = "human") -> dict:
-    """Accept-gated verdict accept: set ``executive.verdict_status`` to the engine-computed
-    ``executive.computed_verdict_status`` and append a ``verdict_history`` entry. Blank rationale
-    refused; errors when no computed status exists yet."""
-    from discovery_engine.projection.narrative_freshness import renew_executive
-    if not (rationale or "").strip():
-        raise ValueError("a rationale is required — accepting the verdict edits authored prose")
-    inv_path = investigations_dir(Path(ws_root)) / inv_slug / "investigation.yaml"
-    spec = load_yaml_mapping(inv_path)
-    computed = (spec.get("executive") or {}).get("computed_verdict_status")
-    if not computed:
-        raise ValueError("no executive.computed_verdict_status to accept — run the status refresh first")
-    renew_executive(spec, computed_verdict_status=computed,
-                    accept_verdict_rationale=rationale, by=by)
-    _validate_extensions({"executive": spec["executive"]})
-    save_yaml_atomic(inv_path, spec)
-    return spec["executive"]
-
-
-def reject_viz_proposal(ws_root: Path | str, inv_slug: str, vp: str, *, rationale: str,
-                        by: str = "human") -> dict:
-    """Terminal reject (rationale required): the content-addressed id means it never re-emits."""
-    if not (rationale or "").strip():
-        raise ValueError("a rationale is required — a decision on a proposal documents why")
-    inv_path = investigations_dir(Path(ws_root)) / inv_slug / "investigation.yaml"
-    spec = load_yaml_mapping(inv_path)
-    prop = _viz_prop(spec, vp)
-    prop["status"] = "rejected"
-    prop["history"] = [*(prop.get("history") or []),
-                       {"at": _now(), "event": "rejected", "by": by, "rationale": rationale}]
-    save_yaml_atomic(inv_path, spec)
-    return prop
-
-
-def _cap_gap_load(ws_root, inv_slug: str, cg: str) -> tuple[Path, dict, dict]:
-    inv_path = investigations_dir(Path(ws_root)) / inv_slug / "investigation.yaml"
-    spec = load_yaml_mapping(inv_path)
-    gap = next((g for g in spec.get("capability_gaps") or [] if isinstance(g, dict) and g.get("id") == cg), None)
-    if gap is None:
-        raise ValueError(f"unknown capability gap {cg!r} — run `discover cycle` to persist gaps first")
-    return inv_path, spec, gap
-
-
-def accept_capability_gap(ws_root: Path | str, inv_slug: str, cg: str, *, rationale: str,
-                          by: str = "human") -> dict:
-    """Rationale-gated accept of a persisted capability gap (load -> module validate -> atomic
-    save). Authorizes a build; never builds. Returns the updated gap."""
-    from discovery_engine.feedback import capability_gaps as _cg
-    inv_path, spec, gap = _cap_gap_load(ws_root, inv_slug, cg)
-    _cg.accept_capability_gap(gap, rationale=rationale, by=by)
-    save_yaml_atomic(inv_path, spec)
-    return gap
-
-
-def reject_capability_gap(ws_root: Path | str, inv_slug: str, cg: str, *, rationale: str,
-                          by: str = "human") -> dict:
-    """Terminal reject (rationale required); the content-addressed id never re-emits."""
-    from discovery_engine.feedback import capability_gaps as _cg
-    inv_path, spec, gap = _cap_gap_load(ws_root, inv_slug, cg)
-    _cg.reject_capability_gap(gap, rationale=rationale, by=by)
-    save_yaml_atomic(inv_path, spec)
-    return gap
+from discovery_engine.discover._common import (
+    VERDICT_VOCAB,
+    _ruamel,
+    _study_dir_on_disk,
+    _viz_target,
+)
+from discovery_engine.discover.actions import (
+    _cap_gap_load,
+    _close_built_viz_proposals,
+    _validate_extensions,
+    accept_capability_gap,
+    accept_viz_proposal,
+    record_resolution,
+    reject_capability_gap,
+    reject_viz_proposal,
+    review_revision,
+)
 
 
 def load_workspace_build_hook(ws_root: Path | str | None):
@@ -369,229 +93,6 @@ def load_workspace_build_hook(ws_root: Path | str | None):
             continue
     fn = registry.get("build_capability")
     return fn if callable(fn) else None
-
-
-def _close_built_viz_proposals(on_disk: dict, viz_state: dict, studies: dict) -> list[str]:
-    """§2E: flip an ``accepted`` proposal to ``built`` once its materialized entry (matched by
-    ``origin.ref``) classifies ``fresh`` (rendered AND current). Mutates ``on_disk``;
-    ``rejected``/``built`` are terminal and untouched. Returns the closed ids."""
-    from discovery_engine.viz.freshness import FRESH, classify_viz, normalize_entry
-    from discovery_engine.phases import model_architect as _ma
-    try:
-        bound = _ma.bind_model_versions(studies or {})
-    except Exception:  # noqa: BLE001
-        bound = {}
-    done: list[str] = []
-    for p in on_disk.get("viz_proposals") or []:
-        if not isinstance(p, dict) or p.get("status") != "accepted":
-            continue
-        study = p.get("study")
-        entry = next((e for e in (studies.get(study) or {}).get("visualizations") or []
-                      if isinstance(e, dict) and (e.get("origin") or {}).get("ref") == p.get("id")), None)
-        st = (viz_state or {}).get(study)
-        if entry is None or st is None:
-            continue
-        vs = normalize_entry(entry)
-        row = st.get(vs["name"])
-        arms = bound.get(study) or {}
-        mv = next(iter(arms.values()))["id"] if arms else None
-        if not row or classify_viz(vs, row, st.get("_latest"), mv=mv) != FRESH:
-            continue
-        meta = row.get("meta") or {}
-        p["built"] = {"at": _now(), "chart": row.get("path"),
-                      "source_run_id": meta.get("source_run_id"), "content_hash": row.get("content_hash")}
-        p["status"] = "built"
-        p["history"] = [*(p.get("history") or []),
-                        {"at": p["built"]["at"], "event": "built", "by": "engine",
-                         "chart": row.get("path"), "source_run_id": meta.get("source_run_id")}]
-        done.append(p["id"])
-    return done
-
-
-def review_revision(inv_path: Path | str, proposal_id: str, event: str, rationale: str,
-                    by: str = "human") -> dict:
-    """Approve or reject a model-revision proposal: set its ``status`` and append a
-    ``{at, event, by, rationale}`` event to its ``history``. That is the ONLY mutation (no
-    verdict / evidence / finding change). A rationale is required; an unknown id errors."""
-    if event not in ("approved", "rejected"):
-        raise ValueError(f"event must be 'approved' or 'rejected', got {event!r}")
-    if not (rationale or "").strip():
-        raise ValueError("a rationale is required — a decision on a revision documents why")
-    path = Path(inv_path)
-    spec = load_yaml_mapping(path)
-    props = spec.get("revision_proposals") or []
-    prop = next((p for p in props if isinstance(p, dict) and p.get("id") == proposal_id), None)
-    if prop is None:
-        raise ValueError(f"unknown revision proposal {proposal_id!r} in {path}")
-    if prop.get("status", "proposed") != "proposed":
-        raise ValueError(f"proposal {proposal_id!r} is already {prop.get('status')!r}; "
-                         "only a 'proposed' proposal can be approved or rejected")
-    prop["status"] = event
-    hist = list(prop.get("history") or [])
-    hist.append({"at": _dt.datetime.now(_dt.timezone.utc).isoformat(timespec="seconds"),
-                 "event": event, "by": by, "rationale": rationale})
-    prop["history"] = hist
-    save_yaml_atomic(path, spec)
-    return prop
-
-
-def _complement_band(band) -> dict | None:
-    """The band disjoint from a numeric ``{low, high}`` pass band, or None when it can't be derived."""
-    if not isinstance(band, dict):
-        return None
-    lo, hi = band.get("low"), band.get("high")
-    num = lambda v: isinstance(v, (int, float)) and not isinstance(v, bool)  # noqa: E731
-    if num(lo) and lo > 0:
-        return {"op": "<", "value": lo}
-    if num(hi):
-        return {"op": ">", "value": hi}
-    return None
-
-
-def _pick_candidate(prop: dict, change_index: int | None) -> dict | None:
-    cands = [c for c in (prop.get("candidate_changes") or []) if isinstance(c, dict)]
-
-    def derived(c):
-        if c.get("kind") == "composite":
-            return bool(c.get("replace_with"))
-        if c.get("kind") == "param":
-            return bool(c.get("name")) and bool(c.get("to"))
-        return False
-    if change_index is not None:
-        c = cands[change_index] if 0 <= change_index < len(cands) else None
-        return c if c is not None and derived(c) else None
-    return next((c for c in cands if derived(c)), None)
-
-
-def apply_revision(ws_root: Path | str, inv_slug: str, proposal_id: str,
-                   change_index: int | None = None) -> dict:
-    """Turn an APPROVED model-revision proposal into a child study + model version +
-    discriminable hypotheses (decision §4 "Apply"). Never edits the parent study.
-
-    Refuses (writes nothing; ``status: needs_build`` + ``mechanism``) unless the candidate
-    composite resolves and the child is run-ready. Engine-written hypotheses / finding stubs
-    carry ``origin`` and ``statement: null`` — the engine never writes prose."""
-    from discovery_engine.phases import evaluation as _ev
-    from discovery_engine.growth import refinement as _sr
-    from discovery_engine.growth import seeding as _ss
-    from discovery_engine.phases.model_architect import model_version, resolve_composite
-
-    ws = Path(ws_root)
-    inv_path, inv_spec, studies = load_cycle_inputs(ws, inv_slug)
-    prop = next((p for p in inv_spec.get("revision_proposals") or []
-                 if isinstance(p, dict) and p.get("id") == proposal_id), None)
-    if prop is None:
-        raise ValueError(f"unknown revision proposal {proposal_id!r} in {inv_path}")
-    if prop.get("status", "proposed") != "approved":
-        raise ValueError(f"proposal {proposal_id!r} is {prop.get('status', 'proposed')!r}; "
-                         "only an 'approved' proposal can be applied")
-    src = prop.get("source") or {}
-    parent_slug = src.get("study")
-    parent = studies.get(parent_slug)
-    if not isinstance(parent, dict):
-        raise ValueError(f"proposal source study {parent_slug!r} not found")
-    cand = _pick_candidate(prop, change_index)
-    if cand is None:
-        return {"status": "needs_build", "study_path": None, "model_version": None,
-                "mechanism": "no fully-derived candidate change — a human must author the mechanism "
-                             "(/viva-expert) before this proposal can be applied"}
-
-    base = next((a for a in parent.get("baseline") or [] if isinstance(a, dict)), {})
-    new_slug = f"{parent_slug}-rev-{str(proposal_id).rsplit(':', 1)[-1]}"
-    mc: dict = {"ref": proposal_id, "note": f"revision {proposal_id}"}
-    if cand["kind"] == "composite":
-        mc["composite"] = cand["replace_with"]
-        composite = cand["replace_with"]
-    elif cand["kind"] == "param":
-        mc["params"] = {cand["name"]: cand["to"][0]}
-        composite = base.get("composite")
-    else:
-        return {"status": "needs_build", "study_path": None, "model_version": None,
-                "mechanism": f"candidate kind {cand['kind']!r} is not derivable; needs an author"}
-
-    if not resolve_composite(composite, ws)["resolves"]:
-        return {"status": "needs_build", "study_path": None, "model_version": None,
-                "mechanism": f"composite {composite!r} does not resolve in this environment — "
-                             "BUILD route: wrap/build it (/viva-expert), then re-apply"}
-
-    child = _ss.build_seeded_study(parent, inv_spec, new_slug=new_slug, finding_id=src.get("finding"),
-                                   model_change=mc)
-    child["model_change"] = {**(child.get("model_change") or {}), **mc}
-    if cand["kind"] == "param":
-        refined, _ = _sr.refine_study(child, needs=[{"kind": _sr.SWEEP}], sweep_param=cand["name"],
-                                      sweep_values=list(cand["to"]))
-        child.update({k: refined[k] for k in ("variants",) if k in refined})
-    pg = dict(child.get("pipeline_gate") or {})
-    pg["prerequisites"] = [*(pg.get("prerequisites") or []),
-                           {"study": parent_slug, "relation": "alternative-to"}]
-    child["pipeline_gate"] = pg
-    test = prop.get("discriminating_test") or {}
-    obs = src.get("observable")
-    if test.get("behavior_test"):
-        child["findings"] = [{"id": f"f-{new_slug}-{test['behavior_test']}",
-                              "statement": None,
-                              "evidence": {"from_test": test["behavior_test"],
-                                           **({"measure": obs} if obs else {})},
-                              "origin": {"kind": "revision", "ref": proposal_id}}]
-    gaps = _ss.is_run_ready(child)
-    if gaps:
-        return {"status": "needs_build", "study_path": None, "model_version": None,
-                "mechanism": "child study not run-ready: " + "; ".join(gaps)}
-
-    origin = {"kind": "revision", "ref": proposal_id}
-    hyps: list[dict] = []
-    band = test.get("pass_if")
-    other = _complement_band(band)
-    if obs and isinstance(band, dict) and other:
-        hyps = [
-            {"id": f"h-{new_slug}-formalism-artifact", "study": new_slug,
-             "statement": None, "predictions": [{"observable": obs, "expected": dict(band)}],
-             "status": "open", "origin": dict(origin)},
-            {"id": f"h-{new_slug}-real-divergence", "study": new_slug,
-             "statement": None, "predictions": [{"observable": obs, "expected": other}],
-             "status": "open", "origin": dict(origin)},
-        ]
-    elif obs and isinstance(band, dict):
-        hyps = [{"id": f"h-{new_slug}-formalism-artifact", "study": new_slug, "statement": None,
-                 "predictions": [{"observable": obs, "expected": dict(band)}],
-                 "status": "open", "origin": dict(origin)}]
-
-    params = dict(base.get("params") or {})
-    params.update(mc.get("params") or {})
-    parent_mv = prop.get("affected_model_version")
-    # parent_ids is left to bind_model_versions (regenerable: _study_origin maps the revision
-    # child to its seeded_from parent's FIRST baseline arm mv, == affected_model_version normally).
-    mv = model_version(composite, params, parent_ids=[parent_mv] if parent_mv else [], origin=origin)
-    invalidated = _ev.invalidate_dependents({"kind": "model", "id": parent_slug}, inv_spec, studies)
-
-    path = _write_seeded_study(ws, inv_slug, new_slug, child)
-    doc = load_yaml_mapping(inv_path)  # plain dicts, as review_revision does (atomic safe dump)
-    if hyps:
-        if not isinstance(doc.get("hypotheses"), list):
-            doc["hypotheses"] = []
-        doc["hypotheses"].extend(hyps)
-    if not isinstance(doc.get("model_versions"), list):
-        doc["model_versions"] = []
-    if not any(isinstance(m, dict) and m.get("id") == mv["id"] for m in doc["model_versions"]):
-        doc["model_versions"].append(mv)
-    for p in doc.get("revision_proposals") or []:
-        if isinstance(p, dict) and p.get("id") == proposal_id:
-            p["status"] = "applied"
-            hist = p.get("history")
-            if not isinstance(hist, list):
-                hist = p["history"] = []
-            hist.append({"at": _dt.datetime.now(_dt.timezone.utc).isoformat(timespec="seconds"),
-                         "event": "applied", "by": "human", "child_study": new_slug,
-                         "model_version": mv["id"]})
-    save_yaml_atomic(inv_path, doc)
-    return {"status": "applied", "study_path": str(path), "study": new_slug,
-            "model_version": mv["id"], "hypotheses": [h["id"] for h in hyps],
-            "invalidated": invalidated}
-
-
-# ---------------------------------------------------------------------------
-# run_cycle — one invocation = one turn of the discovery cycle
-# ---------------------------------------------------------------------------
 
 def run_cycle(inv_spec: dict, studies_by_slug: dict[str, dict], *,
               evidence_state: dict | None = None, catalog: list | None = None,
@@ -668,7 +169,6 @@ def run_cycle(inv_spec: dict, studies_by_slug: dict[str, dict], *,
         bundle["capability_gaps"] = gaps
     return bundle
 
-
 def _viz_scope_of(viz_catalog):
     """address -> the viz class's input-port schema, from the injected ``viz_catalog`` (the same
     catalog the viz loop threads). Unlisted / port-less addresses -> None (scope UNKNOWN)."""
@@ -677,7 +177,6 @@ def _viz_scope_of(viz_catalog):
         if isinstance(c, dict) and c.get("address") and isinstance(c.get("inputs"), dict):
             ports[c["address"]] = c["inputs"]
     return lambda address: ports.get(address)
-
 
 def _cycle_with_evidence(ws_root, inv_slug, inv_spec, studies) -> dict:
     """run_cycle with the Phase-A evidence state computed FIRST, so contradicted
@@ -690,11 +189,6 @@ def _cycle_with_evidence(ws_root, inv_slug, inv_spec, studies) -> dict:
     return run_cycle(inv_spec, studies, evidence_state=ev,
                      catalog=build_catalog(studies, ws_root),  # resolved: enables composite swaps
                      viz_state=viz, viz_catalog=None)  # workbench catalog supplied by a later task
-
-
-# ---------------------------------------------------------------------------
-# set_verdict — the authored canonical-verdict write op
-# ---------------------------------------------------------------------------
 
 def set_verdict(study_path: Path | str, verdict: str, rationale: str | None = None) -> dict:
     """Author a canonical verdict on a study (authored wins over the derived roll-up).
@@ -712,92 +206,6 @@ def set_verdict(study_path: Path | str, verdict: str, rationale: str | None = No
         spec["verdict_rationale"] = rationale
     save_yaml_atomic(path, spec)
     return canonical_verdict(spec)
-
-
-# ---------------------------------------------------------------------------
-# relate / connect — author the epistemic edges that connect the argument graph
-# ---------------------------------------------------------------------------
-
-def relate(study_spec: dict, upstream: str, relation: str) -> dict:
-    """Return a NEW study spec with the epistemic ``relation`` to ``upstream`` set.
-
-    The relation is set on the edge where it already lives: a
-    ``pipeline_gate.prerequisites`` entry (the canonical gate dependency — it then
-    carries both the organizational ``condition`` and the epistemic ``relation``, the
-    RFC-0006 unified form) is preferred, then a ``parent_studies`` backbone entry (a
-    bare ``{study}`` dict, or a plain string promoted to ``{study, relation}``). Only
-    when the dependency is declared nowhere is an epistemic-only prerequisite appended.
-    Non-mutating; raises ``ValueError`` on an off-vocabulary relation.
-    """
-    if relation not in EPISTEMIC_RELATIONS:
-        raise ValueError(f"relation must be one of {EPISTEMIC_RELATIONS}, got {relation!r}")
-    spec = copy.deepcopy(study_spec)
-    _set_relation_inplace(spec, upstream, relation)
-    return spec
-
-
-def connect_investigation(ws_root: Path | str, slug: str,
-                          default_relation: str = "builds-on") -> dict[str, dict[str, list[str]]]:
-    """Connect an investigation's narrative arc by authoring the missing epistemic edges.
-
-    *Auto-enriches* every bare prerequisite in the **canonical** field
-    (``pipeline_gate.prerequisites`` with no ``relation``) with ``default_relation``,
-    persisting each change comment-preserving. Already-authored relations are left intact.
-
-    A dependency declared **only** in the legacy ``parent_studies`` backbone (a plain
-    string, or a bare ``{study}`` dict) is **not** blanket-asserted — that field can hold
-    organizational parents that are not scientific edges, so defaulting them all to
-    ``builds-on`` would over-connect the argument graph. Those are *surfaced* for an
-    explicit, intentional :func:`relate` instead of silently skipped.
-
-    Returns ``{"enriched": {slug: [ups]}, "needs_relate": {slug: [ups]}}``.
-    """
-    if default_relation not in EPISTEMIC_RELATIONS:
-        raise ValueError(f"default_relation must be one of {EPISTEMIC_RELATIONS}, got {default_relation!r}")
-    _, inv, studies = load_cycle_inputs(ws_root, slug)
-    enriched: dict[str, list[str]] = {}
-    needs_relate: dict[str, list[str]] = {}
-    for s in inv.get("studies") or list(studies):
-        spec = studies.get(s)
-        if spec is None:
-            continue
-        pg = spec.get("pipeline_gate") or {}
-        prereqs = pg.get("prerequisites") or [] if isinstance(pg, dict) else []
-        pg_bare = [p["study"] for p in prereqs
-                   if isinstance(p, dict) and p.get("study") and not p.get("relation")]
-        pg_slugs = {p["study"] for p in prereqs
-                    if isinstance(p, dict) and p.get("study")}
-        ps_bare: list[str] = []
-        for e in spec.get("parent_studies") or []:
-            if isinstance(e, str) and e:
-                up = e
-            elif isinstance(e, dict) and e.get("study") and not e.get("relation"):
-                up = e["study"]
-            else:
-                continue
-            if up not in pg_slugs and up not in ps_bare:
-                ps_bare.append(up)
-        if pg_bare:
-            done = _enrich_file(_study_path(ws_root, slug, s), pg_bare, default_relation)
-            if done:
-                enriched[s] = done
-        if ps_bare:
-            needs_relate[s] = ps_bare
-    return {"enriched": enriched, "needs_relate": needs_relate}
-
-
-def _study_path(ws_root: Path | str, slug: str, study: str) -> Path:
-    ws = Path(ws_root)
-    for base in (studies_dir(ws), investigations_dir(ws) / slug / "studies"):
-        sp = base / study / "study.yaml"
-        if sp.exists():
-            return sp
-    return studies_dir(ws) / study / "study.yaml"
-
-
-# ---------------------------------------------------------------------------
-# persist_cycle — regenerable cache, authored blocks untouched
-# ---------------------------------------------------------------------------
 
 def build_cycle_state(result: dict, inv_spec: dict, *, model_versions: list | None = None,
                       studies: dict | None = None, evidence_state: dict | None = None) -> dict:
@@ -881,7 +289,6 @@ def build_cycle_state(result: dict, inv_spec: dict, *, model_versions: list | No
             cmp, evidence_state, model_versions or [], n_anomalies=n_anoms)
     return state
 
-
 def _tab_freshness(inv_spec: dict, studies: dict) -> dict:
     """Per-tab freshness for the summary. The computed verdict is what ``investigation_status``
     already wrote on the executive -- not recomputed here."""
@@ -889,7 +296,6 @@ def _tab_freshness(inv_spec: dict, studies: dict) -> dict:
     return investigation_freshness(
         inv_spec, studies,
         computed_verdict_status=(inv_spec.get("executive") or {}).get("computed_verdict_status"))
-
 
 def persist_cycle(inv_path: Path | str, inv_spec: dict, result: dict, *, studies: dict | None = None,
                   evidence_state: dict | None = None, viz_state: dict | None = None,
@@ -960,7 +366,6 @@ def persist_cycle(inv_path: Path | str, inv_spec: dict, result: dict, *, studies
     save_yaml_atomic(path, on_disk)
     return on_disk["cycle_state"]
 
-
 def _evaluate_applied_proposals(on_disk: dict, studies: dict, fingerprint: str | None) -> list[str]:
     """Close the feedback loop (decision §3.4/§4): move an ``applied`` proposal to ``evaluated``
     ONLY once the discriminating disposition is DECIDED. Requires the child to have a code-graded
@@ -1006,7 +411,6 @@ def _evaluate_applied_proposals(on_disk: dict, studies: dict, fingerprint: str |
         done.append(p.get("id"))
     return done
 
-
 def _reproduces_gap(prop: dict, child: dict | None) -> bool:
     """True iff the child's discriminating finding has a numeric ``observed`` that falls outside
     the proposal's ``discriminating_test.pass_if`` ``{low, high}`` band (the gap is reproduced).
@@ -1024,7 +428,6 @@ def _reproduces_gap(prop: dict, child: dict | None) -> bool:
             o = ev_["observed"]
             return (num(lo) and o < lo) or (num(hi) and o > hi)
     return False
-
 
 def project_model_versions(studies: dict, existing: list | None = None) -> list[dict]:
     """Regenerable ``model_versions[]``: a projection of the bound arms. ``bound_to`` and
@@ -1046,16 +449,6 @@ def project_model_versions(studies: dict, existing: list | None = None) -> list[
                 }
             row["bound_to"].append({"study": slug, "arm": arm})
     return list(out.values())
-
-
-def _validate_extensions(block: dict) -> None:
-    """Validate the new investigation blocks against the bundled JSON Schema (write boundary only)."""
-    import json
-    import jsonschema
-    schema = json.loads((Path(__file__).parent / "schemas" / "investigation-extensions.schema.json")
-                        .read_text(encoding="utf-8"))
-    jsonschema.validate(json.loads(json.dumps(block, default=str)), schema)
-
 
 def _renew_executive_decisions(on_disk: dict) -> None:
     """Reconcile the authored ``executive.decisions_needed`` with what the cycle has
@@ -1088,7 +481,6 @@ def _renew_executive_decisions(on_disk: dict) -> None:
     ex["decisions_needed"] = still_open
     ex["decisions_resolved"] = archived
 
-
 def _parent_in_parens(text: str, members: set) -> str | None:
     """The member study a decision names as its *subject*, e.g. 'Agent motion model
     (og-ecology follow-up): …' → 'og-ecology'. Only the parenthetical before the first
@@ -1101,7 +493,6 @@ def _parent_in_parens(text: str, members: set) -> str | None:
         if token in members:
             return token
     return None
-
 
 def suggest_studies(cycle_result: dict, inv_spec: dict, studies: dict) -> list[dict]:
     """Suggestions for new studies the cycle thinks should run next — the unified,
@@ -1232,7 +623,6 @@ def suggest_studies(cycle_result: dict, inv_spec: dict, studies: dict) -> list[d
 
     return out
 
-
 def _default_runner(command: str, ws_root: Path | str, *,
                     worktree: Path | str | None = None, timeout: int = 3600) -> dict:
     """Run a consequential executor command as a subprocess in the workspace, capturing its
@@ -1263,7 +653,6 @@ def _default_runner(command: str, ws_root: Path | str, *,
             "run_id": _latest_run_id_for_command(command, ws_root) if proc.returncode == 0 else None,
             "tail": (proc.stdout or proc.stderr or "")[-400:]}
 
-
 def _latest_run_id_for_command(command: str, ws_root: Path | str) -> str | None:
     """Best-effort run_id for the RunResult: parse the study slug from the run command and read the
     newest row from its ``runs.db`` via the run registry. ``None`` when not resolvable — the
@@ -1286,26 +675,6 @@ def _latest_run_id_for_command(command: str, ws_root: Path | str) -> str | None:
             except Exception:  # noqa: BLE001
                 return None
     return None
-
-
-def _env_decider(target: str, detail: str) -> dict:
-    """An AI decider that drives an open decision by shelling out to the agent command in
-    ``$VIVA_DECIDER_CMD``. The command receives the decision as ``{"target","detail"}`` JSON
-    on stdin and must print ``{"choice","rationale"}`` JSON on stdout (the option that
-    maximizes discovery, and why). The engine stays LLM-free; the AI lives in that command
-    (e.g. ``claude -p`` with the decide skill). Raises if the var is unset so --ai-decide
-    fails loud rather than silently deferring."""
-    import json
-    import os
-    import subprocess
-    cmd = os.environ.get("VIVA_DECIDER_CMD")
-    if not cmd:
-        raise RuntimeError("--ai-decide needs $VIVA_DECIDER_CMD set to an AI agent command "
-                           "that reads {target,detail} JSON and prints {choice,rationale} JSON")
-    proc = subprocess.run(cmd, shell=True, input=json.dumps({"target": target, "detail": detail}),
-                          capture_output=True, text=True, timeout=1800)
-    return json.loads(proc.stdout)
-
 
 def execute_action(ws_root: Path | str, inv_slug: str, *, autonomous: bool = False,
                    runner=None, decider=None, target: str | None = None,
@@ -1568,7 +937,6 @@ def execute_action(ws_root: Path | str, inv_slug: str, *, autonomous: bool = Fal
         rec["frontier_after"] = de.closure(_cycle_with_evidence(ws_root, inv_slug, inv2, studies2), inv2)["open_items"]
     return rec
 
-
 def _append_executed(inv_path: Path | str, record: dict) -> None:
     """Append an execution record to the investigation's ``executed_actions`` log (an
     audit trail of what the bridge ran). Re-reads on disk, writes only this field."""
@@ -1582,7 +950,6 @@ def _append_executed(inv_path: Path | str, record: dict) -> None:
                 "at": _dt.datetime.now(_dt.timezone.utc).isoformat(timespec="seconds")})
     on_disk["executed_actions"] = log
     save_yaml_atomic(path, on_disk)
-
 
 def run_readiness(study_spec: dict, ws_root: Path | str | None = None) -> dict:
     """Is a study's run fully specified to yield an evaluable, visualized, contract-checked
@@ -1739,29 +1106,17 @@ def run_readiness(study_spec: dict, ws_root: Path | str | None = None) -> dict:
             "visualizations_rendered": viz_rendered,
             "has_tests": has_tests, "has_contracts": has_contracts}
 
-
-def _viz_target(source) -> tuple[str, str] | None:
-    """``fig:<study>/<name>`` -> ``(study, name)`` else None."""
-    src = str(source)
-    if not src.startswith("fig:") or "/" not in src:
-        return None
-    study, _, name = src[4:].partition("/")
-    return (study, name) if study and name else None
-
-
 def _viz_entry(studies: dict, study: str, name: str) -> dict | None:
     for e in (studies.get(study) or {}).get("visualizations") or []:
         if isinstance(e, dict) and e.get("name") == name:
             return e
     return None
 
-
 def _viz_resolvable(entry: dict) -> bool:
     """A declared entry the render executor can act on: a `class` or `command` kind. Never
     a broken_stub (no identity) or a static figure with no `render:` recipe."""
     from discovery_engine.viz.freshness import normalize_entry
     return normalize_entry(entry)["kind"] in ("class", "command")
-
 
 def _pinned_run(entry: dict, latest: dict | None) -> str | None:
     """The run a figure must be stamped against: the entry's explicit ``source_run`` pin
@@ -1770,7 +1125,6 @@ def _pinned_run(entry: dict, latest: dict | None) -> str | None:
     if pin:
         return str(pin)
     return (latest or {}).get("run_id") or None
-
 
 def _post_render_stamp(sdir, entry: dict, latest: dict | None, command: str | None = None) -> bool:
     """Best-effort (the `_post_run_sync` discipline): make sure the rendered figure carries
@@ -1798,11 +1152,9 @@ def _post_render_stamp(sdir, entry: dict, latest: dict | None, command: str | No
     except Exception:  # noqa: BLE001 -- stamping is best-effort, never fails an advance
         return False
 
-
 # An applied revision's child runs as a `test` op (applied proposals are off the frontier);
 # `revise_model` is review-consequence, never dispatched.
 _ADVANCE_OPS = ("test", "branch", "build_viz", "refine_viz")
-
 
 def _advance_study_for(source, studies: dict) -> str | None:
     """The on-disk study an advance op would run, or None (gated). The applied child of a
@@ -1813,14 +1165,12 @@ def _advance_study_for(source, studies: dict) -> str | None:
     slug = src.split(":", 1)[1] if src.startswith("claim:") else src
     return slug if slug in studies else None
 
-
 def _arm_mvs(slug: str, spec: dict) -> dict:
     from discovery_engine.phases.model_architect import bind_model_versions
     try:
         return bind_model_versions({slug: spec}).get(slug) or {}
     except Exception:  # noqa: BLE001 -- a malformed arm must not break advance
         return {}
-
 
 def _run_mv_id(run: dict, arms: dict) -> str | None:
     """A run's model-version id: the id stamped at run time, else (legacy run) derived from
@@ -1834,7 +1184,6 @@ def _run_mv_id(run: dict, arms: dict) -> str | None:
     params = run.get("params")
     return model_version(arm["composite"], params if isinstance(params, dict) and params
                          else arm["params"])["id"]
-
 
 def _has_run_at_current_mv(slug: str, spec: dict) -> bool:
     """True iff some run's mv equals the CURRENT mv of that run's arm. Studies whose arms
@@ -1851,20 +1200,11 @@ def _has_run_at_current_mv(slug: str, spec: dict) -> bool:
             return True
     return False
 
-
-def _study_dir_on_disk(ws_root, inv_slug: str, slug: str) -> Path | None:
-    for base in (studies_dir(Path(ws_root)), investigations_dir(Path(ws_root)) / inv_slug / "studies"):
-        if (base / slug / "study.yaml").exists():
-            return base / slug
-    return None
-
-
 def _run_names(sdir) -> set:
     if sdir is None:
         return set()
     return {r.get("name") for r in load_yaml_mapping(sdir / "study.yaml").get("runs") or []
             if isinstance(r, dict)}
-
 
 def _dispatch_classify(p: dict, studies: dict, ws_root, inv_slug: str) -> tuple[str, str | None, list]:
     """Classify one ``execute_plan`` item for the ADVANCE phase, independent of per-run
@@ -1911,7 +1251,6 @@ def _dispatch_classify(p: dict, studies: dict, ws_root, inv_slug: str) -> tuple[
         return ("run", slug, [])
     return ("needs_build", slug, rr["gaps"])
 
-
 def dispatchable_actions(ws_root, inv_slug: str, cycle_result: dict, inv_spec: dict,
                          studies: dict) -> list[dict]:
     """The ``execute_plan`` items the ADVANCE phase would actually dispatch right now — the
@@ -1923,7 +1262,6 @@ def dispatchable_actions(ws_root, inv_slug: str, cycle_result: dict, inv_spec: d
     plan = de.execute_plan(cycle_result, inv_spec)
     return [p for p in plan
             if _dispatch_classify(p, studies, ws_root, inv_slug)[0] == "run"]
-
 
 def _post_run_sync(sdir, before_runs: set) -> None:
     """Best-effort: sync the study's runs.db into study.yaml (idempotent; fills
@@ -1962,7 +1300,6 @@ def _post_run_sync(sdir, before_runs: set) -> None:
         finding_observations.populate_finding_observations(sdir)
     except Exception:  # noqa: BLE001 -- sync is best-effort, never fails an advance
         pass
-
 
 def advance_cycle(ws_root: Path | str, inv_slug: str, *, autonomous: bool = False,
                   runner=None, max_runs: int = 12, render_hook=None,
@@ -2058,20 +1395,6 @@ def advance_cycle(ws_root: Path | str, inv_slug: str, *, autonomous: bool = Fals
     return {"runs": ran, "needs_build": needs_build,
             "frontier_before": before, "frontier_after": after}
 
-
-def summarize_advance(result: dict) -> str:
-    """Human-readable advance log: what ran, what needs building, the frontier delta."""
-    L = [f"frontier {result['frontier_before']} → {result['frontier_after']} "
-         f"({len(result['runs'])} run attempt(s))"]
-    for r in result["runs"]:
-        L.append(f"  [{r['status']}] {r['target']}" + (f" — {r['outcome']}" if r.get("outcome") else ""))
-    for b in result["needs_build"]:
-        L.append(f"  [needs build] {b['study']}: {'; '.join(b['gaps'][:2])}")
-    if not result["runs"] and not result["needs_build"]:
-        L.append("  (no runnable open questions — nothing to advance)")
-    return "\n".join(L)
-
-
 def build_completion_map(ws_root: Path | str, inv_slug: str) -> dict:
     """The single 'what's left to complete this cycle' view: the gate state, the
     verification debt (gates met by verdict only), the expert decisions that gate the
@@ -2115,60 +1438,6 @@ def build_completion_map(ws_root: Path | str, inv_slug: str) -> dict:
                         "auto_safe": p["auto_safe"]} for p in plan],
     }
 
-
-def summarize_completion(cmap: dict) -> str:
-    """Human-readable completion map: gates to verify, decisions to make, steps to run."""
-    L = [f"closure: {'CLOSED' if cmap['closed'] else 'OPEN'}  ·  {cmap['open_items']} open frontier item(s)"]
-    if "publishable" in cmap:
-        L.append(f"publishable (presentation complete): {'YES' if cmap['publishable'] else 'NO'}"
-                 + (f"  ·  {len(cmap['not_publishable'])} study(ies) not materialized"
-                    if cmap.get("not_publishable") else ""))
-        for slug, gaps in (cmap.get("not_publishable") or {}).items():
-            L.append(f"  ▢ {slug}: {', '.join(gaps[:3])}")
-    if cmap["unaddressed_criteria"]:
-        L.append("\nunmet acceptance criteria (block closure):")
-        L += [f"  ✗ {s}" for s in cmap["unaddressed_criteria"]]
-    if cmap["pending_gates"]:
-        L.append("\nverification gates — met by verdict only, behavior unrun (run to verify):")
-        L += [f"  ○ {g['target']}: {g['detail']}" for g in cmap["pending_gates"]]
-    if cmap["gating_decisions"]:
-        L.append("\ndecisions that gate the next studies (an AI decider can drive these):")
-        L += [f"  ◆ {d['target']}" for d in cmap["gating_decisions"]]
-    if cmap["suggested_studies"]:
-        L.append("\nsuggested follow-up studies (each awaits the decision above):")
-        L += [f"  → on {s['parent']}: {(s['decision'] or '')[:100]}" for s in cmap["suggested_studies"]]
-    L.append("\nnext steps to run (ordered by value; consequence-gated):")
-    for p in cmap["next_steps"][:8]:
-        tag = "auto-safe" if p["auto_safe"] else p["consequence"]
-        L.append(f"  [{tag:>16}]  {p['action']} {p['source']}")
-        L.append(f"  {' ' * 20}{p['command']}")
-    if not cmap["next_steps"]:
-        L.append("  (frontier clear — nothing to run)")
-    return "\n".join(L)
-
-
-def summarize_suggestions(suggestions: list[dict]) -> str:
-    ready = [s for s in suggestions if s["status"] == "ready"]
-    awaiting = [s for s in suggestions if s["status"] == "awaiting_expert"]
-    lines = [f"suggested studies: {len(suggestions)}  ({len(ready)} ready, "
-             f"{len(awaiting)} awaiting expert input)"]
-    if ready:
-        lines.append("ready to seed:")
-        for s in ready:
-            lines.append(f"  {s['id']}  {s['title']}"
-                         + (f"  (builds on {s['parent_study']})" if s.get("parent_study") else "")
-                         + f"  [{s['source']}]")
-    if awaiting:
-        lines.append("awaiting expert input (resolve the decision, then seed):")
-        for s in awaiting:
-            lines.append(f"  {s['id']}  (builds on {s.get('parent_study')})")
-            for q in s["awaiting_expert"]:
-                lines.append(f"      needs: {q}")
-    if not suggestions:
-        lines.append("  none — no new studies proposed this cycle.")
-    return "\n".join(lines)
-
-
 def snapshot_validations(ws_root: Path | str, slug: str) -> dict:
     """Persist the current validation records' signatures as the investigation's
     accepted ``validation_snapshot`` (RFC-0007 Phase 4). Later cycles compare a fresh
@@ -2184,11 +1453,6 @@ def snapshot_validations(ws_root: Path | str, slug: str) -> dict:
     on_disk["validation_snapshot"] = snap
     save_yaml_atomic(path, on_disk)
     return snap
-
-
-# ---------------------------------------------------------------------------
-# load_cycle_inputs — read an investigation + its member studies from disk
-# ---------------------------------------------------------------------------
 
 def load_cycle_inputs(ws_root: Path | str, slug: str) -> tuple[Path, dict, dict[str, dict]]:
     """Load ``(inv_path, inv_spec, studies_by_slug)`` for an investigation.
@@ -2224,7 +1488,6 @@ def load_cycle_inputs(ws_root: Path | str, slug: str) -> tuple[Path, dict, dict[
                 break
     return inv_path, inv_spec, studies_by_slug
 
-
 def missing_members(ws_root: Path | str, slug: str) -> list[str]:
     """Member slugs listed in the investigation with no ``study.yaml`` on disk (flat or
     nested). Read-only. ``load_cycle_inputs`` skips these; the
@@ -2234,7 +1497,6 @@ def missing_members(ws_root: Path | str, slug: str) -> list[str]:
     bases = (studies_dir(ws), investigations_dir(ws) / slug / "studies")
     return [s for s in (inv_spec.get("studies") or [])
             if not any((b / s / "study.yaml").exists() for b in bases)]
-
 
 def _load_runs_by_study(ws: Path, inv_slug: str, studies: dict) -> dict[str, list]:
     """``{study_slug: [registered runs]}`` from each study's ``runs.db`` (flat path
@@ -2263,7 +1525,6 @@ def _load_runs_by_study(ws: Path, inv_slug: str, studies: dict) -> dict[str, lis
                 existing.append(run)
                 have.add(rid)
     return runs_by_study
-
 
 def viz_inventory(ws_root, inv_slug: str, studies: dict) -> dict:
     """IMPURE (the one disk read the viz loop adds): per study, a row per declared
@@ -2309,7 +1570,6 @@ def viz_inventory(ws_root, inv_slug: str, studies: dict) -> dict:
         out[slug] = rows
     return out
 
-
 def _declared_member_slugs(inv_spec: dict) -> list[str]:
     """Member slugs an investigation spec DECLARES: the pre-migration ``studies:`` or the
     post-migration ``members:`` list, normalizing bare slugs and ``{study|slug|name: ...}`` dicts.
@@ -2327,7 +1587,6 @@ def _declared_member_slugs(inv_spec: dict) -> list[str]:
             if slug and str(slug) not in out:
                 out.append(str(slug))
     return out
-
 
 def _member_slugs_on_disk(inv_slug: str, flat: Path, nested: Path) -> list[str]:
     """On-disk member studies scoped to investigation ``inv_slug`` — the last-resort fallback when
@@ -2353,848 +1612,3 @@ def _member_slugs_on_disk(inv_slug: str, flat: Path, nested: Path) -> list[str]:
             if isinstance(spec, dict) and spec.get("investigation") == inv_slug:
                 out.append(child.name)
     return out
-
-
-# ---------------------------------------------------------------------------
-# A compact summary for the CLI
-# ---------------------------------------------------------------------------
-
-def summarize(result: dict) -> str:
-    verdicts = result["knowledge"]["verdicts"]
-    tally: dict[str, int] = {}
-    for rec in verdicts.values():
-        tally[rec["verdict"]] = tally.get(rec["verdict"], 0) + 1
-    verdict_line = ", ".join(f"{v}={n}" for v, n in sorted(tally.items())) or "none"
-    gate_line = ", ".join(f"{g['id']}:{g['verdict']}" for g in result["gates"]) or "none"
-    return (
-        f"verdicts: {verdict_line}\n"
-        f"claims: {len(result['argument']['claims'])}  edges: {len(result['argument']['edges'])}\n"
-        f"narrative units: {len(result['narrative']['units'])}  "
-        f"limitations: {len(result['narrative']['limitations'])}  "
-        f"open_questions: {len(result['narrative']['open_questions'])}\n"
-        f"audit gaps: {len(result['audit'])}  open_calls: {len(result['open_calls'])}\n"
-        f"plan gates: {gate_line}"
-    )
-
-
-def _fmt_expected(expected) -> str:
-    """Compact one-line rendering of a prediction's ``expected`` band."""
-    if isinstance(expected, dict):
-        if "op" in expected and "value" in expected:
-            return f"{expected['op']} {expected['value']}"
-        if "low" in expected or "high" in expected:
-            return f"{expected.get('low', '-inf')}..{expected.get('high', 'inf')}"
-    return str(expected)
-
-
-def _summarize_hypotheses(inv_spec: dict, study_specs: list) -> str:
-    """Render the competing-hypotheses contest: each hypothesis, its predicted
-    observable, and the ▲supports/▼weakens/⊘excludes tally its studies' runs give
-    it (empty until the studies run). Marks which studies are *discriminable* —
-    carry competing hypotheses a single run would separate."""
-    from discovery_engine.phases import hypotheses as _hyp
-    rolled = _hyp.rollup_support(inv_spec or {}, study_specs or [])
-    hyps = rolled.get("hypotheses") or []
-    if not hyps:
-        return "hypotheses: none authored (add a `hypotheses:` block to investigation.yaml)"
-    disc = _hyp.discriminating_hypotheses(inv_spec or {})
-    anoms = _hyp.anomalies(inv_spec or {}, study_specs or [])
-    flags = _hyp.fidelity_flags(inv_spec or {}, study_specs or [])
-    n_disc = sum(1 for d in disc.values() if d.get("discriminable"))
-    by_study: dict[str, list] = {}
-    for h in hyps:
-        by_study.setdefault(h.get("study") or "(unassigned)", []).append(h)
-    lines = [f"hypotheses: {len(hyps)} competing across {len(by_study)} study(ies) — "
-             f"{n_disc} discriminable (a single run separates the alternatives)"
-             + (f", {len(anoms)} anomaly(ies)" if anoms else "")
-             + (f", {len(flags)} fidelity caveat(s)" if flags else "")]
-    for slug in sorted(by_study):
-        d = disc.get(slug) or {}
-        mark = (f"  ⇄ discriminable on {d['observable']}" if d.get("discriminable")
-                else "  (not yet discriminable — needs opposed predictions on one observable)")
-        lines.append(f"\n{slug}{mark}")
-        for h in by_study[slug]:
-            s = _hyp.support_summary(h.get("support_log") or [])
-            preds = h.get("predictions") or []
-            obs = preds[0].get("observable") if preds else "?"
-            exp = _fmt_expected(preds[0].get("expected")) if preds else "?"
-            lines.append(f"  ▲{s['supports']} ▼{s['weakens']} ⊘{s['excludes']}  "
-                         f"{h.get('id'):<28} {obs} {exp}   [{h.get('status', 'open')}]")
-    if anoms:
-        lines.append("\nanomalies — observed outside all competing predictions (seed a new hypothesis):")
-        for a in anoms:
-            lines.append(f"  ⚠ {a['study']}: {a['observable']} = {a['observed']}")
-            lines.append(f"      → {a['proposed_question']}")
-    if flags:
-        lines.append("\nfidelity caveats — support must not rest on a coarse/wrong-mechanism model (stage 4/6):")
-        for fl in flags:
-            tag = {"superseded_evidence": "superseded", "gated_evidence": "gated",
-                   "low_fidelity_support": "low-fidelity"}.get(fl["kind"], fl["kind"])
-            hyp = (" [" + ", ".join(fl["hypotheses"]) + "]") if fl.get("hypotheses") else ""
-            lines.append(f"  ⚑ {fl['study']} ({tag}): {fl['detail']}{hyp}")
-    lines.append("\n(support tallies populate from each study's findings once it runs)")
-    return "\n".join(lines)
-
-
-# ---------------------------------------------------------------------------
-# CLI
-def _summarize_evidence_reconciliation(result: dict) -> str:
-    """Render the Cycle N+1 Phase A evidence ledger — which findings can be trusted."""
-    from discovery_engine.phases.evidence_integrity import VERIFIED, PROVISIONAL, CONTRADICTED, UNSUPPORTED
-    mark = {VERIFIED: "✓ verified", PROVISIONAL: "~ provisional",
-            CONTRADICTED: "✗ contradicted", UNSUPPORTED: "· unsupported"}
-    s = result.get("summary", {})
-    lines = [f"evidence reconciliation: {s.get(VERIFIED,0)} verified · {s.get(PROVISIONAL,0)} provisional"
-             f" · {s.get(CONTRADICTED,0)} contradicted · {s.get(UNSUPPORTED,0)} unsupported"]
-    by = result.get("by_study", {})
-    for slug in by:
-        b = by[slug]
-        st = b.get("status")
-        lines.append(f"\n{slug}  [{mark.get(st, st or 'no numeric evidence')}]  "
-                     f"({b.get('registered_runs',0)} registered run(s))")
-        for row in result.get("ledger", []):
-            if row.get("study") != slug:
-                continue
-            lines.append(f"  {mark.get(row['status'], row['status']):<16} "
-                         f"{row.get('measure') or row.get('finding')}"
-                         + (f" = {row['observed']}" if row.get('observed') is not None else "")
-                         + f"  — {row['reason']}")
-    if s.get(PROVISIONAL, 0) or s.get(UNSUPPORTED, 0):
-        lines.append("\n→ repair action (R0): numeric findings without a resolvable registered run must be "
-                     "re-run through the gated execution pipeline before they count as biological support.")
-    return "\n".join(lines)
-
-
-def _summarize_portfolio(portfolio: list) -> str:
-    """Render the Cycle N+1 Phase B CandidateAction portfolio."""
-    from discovery_engine.phases.candidate_action import REPAIR, RESOLVE, EXTEND
-    tag = {REPAIR: "REPAIR ", RESOLVE: "RESOLVE", EXTEND: "EXTEND "}
-    by_kind = {k: sum(1 for a in portfolio if a["kind"] == k) for k in (REPAIR, RESOLVE, EXTEND)}
-    lines = [f"portfolio: {len(portfolio)} candidate action(s) — "
-             f"{by_kind[REPAIR]} repair · {by_kind[RESOLVE]} resolve · {by_kind[EXTEND]} extend "
-             "(execution order; repairs are prerequisites)"]
-    for i, a in enumerate(portfolio, 1):
-        dep = f"  ⟸ needs {', '.join(a['depends_on'])}" if a.get("depends_on") else ""
-        disc = f"  disc={a['discrimination']}" if a.get("discrimination") else ""
-        lines.append(f"  {i:>2}. [{tag.get(a['kind'], a['kind'])}] {a.get('target')}"
-                     f"  value={a.get('value')}{disc}{dep}")
-        lines.append(f"       {a.get('rationale', '')}")
-        if a.get("discriminates"):
-            lines.append(f"       ⇄ separates: {', '.join(str(h) for h in a['discriminates'])}")
-    return "\n".join(lines)
-
-
-def _fmt_when(w):
-    return "+".join(f"{k}={v}" for k, v in (w or {}).items()) or "baseline"
-
-
-def _summarize_design(design: dict | None, study: str) -> str:
-    """Render a Cycle N+1 Phase C discriminating-study design."""
-    if not design:
-        return f"design: {study} has no discriminable competing hypotheses — nothing to design."
-    lines = [f"discriminating study design — {study}",
-             f"  contrast: {' vs '.join(design['hypothesis_contrast'])}",
-             f"  measures: {', '.join(design['measurements'])}"]
-    lines.append("  intervention arms:")
-    ctrl_ids = {(c['hypothesis'], tuple(sorted((c.get('when') or {}).items()))) for c in design['controls']}
-    for arm in design["interventions"]:
-        is_ctrl = (arm['hypothesis'], tuple(sorted((arm.get('when') or {}).items()))) in ctrl_ids
-        lines.append(f"    - {arm['hypothesis']}  @ {_fmt_when(arm.get('when'))}"
-                     + ("   [control]" if is_ctrl else ""))
-    lines.append("  registered predictions (pre-run):")
-    for p in design["predictions"]:
-        lines.append(f"    - {p['hypothesis_id']}: {p['observable']} {p['expected']} when {_fmt_when(p['intervention'])}")
-    lines.append(f"  decision rule (precommitted): {design['decision_criterion']['rule']}")
-    issues = design.get("control_issues") or []
-    lines.append("  controls: OK" if not issues else "  control issues: " + "; ".join(issues))
-    return "\n".join(lines)
-
-
-def _summarize_model_build(request: dict, catalog: list, routes: dict, mv: dict) -> str:
-    """Render a Cycle N+1 Phase D model-acquisition decision."""
-    tag = {"reuse": "REUSE", "wrap": "WRAP ", "build": "BUILD"}
-    lines = [f"model build — question {request['question_id']}  "
-             f"(catalog: {len(catalog)} component(s) from the campaign)",
-             f"  required mechanisms: {', '.join(request['required_mechanisms'])}"]
-    lines.append("  acquisition routes:")
-    for mech, r in routes.items():
-        comp = (r["component"].split(".")[-1] if r.get("component") else "—")
-        lines.append(f"    [{tag.get(r['route'], r['route'])}] {mech:<22} {comp}")
-        lines.append(f"            {r['rationale']}")
-    issues = _mod_coupling_issues(routes, catalog)
-    lines.append("  coupling validation: OK" if not issues else "  coupling checks:")
-    for i in issues:
-        lines.append(f"    ⚑ {i}")
-    lines.append(f"  model version: {mv['id']}  (composite {mv['composite']})")
-    return "\n".join(lines)
-
-
-def _mod_coupling_issues(routes, catalog):
-    from discovery_engine.phases.model_architect import validate_coupling
-    return validate_coupling(routes, catalog)
-
-
-def _summarize_evaluation(cmp: dict, dmap: list) -> str:
-    """Render a Cycle N+1 Phase F evaluation: per-study claim verdicts + disagreements."""
-    lines = ["claim evaluation (support gated by evidence integrity)"]
-    for slug in sorted(cmp):
-        c = cmp[slug]
-        head = f"  {slug}: {c['status']}"
-        if c.get("favored"):
-            head += f"  (favored: {c['favored']})"
-        if c.get("evidence_status"):
-            head += f"  [evidence: {c['evidence_status']}]"
-        lines.append(head)
-        if c.get("note"):
-            lines.append(f"      ⚑ {c['note']}")
-        for h in c["hypotheses"]:
-            lines.append(f"      - {h['id']}: net {h['support']['net']:+d} → {h['verdict']}")
-    disc = [d for d in dmap if d["disagreement"]]
-    lines.append("  model disagreements:" if disc else "  model disagreements: none")
-    for d in disc:
-        arms = ", ".join(f"{k}={v}" for k, v in d["arms"].items())
-        lines.append(f"    ⇄ {d['study']} / {d['observable']}: {arms}  (spread {d['spread']}) — do not average")
-    return "\n".join(lines)
-
-
-def _summarize_discovery_delta(delta: dict) -> str:
-    """Render the per-cycle DiscoveryDelta."""
-    lines = [f"DiscoveryDelta  (fingerprint {delta['fingerprint']})"]
-    lines.append("  claims added / qualified this cycle:" if delta["added_or_qualified"]
-                 else "  claims added / qualified this cycle: none")
-    for a in delta["added_or_qualified"]:
-        lines.append(f"    + {a['study']}: {a['claim']}  [{a['strength']}]")
-    if delta["gated"]:
-        lines.append("  gated (model-fidelity):")
-        for g in delta["gated"]:
-            lines.append(f"    · {g['study']}: {g.get('reason')}")
-    if delta["model_disagreements"]:
-        lines.append("  model disagreements to resolve:")
-        for d in delta["model_disagreements"]:
-            lines.append(f"    ⇄ {d['study']} / {d['observable']}  (spread {d['spread']})")
-    if delta["anomalies"]:
-        lines.append("  anomalies (outside every predicted band):")
-        for a in delta["anomalies"]:
-            lines.append(f"    ! {a['study']} / {a['observable']} = {a['observed']}")
-    if delta["regressions"]:
-        lines.append("  recorded regressions (progress, kept visible):")
-        for r in delta["regressions"]:
-            lines.append(f"    ↺ {r['study']}: {r['note']}")
-    return "\n".join(lines)
-
-
-def _coerce_scalar(v: str):
-    """Coerce a ``--param key=value`` string value to int/float when it parses."""
-    s = str(v).strip()
-    for cast in (int, float):
-        try:
-            return cast(s)
-        except ValueError:
-            pass
-    return s
-
-
-def _summarize_refinement(slug: str, needs: list, changes: list, autonomy: str) -> str:
-    lines = [f"refine study — {slug}  (autonomy: {autonomy})"]
-    lines.append("  needs: " + ("; ".join(f"{n['kind']} ({n['reason']})" for n in needs) if needs
-                                else "none — adequately rigorous"))
-    if changes:
-        lines.append("  refinements:")
-        for c in changes:
-            lines.append(f"    - [{c['kind']}] {c['detail']}")
-    return "\n".join(lines)
-
-
-def _apply_refinement(ws: Path, inv_slug: str, slug: str, refined: dict) -> Path:
-    """I/O: merge the refinement fields (robustness / variants / baseline / refined_from)
-    into the existing study.yaml, comment-preserving. Pure transform lives in
-    study_refinement.refine_study."""
-    y = _ruamel()
-    for base in (studies_dir(ws), investigations_dir(ws) / inv_slug / "studies"):
-        sp = base / slug / "study.yaml"
-        if sp.exists():
-            with sp.open(encoding="utf-8") as fh:
-                doc = y.load(fh)
-            for key in ("robustness", "variants", "baseline", "refined_from"):
-                if key in refined:
-                    doc[key] = refined[key]
-            with sp.open("w", encoding="utf-8") as fh:
-                y.dump(doc, fh)
-            return sp
-    raise FileNotFoundError(f"study.yaml for {slug} not found")
-
-
-def _summarize_seeded_study(study: dict, gaps: list, autonomy: str) -> str:
-    base = next((a for a in (study.get("baseline") or []) if isinstance(a, dict)), {})
-    tests = study.get("behavior_tests") or study.get("tests") or []
-    lines = [f"seeded study — {study.get('name')}  (autonomy: {autonomy})",
-             f"  title: {study.get('title')}",
-             f"  seeded from: {study.get('seeded_from')}",
-             f"  baseline: {str(base.get('composite','')).split('.')[-1]}  params={base.get('params')}",
-             f"  observables: {study.get('observables')}",
-             f"  behavior tests: {[t.get('name') for t in tests if isinstance(t, dict)]}"]
-    if study.get("purpose"):
-        lines.append(f"  purpose.question: {(study['purpose'] or {}).get('question')}")
-    lines.append("  run-ready: YES" if not gaps else "  run-ready gaps: " + "; ".join(gaps))
-    return "\n".join(lines)
-
-
-def _write_seeded_study(ws: Path, inv_slug: str, slug: str, study: dict) -> Path:
-    """I/O: write studies/<slug>/study.yaml (comment-preserving) and register the slug
-    in the investigation's ``studies`` list. Pure authoring lives in study_seeding."""
-    y = _ruamel()
-    sdir = studies_dir(ws) / slug
-    sdir.mkdir(parents=True, exist_ok=True)
-    sp = sdir / "study.yaml"
-    with sp.open("w", encoding="utf-8") as fh:
-        y.dump(study, fh)
-    inv_path = investigations_dir(ws) / inv_slug / "investigation.yaml"
-    if inv_path.exists():
-        with inv_path.open(encoding="utf-8") as fh:
-            inv = y.load(fh)
-        members = inv.get("studies")
-        if isinstance(members, list) and slug not in members:
-            members.append(slug)
-            with inv_path.open("w", encoding="utf-8") as fh:
-                y.dump(inv, fh)
-    return sp
-
-
-
-def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(
-        prog="viva-discover",
-        description="Drive one turn of the RFC-0005/0006 discovery cycle over an investigation.",
-    )
-    parser.add_argument("--workspace", default=".", help="workspace root (default: cwd)")
-    sub = parser.add_subparsers(dest="cmd", required=True)
-
-    p_cycle = sub.add_parser("cycle", help="run + persist one discovery cycle")
-    p_cycle.add_argument("investigation", help="investigation slug")
-    p_cycle.add_argument("--no-write", action="store_true", help="project only, do not persist")
-
-    p_status = sub.add_parser("status", help="project one cycle and print the summary (no write)")
-    p_status.add_argument("investigation", help="investigation slug")
-
-    p_snap = sub.add_parser("snapshot-validations",
-                            help="accept the current validation state; later drift is flagged stale")
-    p_snap.add_argument("investigation", help="investigation slug")
-
-    p_diag = sub.add_parser("diagnose",
-                            help="classify the crank's productivity bottlenecks (why it is/isn't progressing)")
-    p_diag.add_argument("investigation", help="investigation slug")
-
-    p_sugg = sub.add_parser("suggest",
-                            help="suggest new studies to run next, each with the expert input it needs")
-    p_sugg.add_argument("investigation", help="investigation slug")
-
-    p_opp = sub.add_parser("opportunities",
-                           help="rank the frontier by value — what is most valuable to investigate next")
-    p_opp.add_argument("investigation", help="investigation slug")
-
-    p_requests = sub.add_parser("requests",
-                                help="AI-drivable cycle Phase 1: the typed GenerationRequest list the frontier emits (propose_study / acquire_model / author_tests / interpret_finding / resolve_decision / explain / visualize) for a filler to fill")
-    p_requests.add_argument("investigation", help="investigation slug")
-    p_requests.add_argument("--json", action="store_true", help="emit the requests as JSON")
-    p_requests.add_argument("--fill", action="store_true",
-                            help="dispatch auto-gated requests to $VIVA_FILLER_CMD and apply the results")
-    p_requests.add_argument("--free-run", action="store_true",
-                            help="with --fill: treat every request as auto (the free_run gate preset)")
-
-    p_hyp = sub.add_parser("hypotheses",
-                           help="the competing-hypotheses contest: each hypothesis, its predicted observable, and the support its studies' runs give it")
-    p_hyp.add_argument("investigation", help="investigation slug")
-
-    p_recon = sub.add_parser("reconcile-evidence",
-                             help="Cycle N+1 Phase A: classify each finding's evidence as verified / provisional / contradicted / unsupported against the registered runs")
-    p_recon.add_argument("investigation", help="investigation slug")
-
-    p_plan = sub.add_parser("plan",
-                            help="Cycle N+1 Phase B: the classified CandidateAction portfolio (repair / resolve / extend), ranked and dependency-ordered")
-    p_plan.add_argument("investigation", help="investigation slug")
-
-    p_design = sub.add_parser("design",
-                              help="Cycle N+1 Phase C: design a discriminating study for a member study's competing hypotheses (contrast, controls, registered predictions, committed decision rule)")
-    p_design.add_argument("investigation", help="investigation slug")
-    p_design.add_argument("study", help="member study slug")
-    p_design.add_argument("--require-control", action="append", default=[],
-                          help="a control the design must include (repeatable), e.g. --require-control no-exchange")
-
-    p_build = sub.add_parser("build-model",
-                             help="Cycle N+1 Phase D: capability-driven model acquisition (reuse / wrap / build) for required mechanisms, against the campaign's composite catalog")
-    p_build.add_argument("investigation", help="investigation slug")
-    p_build.add_argument("--mechanism", action="append", default=[], required=True,
-                         help="a required mechanism (repeatable), e.g. --mechanism exchange --mechanism adhesion")
-    p_build.add_argument("--observable", action="append", default=[], help="a required observable (repeatable)")
-    p_build.add_argument("--question", default="Q", help="question id for the ModelBuildRequest")
-
-    p_eval = sub.add_parser("evaluate",
-                            help="Cycle N+1 Phase F: promote or reject claims — per-study hypothesis comparison with claim verdicts gated by evidence integrity, plus the model-disagreement map")
-    p_eval.add_argument("investigation", help="investigation slug")
-
-    p_delta = sub.add_parser("delta",
-                             help="Cycle N+1 Phase F: the DiscoveryDelta — what this cycle established / qualified / gated, with model disagreements, anomalies and recorded regressions")
-    p_delta.add_argument("investigation", help="investigation slug")
-
-    p_seed = sub.add_parser("seed-study",
-                            help="author a complete, run-ready study.yaml for a proposed/follow-up study (closes propose→seed→run); --autonomy gates selection")
-    p_seed.add_argument("investigation", help="investigation slug")
-    p_seed.add_argument("parent", help="parent study slug")
-    p_seed.add_argument("--slug", required=True, help="new study slug")
-    p_seed.add_argument("--from-finding", default=None, help="parent finding id to seed purpose/assumptions from")
-    p_seed.add_argument("--title", default=None)
-    p_seed.add_argument("--param", action="append", default=[],
-                        help="model_change param key=value (repeatable) — the variation under test")
-    p_seed.add_argument("--autonomy", choices=["human_in_the_loop", "autonomous"], default="human_in_the_loop")
-    p_seed.add_argument("--write", action="store_true",
-                        help="write studies/<slug>/study.yaml + register it in the investigation (else just print)")
-
-    p_refine = sub.add_parser("refine-study",
-                              help="improve an existing study in place (replicate seeds / sweep variants / raise fidelity), from the engine's rigor + fidelity flags")
-    p_refine.add_argument("investigation", help="investigation slug")
-    p_refine.add_argument("study", help="study slug to refine")
-    p_refine.add_argument("--composite", default=None, help="higher-fidelity composite to raise the baseline to")
-    p_refine.add_argument("--autonomy", choices=["human_in_the_loop", "autonomous"], default="human_in_the_loop")
-    p_refine.add_argument("--write", action="store_true", help="apply the refinement to the study.yaml (else just print)")
-
-    p_comp = sub.add_parser("complete",
-                            help="the completion map: gates to verify, decisions that gate the next studies, and the ordered next-step commands")
-    p_comp.add_argument("investigation", help="investigation slug")
-
-    p_adv = sub.add_parser("advance",
-                           help="the cycle's ADVANCE phase: build-if-needed and run the open questions (run-ready `test` ops), re-cranking after each")
-    p_adv.add_argument("investigation", help="investigation slug")
-    p_adv.add_argument("--autonomous", action="store_true",
-                       help="actually run the runnable open questions (else report what it would run)")
-
-    p_exec = sub.add_parser("execute",
-                            help="the recommendation→action bridge: show (or, with --execute, run) the next action")
-    p_exec.add_argument("investigation", help="investigation slug")
-    p_exec.add_argument("--execute", action="store_true",
-                        help="actually run the top action when it is side-effect-free (else print its gated command)")
-    p_exec.add_argument("--autonomous", action="store_true",
-                        help="also run a CONSEQUENTIAL top action (seed a study / run a simulation) and record the outcome")
-    p_exec.add_argument("--ai-decide", action="store_true",
-                        help="let an AI decider drive an open expert decision (needs $VIVA_DECIDER_CMD; implies --autonomous)")
-
-    p_sv = sub.add_parser("set-verdict", help="author a canonical verdict on a study")
-    p_sv.add_argument("study", help="study slug")
-    p_sv.add_argument("verdict", choices=VERDICT_VOCAB)
-    p_sv.add_argument("--rationale", default=None)
-
-    p_rel = sub.add_parser("relate", help="author an epistemic relation downstream <- upstream")
-    p_rel.add_argument("downstream", help="the study whose prerequisite is being labelled")
-    p_rel.add_argument("upstream", help="the study it relates to")
-    p_rel.add_argument("--relation", choices=EPISTEMIC_RELATIONS, default="builds-on")
-
-    p_conn = sub.add_parser("connect", help="enrich every bare prerequisite across an investigation")
-    p_conn.add_argument("investigation", help="investigation slug")
-    p_conn.add_argument("--relation", choices=EPISTEMIC_RELATIONS, default="builds-on")
-
-    p_crank = sub.add_parser("crank", help="turn the discovery crank: frontier + next action + closure")
-    p_crank.add_argument("investigation", help="investigation slug")
-
-    p_res = sub.add_parser("resolve", help="record a resolution that discharges a frontier item")
-    p_res.add_argument("investigation", help="investigation slug")
-    p_res.add_argument("kind", choices=RESOLUTION_KINDS, help="the frontier-item kind to discharge")
-    p_res.add_argument("target", help="the item's target, as the crank prints it (e.g. 'claim:og-x' or a study slug)")
-    p_res.add_argument("--rationale", required=True, help="why the item is discharged (the adjudication / bridge)")
-    p_res.add_argument("--by", default=None, help="the artifact that resolves it (e.g. study#finding)")
-
-    p_rev = sub.add_parser("revise", help="approve, reject, or apply a model-revision proposal (rp:…)")
-    p_rev.add_argument("investigation", help="investigation slug")
-    p_rev.add_argument("proposal", help="the proposal id (rp:…)")
-    g_rev = p_rev.add_mutually_exclusive_group(required=True)
-    g_rev.add_argument("--approve", action="store_true")
-    g_rev.add_argument("--reject", action="store_true")
-    g_rev.add_argument("--apply", action="store_true", help="apply an approved proposal: child study + model version")
-    p_rev.add_argument("--change", type=int, default=None, help="candidate change index (default: first derived)")
-    p_rev.add_argument("--rationale", default=None, help="why (required for --approve/--reject)")
-
-    p_gap = sub.add_parser("gap", help="review-tier capability gaps (cg:…): required mechanisms no catalog process provides")
-    p_gap.add_argument("investigation", help="investigation slug")
-    p_gap.add_argument("--propose", action="store_true", help="derive + persist capability gaps and list the open ones")
-    p_gap.add_argument("--accept", metavar="CG", default=None, help="accept gap cg:… (needs --rationale)")
-    p_gap.add_argument("--reject", metavar="CG", default=None, help="reject gap cg:… (terminal; needs --rationale)")
-    p_gap.add_argument("--rationale", default=None, help="why (required)")
-    p_viz = sub.add_parser("viz", help="review-tier edits of a declared figure (fig:<study>/<name>)")
-    p_viz.add_argument("investigation", help="investigation slug")
-    p_viz.add_argument("target", nargs="?", default=None,
-                       help="the figure, fig:<study>/<name> (for --declare)")
-    p_viz.add_argument("--declare", nargs="+", metavar="KEY=VALUE", default=None,
-                       help="set address=… [render=…] [requires=a,b] on the entry")
-    p_viz.add_argument("--propose", action="store_true",
-                       help="derive + persist viz proposals and list the open ones")
-    p_viz.add_argument("--accept", metavar="VP", default=None, help="accept proposal vp:… (needs --rationale)")
-    p_viz.add_argument("--address", default=None, help="address for --accept (default: the suggested one)")
-    p_viz.add_argument("--reject", metavar="VP", default=None, help="reject proposal vp:… (terminal; needs --rationale)")
-    p_viz.add_argument("--rationale", default=None, help="why (required)")
-
-    p_ingest = sub.add_parser("ingest-feedback",
-                              help="compile a discovery_request.yaml: reopen + redirect an "
-                                   "investigation from a scientist's reopening-feedback")
-    p_ingest.add_argument("request", help="path to a discovery_request.yaml")
-    p_ingest.add_argument("--write", action="store_true",
-                          help="apply the mutations (default: dry-run, print the summary)")
-
-    args = parser.parse_args(argv)
-    ws = Path(args.workspace).resolve()
-
-    if args.cmd in ("cycle", "status"):
-        inv_path, inv_spec, studies = load_cycle_inputs(ws, args.investigation)
-        result = _cycle_with_evidence(ws, args.investigation, inv_spec, studies)
-        print(summarize(result))
-        if args.cmd == "cycle" and not args.no_write:
-            from discovery_engine.phases import evidence_integrity as _ei
-            ev_state = _ei.reconcile_evidence_state(
-                inv_spec, studies, _load_runs_by_study(ws, args.investigation, studies))
-            persist_cycle(inv_path, inv_spec, result, studies=studies, evidence_state=ev_state,
-                          viz_state=viz_inventory(ws, args.investigation, studies))
-            print(f"persisted cycle_state -> {inv_path}")
-        return 0
-
-    if args.cmd == "ingest-feedback":
-        import json as _json
-        from discovery_engine.feedback import compiler as feedback_compiler
-        result = feedback_compiler.ingest_feedback(args.request, ws, write=args.write)
-        print(_json.dumps(result["summary"], indent=2, default=str))
-        if result["wrote"]:
-            print(f"\nreopened {result['summary']['investigation']} + "
-                  f"{len(result['new_studies'])} seeded studies")
-        else:
-            print("\n(dry-run; pass --write to apply)")
-        return 0
-
-    if args.cmd == "set-verdict":
-        sp = studies_dir(ws) / args.study / "study.yaml"
-        if not sp.exists():
-            parser.error(f"no study.yaml at {sp}")
-        rec = set_verdict(sp, args.verdict, args.rationale)
-        print(f"{args.study}: verdict={rec['verdict']} source={rec['verdict_source']}")
-        return 0
-
-    if args.cmd == "relate":
-        sp = studies_dir(ws) / args.downstream / "study.yaml"
-        if not sp.exists():
-            parser.error(f"no study.yaml at {sp}")
-        _enrich_file(sp, [args.upstream], args.relation)
-        print(f"{args.downstream} <-{args.relation}- {args.upstream}")
-        return 0
-
-    if args.cmd == "connect":
-        report = connect_investigation(ws, args.investigation, args.relation)
-        enriched, needs_relate = report["enriched"], report["needs_relate"]
-        n = sum(len(v) for v in enriched.values())
-        print(f"enriched {n} bare prerequisite(s) with '{args.relation}' across "
-              f"{len(enriched)} studies:")
-        for s, ups in enriched.items():
-            print(f"  {s}: {', '.join(ups)}")
-        if needs_relate:
-            print("\nparent_studies-only dependencies — NOT auto-asserted (verify each is a "
-                  "scientific edge, then author it explicitly):")
-            for s, ups in needs_relate.items():
-                for up in ups:
-                    print(f"  discover --workspace {args.workspace} relate {s} {up} "
-                          f"--relation {args.relation}")
-        return 0
-
-    if args.cmd == "resolve":
-        inv_path = investigations_dir(ws) / args.investigation / "investigation.yaml"
-        if not inv_path.exists():
-            parser.error(f"no investigation.yaml at {inv_path}")
-        rec = record_resolution(inv_path, args.kind, args.target, args.rationale, args.by)
-        print(f"resolved [{rec['kind']}] {rec['target']}"
-              + (f"  (by {rec['by']})" if rec.get("by") else "")
-              + f"  — {rec['rationale']}")
-        return 0
-
-    if args.cmd == "gap":
-        if args.accept and args.reject:
-            parser.error("gap: pass only one of --accept / --reject")
-        try:
-            if args.reject:
-                reject_capability_gap(ws, args.investigation, args.reject, rationale=args.rationale or "")
-                print(f"rejected {args.reject} (terminal)")
-            elif args.accept:
-                accept_capability_gap(ws, args.investigation, args.accept, rationale=args.rationale or "")
-                print(f"accepted {args.accept}; build it: discover execute {args.investigation} --autonomous")
-            elif args.propose:
-                inv_path, inv_spec, studies = load_cycle_inputs(ws, args.investigation)
-                result = _cycle_with_evidence(ws, args.investigation, inv_spec, studies)
-                persist_cycle(inv_path, inv_spec, result, studies=studies,
-                              viz_state=viz_inventory(ws, args.investigation, studies))
-                for g in load_yaml_mapping(inv_path).get("capability_gaps") or []:
-                    gst = g.get("status", "proposed") if isinstance(g, dict) else None
-                    if gst in ("proposed", "needs_author", "failed"):
-                        print(f"{g['id']}  {g.get('mechanism')}  "
-                              f"[{'derivable' if g.get('derivable') else 'needs_author'}]"
-                              + ("" if gst == "proposed" else f"  ({gst})"))
-            else:
-                parser.error("gap needs --propose, --accept CG, or --reject CG")
-        except ValueError as e:
-            parser.error(str(e))
-        return 0
-
-    if args.cmd == "viz" and (args.propose or args.accept or args.reject):
-        try:
-            if args.reject:
-                reject_viz_proposal(ws, args.investigation, args.reject, rationale=args.rationale or "")
-                print(f"rejected {args.reject} (terminal)")
-            elif args.accept:
-                prop = accept_viz_proposal(ws, args.investigation, args.accept,
-                                           address=args.address, rationale=args.rationale or "")
-                print(f"accepted {args.accept} -> {prop['history'][-1]['entry']}; "
-                      f"render it: discover advance {args.investigation}")
-            else:
-                inv_path, inv_spec, studies = load_cycle_inputs(ws, args.investigation)
-                result = _cycle_with_evidence(ws, args.investigation, inv_spec, studies)
-                persist_cycle(inv_path, inv_spec, result, studies=studies,
-                              viz_state=viz_inventory(ws, args.investigation, studies))
-                for p in load_yaml_mapping(inv_path).get("viz_proposals") or []:
-                    if isinstance(p, dict) and p.get("status", "proposed") == "proposed":
-                        sg = p.get("suggested") or {}
-                        print(f"{p['id']}  {sg.get('form')}  {(p.get('source') or {}).get('observable')}  "
-                              f"[{'needs_author' if sg.get('needs_author') else 'derivable'}]")
-        except ValueError as e:
-            parser.error(str(e))
-            return 1
-        return 0
-
-    if args.cmd == "viz":
-        if not args.declare or not args.target:
-            parser.error("viz needs <target> --declare …, or --propose / --accept VP / --reject VP")
-        decl_kv: dict = {}
-        for kv in args.declare:
-            k, sep, v = kv.partition("=")
-            if not sep:
-                parser.error(f"--declare expects KEY=VALUE, got {kv!r}")
-            decl_kv[k.strip()] = [x.strip() for x in v.split(",") if x.strip()] if k.strip() == "requires" else v
-        try:
-            rec = declare_viz(ws, args.investigation, args.target, decl_kv, args.rationale or "")
-        except ValueError as e:
-            parser.error(str(e))
-            return 1
-        print(f"declared {args.target}: {', '.join(decl_kv)}  — {rec['rationale']}")
-        return 0
-
-    if args.cmd == "revise":
-        inv_path = investigations_dir(ws) / args.investigation / "investigation.yaml"
-        if not inv_path.exists():
-            parser.error(f"no investigation.yaml at {inv_path}")
-        if args.apply:
-            try:
-                res = apply_revision(ws, args.investigation, args.proposal, args.change)
-            except ValueError as e:
-                parser.error(str(e))
-            if res["status"] != "applied":
-                print(f"needs_build {args.proposal}  — {res['mechanism']}")
-                return 1
-            print(f"applied {args.proposal}  -> {res['study']} ({res['model_version']})")
-            print(f"  run it: discover advance {args.investigation}")
-            return 0
-        if not (args.rationale or "").strip():
-            parser.error("--rationale is required for --approve/--reject")
-        try:
-            prop = review_revision(inv_path, args.proposal,
-                                   "approved" if args.approve else "rejected", args.rationale)
-        except ValueError as e:
-            parser.error(str(e))
-        print(f"{prop['status']} {prop['id']}  — {args.rationale}")
-        return 0
-
-    if args.cmd == "crank":
-        from discovery_engine.projection import engine as discovery_engine
-        _, inv_spec, studies = load_cycle_inputs(ws, args.investigation)
-        result = _cycle_with_evidence(ws, args.investigation, inv_spec, studies)
-        print(discovery_engine.summarize(discovery_engine.crank(result, inv_spec)))
-        return 0
-
-    if args.cmd == "snapshot-validations":
-        snap = snapshot_validations(ws, args.investigation)
-        print(f"accepted validation snapshot: {len(snap)} record(s) "
-              f"— later drift surfaces as stale_validation")
-        return 0
-
-    if args.cmd == "diagnose":
-        from discovery_engine.projection import engine as discovery_engine
-        _, inv_spec, studies = load_cycle_inputs(ws, args.investigation)
-        result = _cycle_with_evidence(ws, args.investigation, inv_spec, studies)
-        diag = discovery_engine.diagnose(result, inv_spec)
-        print(discovery_engine.summarize_diagnosis(diag))
-        return 0
-
-    if args.cmd == "suggest":
-        _, inv_spec, studies = load_cycle_inputs(ws, args.investigation)
-        result = _cycle_with_evidence(ws, args.investigation, inv_spec, studies)
-        print(summarize_suggestions(result["suggestions"]))
-        return 0
-
-    if args.cmd == "opportunities":
-        from discovery_engine.projection import engine as discovery_engine
-        _, inv_spec, studies = load_cycle_inputs(ws, args.investigation)
-        result = _cycle_with_evidence(ws, args.investigation, inv_spec, studies)
-        opps = discovery_engine.opportunities(result, inv_spec)
-        print(discovery_engine.summarize_opportunities(opps))
-        return 0
-
-    if args.cmd == "requests":
-        import json as _json
-
-        from discovery_engine.projection import engine as discovery_engine
-        from discovery_engine.phases.generation import GateConfig
-        from discovery_engine.phases.generation_emit import generation_requests, summarize_requests
-        _, inv_spec, studies = load_cycle_inputs(ws, args.investigation)
-        result = _cycle_with_evidence(ws, args.investigation, inv_spec, studies)
-        opps = discovery_engine.opportunities(result, inv_spec)
-        if getattr(args, "free_run", False):
-            gates = GateConfig.preset("free_run")
-        else:
-            gc = (inv_spec.get("discovery") or {}).get("gates") if isinstance(inv_spec, dict) else None
-            gates = (GateConfig(default=gc.get("default"), by_kind=gc.get("by_kind") or {})
-                     if isinstance(gc, dict) else GateConfig())
-        reqs = generation_requests(opps, gates=gates, inv_spec=inv_spec)
-        if getattr(args, "fill", False):
-            from discovery_engine.phases.generation_apply import run_requests, subprocess_filler
-            outcomes = run_requests(reqs, fill=subprocess_filler(),
-                                    ws_root=ws, inv_slug=args.investigation)
-            print(_json.dumps(outcomes, indent=2, default=str))
-            return 0
-        if getattr(args, "json", False):
-            print(_json.dumps([r.to_dict() for r in reqs], indent=2, default=str))
-        else:
-            print(summarize_requests(reqs))
-        return 0
-
-    if args.cmd == "hypotheses":
-        _, inv_spec, studies = load_cycle_inputs(ws, args.investigation)
-        specs = list(studies.values()) if isinstance(studies, dict) else list(studies or [])
-        print(_summarize_hypotheses(inv_spec, specs))
-        return 0
-
-    if args.cmd == "reconcile-evidence":
-        from discovery_engine.phases import evidence_integrity as _ei
-        _, inv_spec, studies = load_cycle_inputs(ws, args.investigation)
-        runs_by_study = _load_runs_by_study(ws, args.investigation, studies)
-        print(_summarize_evidence_reconciliation(
-            _ei.reconcile_evidence_state(inv_spec, studies, runs_by_study)))
-        return 0
-
-    if args.cmd == "plan":
-        from discovery_engine.phases import evidence_integrity as _ei, candidate_action as _ca
-        _, inv_spec, studies = load_cycle_inputs(ws, args.investigation)
-        runs_by_study = _load_runs_by_study(ws, args.investigation, studies)
-        ev_state = _ei.reconcile_evidence_state(inv_spec, studies, runs_by_study)
-        from discovery_engine.phases.model_architect import build_catalog
-        result = run_cycle(inv_spec, studies, evidence_state=ev_state,
-                           catalog=build_catalog(studies, ws))
-        portfolio = _ca.select_portfolio(_ca.plan_candidate_actions(result, inv_spec, ev_state))
-        print(_summarize_portfolio(portfolio))
-        return 0
-
-    if args.cmd == "evaluate":
-        from discovery_engine.phases import evaluation as _ev, evidence_integrity as _ei
-        _, inv_spec, studies = load_cycle_inputs(ws, args.investigation)
-        runs_by_study = _load_runs_by_study(ws, args.investigation, studies)
-        ev_state = _ei.reconcile_evidence_state(inv_spec, studies, runs_by_study)
-        cmp = _ev.compare_hypotheses(inv_spec, studies, ev_state)
-        dmap = _ev.model_disagreement_map(inv_spec, studies)
-        print(_summarize_evaluation(cmp, dmap))
-        return 0
-
-    if args.cmd == "delta":
-        from discovery_engine.phases import evaluation as _ev, evidence_integrity as _ei
-        _, inv_spec, studies = load_cycle_inputs(ws, args.investigation)
-        runs_by_study = _load_runs_by_study(ws, args.investigation, studies)
-        ev_state = _ei.reconcile_evidence_state(inv_spec, studies, runs_by_study)
-        print(_summarize_discovery_delta(_ev.discovery_delta(
-            inv_spec, studies, ev_state,
-            prev=(inv_spec.get("cycle_state") or {}).get("evaluation_snapshot"))))
-        return 0
-
-    if args.cmd == "design":
-        from discovery_engine.phases import experiment_design as _ed
-        _, inv_spec, _studies = load_cycle_inputs(ws, args.investigation)
-        design = _ed.design_discriminating_study(inv_spec, args.study, args.require_control or None)
-        print(_summarize_design(design, args.study))
-        return 0
-
-    if args.cmd == "build-model":
-        from discovery_engine.phases import model_architect as _ma
-        _, inv_spec, studies = load_cycle_inputs(ws, args.investigation)
-        catalog = _ma.build_catalog(studies)
-        req = _ma.ModelBuildRequest(question_id=args.question, required_mechanisms=args.mechanism,
-                                    required_observables=args.observable or None)
-        routes = _ma.choose_acquisition_route(req, catalog)
-        mv = _ma.model_version(_ma.routes_composite(routes), {})
-        print(_summarize_model_build(req, catalog, routes, mv))
-        return 0
-
-    if args.cmd == "seed-study":
-        from discovery_engine.growth import seeding as _ss
-        _, inv_spec, studies = load_cycle_inputs(ws, args.investigation)
-        parent = studies.get(args.parent)
-        if not isinstance(parent, dict):
-            print(f"seed-study: parent study {args.parent!r} not found")
-            return 1
-        mc = {"params": {k: _coerce_scalar(v) for k, v in (kv.split("=", 1) for kv in args.param)}} if args.param else None
-        study = _ss.build_seeded_study(parent, inv_spec, new_slug=args.slug,
-                                       finding_id=args.from_finding, model_change=mc, title=args.title)
-        gaps = _ss.is_run_ready(study)
-        print(_summarize_seeded_study(study, gaps, args.autonomy))
-        if args.write:
-            if gaps:
-                print("  NOT written — resolve run-readiness gaps first.")
-                return 1
-            path = _write_seeded_study(ws, args.investigation, args.slug, study)
-            print(f"  wrote {path}")
-            print(f"  run it: discover advance {args.investigation}  (or {run_command(args.slug, str(ws))})")
-        return 0
-
-    if args.cmd == "refine-study":
-        from discovery_engine.growth import refinement as _sr
-        _, inv_spec, studies = load_cycle_inputs(ws, args.investigation)
-        study = studies.get(args.study)
-        if not isinstance(study, dict):
-            print(f"refine-study: study {args.study!r} not found")
-            return 1
-        needs = _sr.refinement_needs(inv_spec, study)
-        refined, changes = _sr.refine_study(study, needs=needs or None,
-                                            higher_fidelity_composite=args.composite)
-        print(_summarize_refinement(args.study, needs, changes, args.autonomy))
-        if args.write:
-            if not changes:
-                print("  nothing to write — study already adequately rigorous.")
-                return 0
-            path = _apply_refinement(ws, args.investigation, args.study, refined)
-            print(f"  applied to {path}")
-            print(f"  re-run it: discover advance {args.investigation}")
-        return 0
-
-    if args.cmd == "complete":
-        print(summarize_completion(build_completion_map(ws, args.investigation)))
-        return 0
-
-    if args.cmd == "advance":
-        print(summarize_advance(advance_cycle(ws, args.investigation, autonomous=args.autonomous)))
-        return 0
-
-    if args.cmd == "execute":
-        from discovery_engine.projection import engine as discovery_engine
-        _, inv_spec, studies = load_cycle_inputs(ws, args.investigation)
-        plan = discovery_engine.execute_plan(_cycle_with_evidence(ws, args.investigation, inv_spec, studies), inv_spec)
-        print(discovery_engine.summarize_execute_plan(plan))
-        autonomous = args.autonomous or args.ai_decide
-        if (args.execute or autonomous) and plan:
-            rec = execute_action(ws, args.investigation, autonomous=autonomous,
-                                 decider=_env_decider if args.ai_decide else None)
-            print(f"\n[{rec['status']}] {rec['action']} on {rec['source']}: "
-                  f"{(rec.get('outcome') or {}).get('detail') or (rec.get('outcome') or {})}")
-            if rec.get("status") == "executed" and "frontier_after" in rec:
-                print(f"  frontier: {rec['frontier_before']} → {rec['frontier_after']} (re-cranked)")
-        return 0
-
-    return 1
-
-
-if __name__ == "__main__":  # pragma: no cover
-    raise SystemExit(main())

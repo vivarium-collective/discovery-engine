@@ -10,7 +10,7 @@ from discovery_engine import discover
 from discovery_engine.study.io import load_yaml, save_yaml_atomic
 
 C = "discovery_engine.phases.model_architect.build_catalog"
-SCHEMA = Path(discover.__file__).parent / "schemas" / "investigation-extensions.schema.json"
+SCHEMA = Path(discover.__file__).parent.parent / "schemas" / "investigation-extensions.schema.json"
 
 
 def _studies():
