@@ -18,6 +18,7 @@ needed) and validates + records what the agent writes. The engine owns the schem
 | Skill | Trigger (engine surfaces) | Proposal type | `discover` verb |
 |---|---|---|---|
 | `hypothesize` | a measured surprise the live hypotheses did not predict | `HypothesisProposal` | `discover hypothesize` |
+| `critique` | a verdict/confidence that outruns its evidence | `CritiqueReport` | `discover critique` |
 
 **Hard rules for every skill.** Never mark evidence `verified`, never promote a proposal to
 a Finding/Discovery, never introduce a mechanism, parameter, or literature value that was
