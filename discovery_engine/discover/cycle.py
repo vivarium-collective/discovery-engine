@@ -585,6 +585,15 @@ def suggest_studies(cycle_result: dict, inv_spec: dict, studies: dict) -> list[d
     import dataclasses as _dc
 
     from discovery_engine.growth.seed_from_followup import build_child_seed_from_finding
+    # Idempotency: a refuted finding already promoted to a child study (its id recorded in
+    # some study's seeded_from.finding) is NOT re-proposed — otherwise advance would seed it
+    # every crank. This is what lets the generative loop terminate instead of streaming
+    # proposals forever.
+    _seeded_findings = {
+        sf.get("finding")
+        for sp in (studies or {}).values() if isinstance(sp, dict)
+        for sf in [sp.get("seeded_from") or {}] if sf.get("finding")
+    }
     refutations: list[tuple[str, str]] = []
     for slug, spec in (studies or {}).items():
         if not isinstance(spec, dict):
@@ -598,6 +607,8 @@ def suggest_studies(cycle_result: dict, inv_spec: dict, studies: dict) -> list[d
             fid = f.get("id")
             if not fid:
                 continue
+            if fid in _seeded_findings:
+                continue      # already promoted to a child study — don't re-propose (idempotent)
             refutations.append((slug, fid))
             sid = f"followup-{slug}-{hashlib.sha256(str(fid).encode()).hexdigest()[:8]}"
             seed = None
@@ -612,6 +623,7 @@ def suggest_studies(cycle_result: dict, inv_spec: dict, studies: dict) -> list[d
                 slug, "refuted_finding", [])
             if seed is not None and len(out) > before:
                 out[-1]["seed"] = seed
+                out[-1]["finding_id"] = fid   # so the `seed` op can promote it (write_child_study)
     if refutations:
         n_studies = len({s for s, _ in refutations})
         key = ",".join(sorted(f"{s}:{fid}" for s, fid in refutations))
@@ -819,6 +831,52 @@ def execute_action(ws_root: Path | str, inv_slug: str, *, autonomous: bool = Fal
                 rec["status"] = "executed" if out.get("ok") else "failed"
                 if rec["status"] == "executed":
                     _post_render_stamp(sdir, entry, latest, command)
+    elif top["consequence"] == "authoring":
+        # Promote a ready, seed-bearing proposal into a real study.yaml — the write-back
+        # that CLOSES the generative loop. Policy-gated exactly like a simulation: resolve
+        # the proposal from the cycle's suggestions, then write the child via the atomic
+        # write_child_study. On the next crank the new study raises its own `test` op and
+        # advance runs it, so "a refuted finding proposes the next study" becomes "runs it".
+        if not pol.allows(consequence="authoring", target=top["source"]):
+            rec["status"] = "gated"
+            rec["outcome"] = {"ok": None, "detail": "authoring — re-run with --autonomous "
+                              "(or approve this item in the policy) to write the study"}
+        else:
+            prop = next((s for s in suggest_studies(cyc, inv_spec, studies)
+                         if isinstance(s, dict) and s.get("id") == top["source"]), None)
+            if prop is None or not prop.get("parent_study"):
+                rec["status"] = "gated"
+                rec["outcome"] = {"ok": None, "detail": "proposal not found / no parent — "
+                                  "run `discover cycle` first"}
+            else:
+                from discovery_engine.growth.seed_from_followup import SeedSource, write_child_study
+                try:
+                    res = write_child_study(
+                        ws_root, prop["parent_study"],
+                        SeedSource(proposal={"id": prop["id"], "title": prop.get("title")},
+                                   finding_id=prop.get("finding_id"), family="refuted_finding"))
+                    # Register the child as a member so the NEXT crank includes it — promotion
+                    # must put the study IN the cycle, not just on disk, or the loop can't chain.
+                    # Append to whichever membership field the investigation declares.
+                    _inv_disk = load_yaml_mapping(inv_path)
+                    _key = "members" if isinstance(_inv_disk.get("members"), list) else "studies"
+                    _members = list(_inv_disk.get(_key) or [])
+                    _existing = {m.get("study") if isinstance(m, dict) else m for m in _members}
+                    if res["new_slug"] not in _existing:
+                        _members.append(res["new_slug"])
+                        _inv_disk[_key] = _members
+                        save_yaml_atomic(inv_path, _inv_disk)
+                    rec["status"] = "executed"
+                    rec["command"] = f"seed-study {prop['parent_study']} -> {res['new_slug']}"
+                    rec["outcome"] = {"ok": True, "new_slug": res["new_slug"],
+                                      "detail": f"seeded study {res['new_slug']} from "
+                                                f"{prop['parent_study']} (run it on the next crank)"}
+                except FileExistsError:
+                    rec["status"] = "gated"
+                    rec["outcome"] = {"ok": None, "detail": "child study already exists — already seeded"}
+                except Exception as e:  # noqa: BLE001 — a malformed seed never crashes the cycle
+                    rec["status"] = "failed"
+                    rec["outcome"] = {"ok": False, "detail": f"seed write failed: {type(e).__name__}: {e}"}
     elif top["action_type"] == "steer" and decider is not None and autonomous:
         # AI drives the expert decision: pick the option that maximizes discovery.
         detail = next((i["rationale"] for i in de.frontier(cyc, inv_spec)
@@ -1177,7 +1235,7 @@ def _post_render_stamp(sdir, entry: dict, latest: dict | None, command: str | No
 
 # An applied revision's child runs as a `test` op (applied proposals are off the frontier);
 # `revise_model` is review-consequence, never dispatched.
-_ADVANCE_OPS = ("test", "branch", "build_viz", "refine_viz")
+_ADVANCE_OPS = ("test", "branch", "build_viz", "refine_viz", "seed")
 
 def _advance_study_for(source, studies: dict) -> str | None:
     """The on-disk study an advance op would run, or None (gated). The applied child of a
@@ -1247,6 +1305,13 @@ def _dispatch_classify(p: dict, studies: dict, ws_root, inv_slug: str) -> tuple[
     op = p["action_type"]
     if op not in _ADVANCE_OPS:
         return ("skip", None, [])
+    if op == "seed":
+        # A proposed_study (the generative loop's ready, seed-bearing child) is dispatchable:
+        # advance promotes it via write_child_study under the policy. The frontier only raises
+        # one when it carries a parent + seed (and idempotency drops already-written ones), so
+        # it is genuinely promotable here. It claims NO existing study slug — it writes a NEW
+        # study — so `slug` is None (the per-run seen_slugs guard does not apply to it).
+        return ("run", None, [])
     if op in ("build_viz", "refine_viz"):
         vt = _viz_target(p["source"])
         entry = _viz_entry(studies, *vt) if vt else None
@@ -1388,8 +1453,8 @@ def advance_cycle(ws_root: Path | str, inv_slug: str, *, autonomous: bool = Fals
             seen_slugs.add(target_slug)
             ran.append({"target": target, "status": "would-run (pass --autonomous to execute)"})
             break
-        sdir = _study_dir_on_disk(ws_root, inv_slug, target_slug)
-        before_runs = _run_names(sdir)
+        sdir = _study_dir_on_disk(ws_root, inv_slug, target_slug) if target_slug else None
+        before_runs = _run_names(sdir) if sdir else []
         rec = execute_action(ws_root, inv_slug, policy=pol, runner=runner, target=target,
                              action=target_op, render_hook=render_hook, worktree=worktree)
         if target_op in ("build_viz", "refine_viz"):
@@ -1403,6 +1468,16 @@ def advance_cycle(ws_root: Path | str, inv_slug: str, *, autonomous: bool = Fals
                 _lat = viz_inventory(ws_root, inv_slug, {_vt[0]: _st[_vt[0]]})[_vt[0]]["_latest"] if _e else None
                 if _e is not None:
                     _post_render_stamp(sdir, _e, _lat, rec.get("command"))
+            else:
+                gated_ops.add((target_op, target))
+            ran.append({"target": target, "status": rec["status"],
+                        "outcome": (rec.get("outcome") or {}).get("detail")})
+            continue
+        if target_op == "seed":
+            # Promotion wrote a NEW study (no run happened): mark seen and re-crank — the new
+            # study's `test` op is dispatched next iteration. A failed/gated seed is not retried.
+            if rec["status"] == "executed":
+                seen.add(target)
             else:
                 gated_ops.add((target_op, target))
             ran.append({"target": target, "status": rec["status"],
