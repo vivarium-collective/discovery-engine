@@ -226,7 +226,12 @@ def test_needs_author_and_failed_surface_review_tier(tmp_path, monkeypatch, stat
     rec = D.execute_action(ws, "inv", autonomous=True, target=cg, build_hook=hook)
     assert rec["status"] == "gated-human" and calls == []
     assert _disk(ws)["capability_gaps"][0]["status"] == status
-    assert "build_process" not in D._ADVANCE_OPS            # advance never dispatches a build
+    # PR 4: advance CAN dispatch a build — but only an ACCEPTED gap with a hook; a
+    # needs_author/failed one is never dispatched.
+    assert "build_process" in D._ADVANCE_OPS
+    from discovery_engine.discover.cycle import _dispatch_classify
+    _p = {"action_type": "build_process", "source": cg, "consequence": "review"}
+    assert _dispatch_classify(_p, {}, ws, "inv", build_hook=hook)[0] == "skip"
     assert D.main(["--workspace", str(ws), "gap", "inv", "--propose"]) == 0
     out = capsys.readouterr().out
     assert cg in out and status in out

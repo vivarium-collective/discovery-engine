@@ -1,4 +1,4 @@
-"""Capability gaps as a first-class part of the discovery cycle (PROTOTYPE).
+"""Capability gaps as a first-class part of the discovery cycle.
 
 The model-building analog of ``viz_proposals``: when ``model_architect`` resolves a
 required mechanism to the **BUILD** route (no catalog component provides it), that
@@ -18,9 +18,16 @@ The executor is the workspace-injected ``build_hook`` (``build_capability(gap,
 ws_root) -> {status, process, detail, gap_id}``), the model-building analog of the
 viz-loop's ``render_hook``.
 
-PROTOTYPE / review-only: the self-contained propose/accept/build/close logic below
-is ready to wire into ``discover.run_cycle`` beside ``propose_visualizations`` and
-into ``execute_action(..., build_hook=…)`` beside the ``render_hook`` path.
+Wired end to end: ``propose_capability_gaps`` runs in ``run_cycle`` (beside
+``propose_visualizations``) over the **resolved** catalog (``build_catalog(studies, ws_root)``
+in ``_cycle_with_evidence``, so a gap fires on a composite that genuinely does not resolve,
+not a lexical guess); ``execute_action(..., build_hook=…)`` accepts/builds it; and
+``advance_cycle(..., build_hook=…)`` dispatches the build under the ``AutonomyPolicy`` — so
+``advance --autonomous`` builds an accepted gap, re-catalogs, verifies the new process
+**covers** the mechanism (not a name-only match), and a study that needed it becomes
+run-ready. The engine never builds itself: the composite is authored by the workspace's
+injected ``build_hook`` (``build_capability(gap, ws_root) -> {status, process, detail,
+gap_id}``), the model-building analog of the viz-loop's ``render_hook``.
 """
 from __future__ import annotations
 

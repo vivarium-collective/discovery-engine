@@ -163,6 +163,11 @@ def run_cycle(inv_spec: dict, studies_by_slug: dict[str, dict], *,
         studies_by_slug, _viz_scope_of(viz_catalog))
     from discovery_engine.feedback.capability_gaps import propose_capability_gaps
     # The catalog (carrying `capability` + `builds`) is the same one the acquisition route reads.
+    # On the live ws-aware path (_cycle_with_evidence) an INJECTED catalog is built with ws_root
+    # (`build_catalog(studies, ws_root)`) — it RESOLVES each composite, so a gap fires on a
+    # mechanism whose composite genuinely does not import, not a lexical guess. The no-ws fallback
+    # below is the pure projection's display catalog (headless / no filesystem) and is lexical by
+    # design; it never drives an autonomous build (that path always supplies the resolved catalog).
     gaps = propose_capability_gaps(
         inv_spec, studies_by_slug, catalog if catalog is not None else build_catalog(studies_by_slug))
     if gaps:
@@ -1246,7 +1251,7 @@ def _post_render_stamp(sdir, entry: dict, latest: dict | None, command: str | No
 
 # An applied revision's child runs as a `test` op (applied proposals are off the frontier);
 # `revise_model` is review-consequence, never dispatched.
-_ADVANCE_OPS = ("test", "branch", "build_viz", "refine_viz", "seed")
+_ADVANCE_OPS = ("test", "branch", "build_viz", "refine_viz", "seed", "build_process")
 
 def _advance_study_for(source, studies: dict) -> str | None:
     """The on-disk study an advance op would run, or None (gated). The applied child of a
@@ -1298,7 +1303,8 @@ def _run_names(sdir) -> set:
     return {r.get("name") for r in load_yaml_mapping(sdir / "study.yaml").get("runs") or []
             if isinstance(r, dict)}
 
-def _dispatch_classify(p: dict, studies: dict, ws_root, inv_slug: str) -> tuple[str, str | None, list]:
+def _dispatch_classify(p: dict, studies: dict, ws_root, inv_slug: str,
+                       build_hook=None) -> tuple[str, str | None, list]:
     """Classify one ``execute_plan`` item for the ADVANCE phase, independent of per-run
     loop state (seen / gated / seen_slugs). Returns ``(state, slug, gaps)``:
 
@@ -1322,6 +1328,21 @@ def _dispatch_classify(p: dict, studies: dict, ws_root, inv_slug: str) -> tuple[
         # one when it carries a parent + seed (and idempotency drops already-written ones), so
         # it is genuinely promotable here. It claims NO existing study slug — it writes a NEW
         # study — so `slug` is None (the per-run seen_slugs guard does not apply to it).
+        return ("run", None, [])
+    if op == "build_process":
+        # A capability-gap build is dispatchable only when the gap is ACCEPTED (a human put a
+        # rationale on record) AND a build_hook is available — the engine never builds itself,
+        # it drives the workspace's injected hook, then verifies coverage. It writes a composite,
+        # not a run, so it claims no study slug.
+        try:
+            _, _, gap = _cap_gap_load(ws_root, inv_slug, p["source"])
+        except Exception:  # noqa: BLE001 — a malformed/absent gap is simply not dispatchable
+            return ("skip", None, [])
+        if (not isinstance(gap, dict) or gap.get("status") != "accepted"
+                or not (gap.get("accept") or {}).get("rationale")):
+            return ("skip", None, [])
+        if (build_hook or load_workspace_build_hook(ws_root)) is None:
+            return ("skip", None, [])
         return ("run", None, [])
     if op in ("build_viz", "refine_viz"):
         vt = _viz_target(p["source"])
@@ -1402,7 +1423,7 @@ def _post_run_sync(sdir, before_runs: set) -> None:
 
 def advance_cycle(ws_root: Path | str, inv_slug: str, *, autonomous: bool = False,
                   runner=None, max_runs: int = 12, render_hook=None,
-                  worktree: Path | str | None = None, policy=None) -> dict:
+                  worktree: Path | str | None = None, policy=None, build_hook=None) -> dict:
     """The cycle's ADVANCE phase — build-if-needed and RUN the open questions, so turning
     the crank moves the science forward instead of only describing it.
 
@@ -1443,7 +1464,7 @@ def advance_cycle(ws_root: Path | str, inv_slug: str, *, autonomous: bool = Fals
             # Intrinsic admissibility — the SAME gate dispatchable_actions reports, so the
             # banner's "runnable" count matches what this loop dispatches. seen / gated_ops
             # / seen_slugs are this advance's per-run state, applied around it.
-            state, slug, gaps = _dispatch_classify(p, studies, ws_root, inv_slug)
+            state, slug, gaps = _dispatch_classify(p, studies, ws_root, inv_slug, build_hook=build_hook)
             if state == "skip":
                 continue
             # a study already claimed by a dispatched op this advance is not re-run
@@ -1467,7 +1488,8 @@ def advance_cycle(ws_root: Path | str, inv_slug: str, *, autonomous: bool = Fals
         sdir = _study_dir_on_disk(ws_root, inv_slug, target_slug) if target_slug else None
         before_runs = _run_names(sdir) if sdir else []
         rec = execute_action(ws_root, inv_slug, policy=pol, runner=runner, target=target,
-                             action=target_op, render_hook=render_hook, worktree=worktree)
+                             action=target_op, render_hook=render_hook, worktree=worktree,
+                             build_hook=build_hook)
         if target_op in ("build_viz", "refine_viz"):
             # a render claims neither the study nor stops the loop; a failed/gated render
             # is not retried this advance (gated_ops), a done one is not re-dispatched.
@@ -1484,9 +1506,11 @@ def advance_cycle(ws_root: Path | str, inv_slug: str, *, autonomous: bool = Fals
             ran.append({"target": target, "status": rec["status"],
                         "outcome": (rec.get("outcome") or {}).get("detail")})
             continue
-        if target_op == "seed":
-            # Promotion wrote a NEW study (no run happened): mark seen and re-crank — the new
-            # study's `test` op is dispatched next iteration. A failed/gated seed is not retried.
+        if target_op in ("seed", "build_process"):
+            # seed wrote a NEW study; build_process ran the workspace build_hook and wrote a
+            # composite — neither is a study run. Mark seen and re-crank: a study that needed the
+            # just-built mechanism becomes run-ready, or the new study's `test` op is dispatched.
+            # A failed/gated one is not retried this advance.
             if rec["status"] == "executed":
                 seen.add(target)
             else:
