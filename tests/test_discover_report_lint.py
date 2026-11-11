@@ -62,6 +62,18 @@ def test_discover_report_no_lint_skips_gate(tmp_path):
     assert (ws / "reports" / "index.html").is_file()
 
 
+def test_discover_report_today_is_byte_stable(tmp_path):
+    ws, argv = _ws(tmp_path)
+    out = ws / "reports" / "index.html"
+
+    assert discover.main([*argv, "report", "--today", "2026-05-09"]) == 0
+    first = out.read_bytes()
+    assert b"2026-05-09" in first
+
+    assert discover.main([*argv, "report", "--today", "2026-05-09"]) == 0
+    assert out.read_bytes() == first  # same pinned date -> byte-identical render
+
+
 # ---------------------------------------------------------------------------
 # Blocking path (a workspace with error-level findings) — exit codes + --force
 # ---------------------------------------------------------------------------

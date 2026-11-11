@@ -571,6 +571,8 @@ def main(argv: list[str] | None = None) -> int:
                           help="log blocking lint errors to the override file and render anyway")
     p_report.add_argument("--no-lint", action="store_true",
                           help="skip the pre-render lint (internal/testing; not recommended)")
+    p_report.add_argument("--today", default=None, metavar="ISO_DATE",
+                          help="pin the report date (YYYY-MM-DD) for byte-stable CI renders")
 
     p_lint = sub.add_parser("lint",
                             help="run the Pass B report linter over the workspace and print findings "
@@ -841,7 +843,8 @@ def main(argv: list[str] | None = None) -> int:
 
         from discovery_engine.reporting.report import ReportLintBlocked, render_workspace_report
         try:
-            out = render_workspace_report(ws, lint=not args.no_lint, force=args.force)
+            out = render_workspace_report(ws, lint=not args.no_lint, force=args.force,
+                                          today=args.today)
         except ReportLintBlocked as blocked:
             print(f"BLOCKING: report lint refused to render — "
                   f"{len(blocked.findings)} error-level finding(s):", file=_sys.stderr)
