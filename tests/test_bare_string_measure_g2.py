@@ -50,10 +50,12 @@ def test_no_reader_is_needs_rerun():
     assert res["evaluated_by"] == "needs_rerun"
 
 
-def test_resolver_unavailable_degrades_not_crash():
-    # no stub injected -> the real import fails (viva_emitters.measure_resolver not installed) ->
-    # honest agent bucket, never a crash
-    sys.modules.pop("viva_emitters.measure_resolver", None)
+def test_resolver_unavailable_degrades_not_crash(monkeypatch):
+    # The resolver being UNAVAILABLE must degrade to the honest agent bucket, never crash.
+    # Force the import to fail deterministically: `sys.modules[name] = None` makes
+    # `import name` raise ImportError regardless of whether viva-emitters ships the resolver
+    # (it does since 0.4.4) — so this test no longer depends on the package being absent.
+    monkeypatch.setitem(sys.modules, "viva_emitters.measure_resolver", None)
     res = se.evaluate_test(_test(), reader=object(), composite_module=object())
     assert res["evaluated_by"] == "agent" and "measure_resolver" in res["reason"]
 
