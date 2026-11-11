@@ -23,10 +23,11 @@ from __future__ import annotations
 import re
 from typing import Any
 
+from discovery_engine.discover._policy import AUTONOMOUS, HUMAN_IN_THE_LOOP, AutonomyPolicy
 from discovery_engine.growth.seed_from_followup import build_child_seed_from_finding
 
-HUMAN_IN_THE_LOOP = "human_in_the_loop"
-AUTONOMOUS = "autonomous"
+__all__ = ["AUTONOMOUS", "HUMAN_IN_THE_LOOP", "select_for_launch",
+           "build_seeded_study", "is_run_ready"]
 
 
 def _slugify(text: str, fallback: str) -> str:
@@ -38,19 +39,23 @@ def select_for_launch(suggestions: list[dict], *, autonomy: str = HUMAN_IN_THE_L
                       approved_ids: list[str] | None = None) -> dict:
     """Apply the autonomy policy to ``suggest_studies`` output. Returns
     ``{launch: [...], held: [{suggestion, reason}]}``. Never seeds or runs — it
-    decides *which* proposals are eligible to seed under the configured policy."""
-    approved = set(approved_ids or [])
+    decides *which* proposals are eligible to seed under the configured policy.
+
+    Thin shim over :class:`~discovery_engine.discover._policy.AutonomyPolicy`: the single
+    engine-wide autonomy gate (``mode`` + ``approved_ids``) that :func:`execute_action`
+    and :func:`advance_cycle` also pass through — so "which proposals may launch" and
+    "may this op run" are decided by one object, not two.
+    """
+    policy = AutonomyPolicy.resolve(autonomous=(autonomy == AUTONOMOUS),
+                                    approved_ids=approved_ids)
     launch, held = [], []
     for s in suggestions or []:
         if not isinstance(s, dict):
             continue
-        sid = s.get("id")
         if s.get("awaiting_expert") or s.get("status") == "awaiting_expert":
             held.append({"suggestion": s, "reason": "awaiting expert decision — resolve it first "
                                                      "(or wire an AI decider)"})
-        elif autonomy == AUTONOMOUS:
-            launch.append(s)
-        elif sid in approved:
+        elif policy.allows(consequence="authoring", target=s.get("id")):
             launch.append(s)
         else:
             held.append({"suggestion": s, "reason": "human-in-the-loop — not yet approved for launch"})
