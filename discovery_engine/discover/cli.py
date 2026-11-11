@@ -40,8 +40,10 @@ from discovery_engine.discover.actions import (
     apply_revision,
     connect_investigation,
     declare_viz,
+    record_hypothesis_proposal,
     record_resolution,
     review_findings,
+    set_hypothesis_proposal_status,
     reject_capability_gap,
     reject_viz_proposal,
     review_revision,
@@ -611,6 +613,20 @@ def main(argv: list[str] | None = None) -> int:
                                     "of the /api/linkage-index payload")
     p_linkage.add_argument("--json", action="store_true", help="emit the full {nodes, edges} index as JSON")
 
+    p_hz = sub.add_parser("hypothesize",
+                          help="surface where a competing hypothesis is NEEDED (measured surprises the "
+                               "live hypotheses did not predict), and validate+record an agent-authored "
+                               "HypothesisProposal; the engine validates, the agent authors the science")
+    p_hz.add_argument("investigation", help="investigation slug")
+    p_hz.add_argument("--from", dest="from_file", default=None, metavar="FILE",
+                      help="validate a HypothesisProposal (YAML/JSON) and record it as 'proposed'")
+    p_hz.add_argument("--accept", default=None, metavar="HP_ID",
+                      help="accept a recorded proposal and promote it into authored hypotheses[]")
+    p_hz.add_argument("--decline", default=None, metavar="HP_ID", help="decline a recorded proposal")
+    p_hz.add_argument("--rationale", default=None, help="rationale for --accept/--decline")
+    p_hz.add_argument("--list-proposals", action="store_true", help="list recorded proposals + status")
+    p_hz.add_argument("--json", action="store_true", help="emit as JSON")
+
     p_rf = sub.add_parser("review-findings",
                           help="list pending FindingCandidates (verified verdict flips) and promote "
                                "reviewed ones to Discoveries; promotion is the only path that writes a "
@@ -685,6 +701,56 @@ def main(argv: list[str] | None = None) -> int:
                 for up in ups:
                     print(f"  discover --workspace {args.workspace} relate {s} {up} "
                           f"--relation {args.relation}")
+        return 0
+
+    if args.cmd == "hypothesize":
+        import json as _json
+        from discovery_engine.phases.hypothesis_proposal import hypothesis_triggers
+        inv_path = investigations_dir(ws) / args.investigation / "investigation.yaml"
+        if not inv_path.exists():
+            parser.error(f"no investigation.yaml at {inv_path}")
+        if args.accept or args.decline:
+            status = "accepted" if args.accept else "declined"
+            rec = set_hypothesis_proposal_status(inv_path, args.accept or args.decline, status,
+                                                 rationale=args.rationale)
+            print(f"{rec['id']}: {rec['status']}"
+                  + ("  -> promoted into hypotheses[]" if rec["promoted"] else ""))
+            return 0
+        if args.from_file:
+            proposal = load_yaml(Path(args.from_file))
+            try:
+                rec = record_hypothesis_proposal(inv_path, proposal)
+            except ValueError as e:
+                parser.error(f"invalid HypothesisProposal: {e}")
+            print(f"recorded {rec['id']} (status={rec['status']}); "
+                  f"accept it: discover --workspace {args.workspace} hypothesize "
+                  f"{args.investigation} --accept {rec['id']}")
+            return 0
+        spec = load_yaml_mapping(inv_path)
+        if args.list_proposals:
+            props = [p for p in spec.get("hypothesis_proposals") or [] if isinstance(p, dict)]
+            if args.json:
+                print(_json.dumps(props, indent=2, default=str))
+                return 0
+            if not props:
+                print("no recorded hypothesis proposals")
+                return 0
+            for p in props:
+                print(f"{p['id']}  [{p.get('status')}]  {p.get('statement')}")
+            return 0
+        _, inv_spec, studies = load_cycle_inputs(ws, args.investigation)
+        triggers = hypothesis_triggers(inv_spec, list((studies or {}).values()))
+        if args.json:
+            print(_json.dumps(triggers, indent=2, default=str))
+            return 0
+        if not triggers:
+            print("no unexplained anomalies — the live hypotheses account for the measured evidence")
+            return 0
+        print("a competing hypothesis is needed for:")
+        for t in triggers:
+            print(f"  {t['id']}  {t['study']}#{t['observable']} = {t['observed']}  ({t['note']})")
+        print(f"\nauthor one per skills/hypothesize/SKILL.md, then: discover --workspace "
+              f"{args.workspace} hypothesize {args.investigation} --from <proposal.yaml>")
         return 0
 
     if args.cmd == "review-findings":
