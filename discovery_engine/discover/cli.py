@@ -583,6 +583,25 @@ def main(argv: list[str] | None = None) -> int:
     p_lint.add_argument("--ruleset", action="append", default=None,
                         help="enable an opt-in ruleset (repeatable), e.g. --ruleset campaign")
 
+    p_pop = sub.add_parser("populate-observations",
+                           help="fill finding evidence/expected/provenance slots from computed_outcomes "
+                                "(spine stage #5) — writes study.yaml")
+    g_pop = p_pop.add_mutually_exclusive_group(required=True)
+    g_pop.add_argument("--study", help="study slug")
+    g_pop.add_argument("--all", action="store_true", help="every study in the workspace")
+
+    p_romig = sub.add_parser("readout-migrate",
+                             help="migrate a study's legacy readouts to canonical form (dry-run by default)")
+    p_romig.add_argument("study", help="study slug")
+    p_romig.add_argument("--write", action="store_true",
+                         help="rewrite study.yaml's readouts block (default: dry-run)")
+
+    p_band = sub.add_parser("band-provenance",
+                            help="list a study's acceptance bands that have no cites "
+                                 "(no machine-linked source in references/papers.bib)")
+    p_band.add_argument("study", help="study slug")
+    p_band.add_argument("--json", action="store_true", help="emit the missing-provenance bands as JSON")
+
     args = parser.parse_args(argv)
     ws = Path(args.workspace).resolve()
 
@@ -865,6 +884,37 @@ def main(argv: list[str] | None = None) -> int:
         print(f"BLOCKING: {len(blocking)} error-level finding(s) — refusing publication. "
               "Re-run with --force to log overrides and proceed.", file=_sys.stderr)
         return 1
+
+    if args.cmd == "populate-observations":
+        from discovery_engine.study.finding_observations import main as _fo_main
+        fo_argv = ["--workspace", str(ws)]
+        fo_argv += ["--all"] if args.all else ["--study", args.study]
+        return _fo_main(fo_argv)
+
+    if args.cmd == "readout-migrate":
+        from discovery_engine.study.readout_migration import main as _rm_main
+        rm_argv = ["--workspace", str(ws), "--study", args.study]
+        if args.write:
+            rm_argv.append("--write")
+        return _rm_main(rm_argv)
+
+    if args.cmd == "band-provenance":
+        import json as _json
+
+        from discovery_engine.study.band_provenance import bands_missing_provenance
+        sp = studies_dir(ws) / args.study / "study.yaml"
+        if not sp.exists():
+            parser.error(f"no study.yaml at {sp}")
+        missing = bands_missing_provenance(load_yaml_mapping(sp))
+        if args.json:
+            print(_json.dumps(missing, indent=2, default=str))
+        elif not missing:
+            print(f"{args.study}: all acceptance bands have cites (no provenance gaps)")
+        else:
+            print(f"{args.study}: {len(missing)} band(s) missing provenance (no cites):")
+            for m in missing:
+                print(f"  [{m['kind']}] {m['name']}  {m['field_path']}  band={m['band']}")
+        return 0
 
     if args.cmd == "reconcile-evidence":
         from discovery_engine.phases import evidence_integrity as _ei

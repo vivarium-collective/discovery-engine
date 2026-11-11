@@ -18,6 +18,8 @@ from discovery_engine.reporting.linter import (
     lint_workspace_report,
     load_overrides,
 )
+from discovery_engine.study.band_provenance import bands_missing_provenance
+from discovery_engine.study.io import load_yaml_mapping
 
 FIXTURES = Path(__file__).resolve().parent / "fixtures" / "lint-cases"
 
@@ -87,3 +89,53 @@ def test_discover_report_refuses_then_renders_with_force(tmp_path):
     # --force logs overrides and renders
     assert discover.main([*argv, "report", "--force"]) == 0
     assert (ws / "reports" / "index.html").is_file()
+
+
+# ---------------------------------------------------------------------------
+# band-provenance — list acceptance bands with no cites
+# ---------------------------------------------------------------------------
+
+
+def test_discover_band_provenance_json_matches_primitive(tmp_path, capsys):
+    dest = tmp_path / "ws"
+    shutil.copytree(FIXTURES / "band-test-missing-cites", dest)
+    argv = ["--workspace", str(dest)]
+
+    rc = discover.main([*argv, "band-provenance", "study-band-no-cites", "--json"])
+    assert rc == 0
+    printed = json.loads(capsys.readouterr().out)
+    expected = bands_missing_provenance(
+        load_yaml_mapping(dest / "studies" / "study-band-no-cites" / "study.yaml")
+    )
+    assert printed == expected
+    assert len(printed) == 4
+
+
+def test_discover_band_provenance_clean_study_reports_no_gaps(tmp_path, capsys):
+    dest = tmp_path / "ws"
+    shutil.copytree(FIXTURES / "band-test-missing-cites", dest)
+    rc = discover.main(["--workspace", str(dest), "band-provenance", "study-band-with-cites"])
+    assert rc == 0
+    assert "no provenance gaps" in capsys.readouterr().out
+
+
+# ---------------------------------------------------------------------------
+# populate-observations + readout-migrate — delegate to the module main()s
+# ---------------------------------------------------------------------------
+
+
+def test_discover_populate_observations_runs_per_study_and_all(tmp_path):
+    ws, argv = _ws(tmp_path)  # clean-baseline, study "study-clean"
+    assert discover.main([*argv, "populate-observations", "--study", "study-clean"]) == 0
+    assert discover.main([*argv, "populate-observations", "--all"]) == 0
+
+
+def test_discover_readout_migrate_dry_run_then_write(tmp_path):
+    ws, argv = _ws(tmp_path)
+    # dry-run (default) must not touch study.yaml
+    before = (ws / "studies" / "study-clean" / "study.yaml").read_text(encoding="utf-8")
+    assert discover.main([*argv, "readout-migrate", "study-clean"]) == 0
+    after = (ws / "studies" / "study-clean" / "study.yaml").read_text(encoding="utf-8")
+    assert before == after
+    # --write is accepted (clean study has nothing to migrate -> still 0)
+    assert discover.main([*argv, "readout-migrate", "study-clean", "--write"]) == 0
