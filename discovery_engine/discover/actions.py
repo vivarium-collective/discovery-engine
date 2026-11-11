@@ -233,6 +233,41 @@ def set_hypothesis_proposal_status(inv_path: Path | str, proposal_id: str, statu
     return {"id": proposal_id, "status": status, "promoted": promoted}
 
 
+def materialize_design_study(ws_root: Path | str, inv_slug: str, study_slug: str, *,
+                             required_controls=None, model_version: dict | None = None) -> dict:
+    """Build a discriminating ExperimentDesign for ``study_slug`` and **materialize** it into
+    a run-ready child study: write ``study.yaml``, register the child, and record the design
+    on the investigation (``experiment_designs[]``, idempotent). Activates the design→study
+    path. Returns ``{design_id, child_slug, path, control_issues}``.
+
+    Raises ``ValueError`` when the study has no discriminable competing hypotheses — propose
+    competitors first (``discover hypothesize``)."""
+    from discovery_engine.discover.cycle import load_cycle_inputs   # lazy: keeps the package acyclic
+    from discovery_engine.phases.experiment_design import (
+        design_discriminating_study, materialize_design)
+    ws = Path(ws_root)
+    inv_path, inv_spec, studies = load_cycle_inputs(ws, inv_slug)
+    design = design_discriminating_study(inv_spec, study_slug, list(required_controls or []) or None)
+    if design is None:
+        raise ValueError(f"{study_slug!r} has no discriminable competing hypotheses to design "
+                         "against — propose competitors first (discover hypothesize)")
+    parent_spec = (studies or {}).get(study_slug)
+    if parent_spec is None:
+        raise ValueError(f"no study spec for {study_slug!r}")
+    child = materialize_design(design, parent_spec, inv_spec, model_version)
+    child_slug = child.get("name") or f"{study_slug}-discriminating"
+    path = _write_seeded_study(ws, inv_slug, child_slug, child)
+    ip = Path(inv_path)
+    spec = load_yaml_mapping(ip)
+    designs = [d for d in spec.get("experiment_designs") or [] if isinstance(d, dict)]
+    if not any(d.get("id") == design["id"] for d in designs):
+        designs.append(design)
+        spec["experiment_designs"] = designs
+        save_yaml_atomic(ip, spec)
+    return {"design_id": design["id"], "child_slug": child_slug, "path": str(path),
+            "control_issues": design.get("control_issues") or []}
+
+
 def record_critique_report(inv_path: Path | str, report: dict) -> dict:
     """Validate an agent-authored CritiqueReport and record it (status ``open``) in
     ``investigation.yaml::critique_reports[]``, idempotent by id. Advisory — it does not

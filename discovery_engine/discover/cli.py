@@ -40,6 +40,7 @@ from discovery_engine.discover.actions import (
     apply_revision,
     connect_investigation,
     declare_viz,
+    materialize_design_study,
     record_critique_report,
     record_hypothesis_proposal,
     record_resolution,
@@ -451,6 +452,9 @@ def main(argv: list[str] | None = None) -> int:
     p_design.add_argument("study", help="member study slug")
     p_design.add_argument("--require-control", action="append", default=[],
                           help="a control the design must include (repeatable), e.g. --require-control no-exchange")
+    p_design.add_argument("--materialize", action="store_true",
+                          help="turn the design into a run-ready child study (writes study.yaml, registers "
+                               "it, and records the ExperimentDesign on the investigation)")
 
     p_build = sub.add_parser("build-model",
                              help="Cycle N+1 Phase D: capability-driven model acquisition (reuse / wrap / build) for required mechanisms, against the campaign's composite catalog")
@@ -1173,6 +1177,18 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     if args.cmd == "design":
+        if args.materialize:
+            try:
+                rep = materialize_design_study(ws, args.investigation, args.study,
+                                               required_controls=args.require_control or None)
+            except ValueError as e:
+                parser.error(str(e))
+            print(f"materialized design {rep['design_id']} -> study '{rep['child_slug']}' "
+                  f"at {rep['path']}")
+            if rep["control_issues"]:
+                print("  control issues: " + "; ".join(rep["control_issues"]))
+            print(f"  run it: discover --workspace {args.workspace} advance {args.investigation}")
+            return 0
         from discovery_engine.phases import experiment_design as _ed
         _, inv_spec, _studies = load_cycle_inputs(ws, args.investigation)
         design = _ed.design_discriminating_study(inv_spec, args.study, args.require_control or None)
