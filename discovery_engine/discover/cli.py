@@ -41,6 +41,7 @@ from discovery_engine.discover.actions import (
     connect_investigation,
     declare_viz,
     record_resolution,
+    review_findings,
     reject_capability_gap,
     reject_viz_proposal,
     review_revision,
@@ -610,6 +611,21 @@ def main(argv: list[str] | None = None) -> int:
                                     "of the /api/linkage-index payload")
     p_linkage.add_argument("--json", action="store_true", help="emit the full {nodes, edges} index as JSON")
 
+    p_rf = sub.add_parser("review-findings",
+                          help="list pending FindingCandidates (verified verdict flips) and promote "
+                               "reviewed ones to Discoveries; promotion is the only path that writes a "
+                               "Discovery, and it attaches a novelty/validation assessment")
+    p_rf.add_argument("investigation", help="investigation slug")
+    p_rf.add_argument("--promote", action="append", default=None, metavar="FC_ID",
+                      help="promote this candidate to a Discovery (repeatable); naming it is the review")
+    p_rf.add_argument("--hold", action="append", default=None, metavar="FC_ID",
+                      help="park this candidate without promoting it (repeatable)")
+    p_rf.add_argument("--all", action="store_true",
+                      help="promote every pending candidate the autonomy policy authorizes")
+    p_rf.add_argument("--autonomous", action="store_true",
+                      help="authorize promotion under an autonomous AutonomyPolicy (for --all)")
+    p_rf.add_argument("--json", action="store_true", help="emit as JSON")
+
     args = parser.parse_args(argv)
     ws = Path(args.workspace).resolve()
 
@@ -669,6 +685,48 @@ def main(argv: list[str] | None = None) -> int:
                 for up in ups:
                     print(f"  discover --workspace {args.workspace} relate {s} {up} "
                           f"--relation {args.relation}")
+        return 0
+
+    if args.cmd == "review-findings":
+        import json as _json
+        inv_path = investigations_dir(ws) / args.investigation / "investigation.yaml"
+        if not inv_path.exists():
+            parser.error(f"no investigation.yaml at {inv_path}")
+        from discovery_engine.phases.discovery_record import assess_finding_candidate, CANDIDATE
+        from discovery_engine.discover._policy import AutonomyPolicy, AUTONOMOUS
+        if not (args.promote or args.hold or args.all):          # list mode (read-only)
+            spec = load_yaml_mapping(inv_path)
+            discs = spec.get("discoveries") or []
+            pending = [c for c in spec.get("finding_candidates") or []
+                       if isinstance(c, dict) and c.get("status") == CANDIDATE]
+            rows = [{"id": c["id"], "study": c.get("study"), "to_verdict": c.get("to_verdict"),
+                     "assessment": assess_finding_candidate(c, discs)} for c in pending]
+            if args.json:
+                print(_json.dumps(rows, indent=2, default=str))
+                return 0
+            if not rows:
+                print("no pending finding candidates")
+                return 0
+            for r in rows:
+                a = r["assessment"]
+                print(f"{r['id']}  {r['study']}: -> {r['to_verdict']}  "
+                      f"[{a['novelty']} / would {a['review_decision']}]")
+            print(f"\npromote: discover --workspace {args.workspace} review-findings "
+                  f"{args.investigation} --promote <fc-id>")
+            return 0
+        pol = AutonomyPolicy(mode=AUTONOMOUS) if args.autonomous else AutonomyPolicy()
+        reviewer = "engine" if args.autonomous else "human"
+        rep = review_findings(inv_path, promote=args.promote, hold=args.hold,
+                              promote_all=args.all, policy=pol, reviewer=reviewer)
+        if args.json:
+            print(_json.dumps(rep, indent=2, default=str))
+            return 0
+        print(f"promoted {len(rep['promoted'])} -> Discoveries"
+              + (f": {', '.join(rep['promoted'])}" if rep['promoted'] else "")
+              + f"; held {len(rep['held'])}; skipped {len(rep['skipped'])}; "
+              f"pending {len(rep['pending'])}")
+        for s in rep["skipped"]:
+            print(f"  skipped {s['id']}: {s['reason']}")
         return 0
 
     if args.cmd == "resolve":

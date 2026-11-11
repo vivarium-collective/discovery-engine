@@ -119,6 +119,70 @@ def record_resolution(inv_path: Path | str, kind: str, target: str, rationale: s
     save_yaml_atomic(path, spec)
     return spec["resolutions"][-1]
 
+
+def review_findings(inv_path: Path | str, *, promote=None, hold=None, promote_all: bool = False,
+                    policy=None, reviewer: str = "human") -> dict:
+    """Reviewed promotion of FindingCandidates to Discoveries.
+
+    A verified verdict flip is persisted by the cycle as a ``finding_candidates[]`` entry
+    (status ``candidate``). This turns a reviewed candidate into a first-class Discovery
+    carrying a novelty/validation assessment — the only path that writes ``discoveries[]``.
+
+    - an explicitly named ``--promote`` id is the reviewer's authorization (human in the loop);
+    - ``promote_all`` promotes every pending candidate the ``AutonomyPolicy`` authorizes
+      (autonomous bulk review) — in HITL mode that is only pre-approved targets;
+    - a candidate the assessment finds ``redundant`` (a Discovery already records the flip)
+      is held, never duplicated;
+    - ``--hold`` parks a candidate without promoting it.
+
+    Loads / mutates / atomically rewrites investigation.yaml. Returns a report dict."""
+    from discovery_engine.discover._policy import AutonomyPolicy, decision_record
+    from discovery_engine.phases.discovery_record import (
+        assess_finding_candidate, promote_finding_candidate, CANDIDATE, PROMOTED, HELD)
+    pol = AutonomyPolicy.resolve(policy)
+    path = Path(inv_path)
+    spec = load_yaml_mapping(path)
+    cands = [c for c in spec.get("finding_candidates") or [] if isinstance(c, dict)]
+    discs = [d for d in spec.get("discoveries") or [] if isinstance(d, dict)]
+    disc_ids = {d.get("id") for d in discs}
+    decisions = list(spec.get("review_decisions") or [])
+    promote_set, hold_set = set(promote or []), set(hold or [])
+    out = {"promoted": [], "held": [], "skipped": [], "pending": []}
+    changed = False
+    for c in cands:
+        cid = c.get("id")
+        if c.get("status") != CANDIDATE:
+            continue  # already promoted/held
+        if cid in hold_set:
+            c["status"] = HELD
+            out["held"].append(cid); changed = True
+            continue
+        explicit = cid in promote_set
+        if not (explicit or promote_all):
+            out["pending"].append(cid)
+            continue
+        if not explicit and not pol.allows(consequence="discovery", target=cid):
+            out["skipped"].append({"id": cid, "reason": "not authorized by autonomy policy"})
+            continue
+        assessment = assess_finding_candidate(c, discs, reviewer=reviewer)
+        if assessment["review_decision"] != "promote":      # redundant → held, never duplicated
+            c["status"] = HELD; c["assessment"] = assessment
+            out["held"].append(cid); changed = True
+            continue
+        disc = promote_finding_candidate(c, assessment)
+        if disc["id"] not in disc_ids:
+            discs.append(disc); disc_ids.add(disc["id"])
+        c["status"] = PROMOTED; c["assessment"] = assessment; c["discovery_id"] = disc["id"]
+        decisions.append(decision_record(pol, actor=reviewer, consequence="discovery",
+                                         target=cid, rationale=assessment["rationale"], result=disc["id"]))
+        out["promoted"].append(cid); changed = True
+    if changed:
+        spec["finding_candidates"] = cands
+        spec["discoveries"] = discs
+        spec["review_decisions"] = decisions
+        save_yaml_atomic(path, spec)
+    return out
+
 def declare_viz(ws_root: Path | str, inv_slug: str, target: str, declare: dict,
                 rationale: str, by: str = "human") -> dict:
     """Review-tier write-back for a ``viz_broken`` figure: set ``address`` / ``render`` /
