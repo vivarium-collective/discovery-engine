@@ -604,6 +604,12 @@ def main(argv: list[str] | None = None) -> int:
     p_band.add_argument("study", help="study slug")
     p_band.add_argument("--json", action="store_true", help="emit the missing-provenance bands as JSON")
 
+    p_linkage = sub.add_parser("linkage",
+                               help="the workspace linkage graph (nodes + edges): investigations, studies, "
+                                    "sources, observables and the edges between them — the engine-pure core "
+                                    "of the /api/linkage-index payload")
+    p_linkage.add_argument("--json", action="store_true", help="emit the full {nodes, edges} index as JSON")
+
     args = parser.parse_args(argv)
     ws = Path(args.workspace).resolve()
 
@@ -917,6 +923,26 @@ def main(argv: list[str] | None = None) -> int:
             print(f"{args.study}: {len(missing)} band(s) missing provenance (no cites):")
             for m in missing:
                 print(f"  [{m['kind']}] {m['name']}  {m['field_path']}  band={m['band']}")
+        return 0
+
+    if args.cmd == "linkage":
+        import json as _json
+        from collections import Counter
+
+        from discovery_engine.investigation.linkage import build_index
+        index = build_index(ws)
+        if args.json:
+            print(_json.dumps(index, indent=2, default=str))
+        else:
+            nodes = index.get("nodes") or []
+            edges = index.get("edges") or []
+            nt = Counter(n.get("type") for n in nodes)
+            et = Counter(e.get("type") for e in edges)
+            print(f"linkage graph: {len(nodes)} nodes, {len(edges)} edges")
+            if nt:
+                print("  nodes: " + ", ".join(f"{k}={v}" for k, v in sorted(nt.items())))
+            if et:
+                print("  edges: " + ", ".join(f"{k}={v}" for k, v in sorted(et.items())))
         return 0
 
     if args.cmd == "reconcile-evidence":
