@@ -508,9 +508,18 @@ def suggest_studies(cycle_result: dict, inv_spec: dict, studies: dict) -> list[d
     members = set(inv_spec.get("studies") or list(studies))
     out: list[dict] = []
     seen: set[str] = set()
+    # Idempotency across ALL sources: a proposal already promoted to a child study (its id
+    # recorded in some study's seeded_from.proposal_id) is not re-proposed — otherwise an
+    # autonomous advance would re-seed it every crank. (The refuted-finding path also keys on
+    # seeded_from.finding below, for children written via the finding path.)
+    _seeded_proposal_ids = {
+        sf.get("proposal_id")
+        for sp in (studies or {}).values() if isinstance(sp, dict)
+        for sf in [sp.get("seeded_from") or {}] if sf.get("proposal_id")
+    }
 
     def add(sid, title, motivation, parent, source, awaiting):
-        if not sid or sid in seen:
+        if not sid or sid in seen or sid in _seeded_proposal_ids:
             return
         seen.add(sid)
         out.append({"id": sid, "title": title or sid, "motivation": motivation or "",
@@ -853,8 +862,10 @@ def execute_action(ws_root: Path | str, inv_slug: str, *, autonomous: bool = Fal
                 try:
                     res = write_child_study(
                         ws_root, prop["parent_study"],
-                        SeedSource(proposal={"id": prop["id"], "title": prop.get("title")},
-                                   finding_id=prop.get("finding_id"), family="refuted_finding"))
+                        SeedSource(proposal={"id": prop["id"], "title": prop.get("title"),
+                                             "motivation": prop.get("motivation")},
+                                   finding_id=prop.get("finding_id"),
+                                   family=prop.get("source") or "proposal"))
                     # Register the child as a member so the NEXT crank includes it — promotion
                     # must put the study IN the cycle, not just on disk, or the loop can't chain.
                     # Append to whichever membership field the investigation declares.
