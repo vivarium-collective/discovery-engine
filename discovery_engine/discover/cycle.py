@@ -657,6 +657,11 @@ def suggest_studies(cycle_result: dict, inv_spec: dict, studies: dict) -> list[d
             if seed is not None and len(out) > before:
                 out[-1]["seed"] = seed
                 out[-1]["finding_id"] = fid   # so the `seed` op can promote it (write_child_study)
+                # FR-07.04: diagnose model-error vs hypothesis-error and steer WHICH seed
+                # we emit (a model-revision vs a hypothesis-revision study).
+                from discovery_engine.phases.model_error import (
+                    diagnose_refutation, steer_refutation_proposal)
+                steer_refutation_proposal(out[-1], diagnose_refutation(slug, f, inv_spec, studies))
     if refutations:
         n_studies = len({s for s, _ in refutations})
         key = ",".join(sorted(f"{s}:{fid}" for s, fid in refutations))
