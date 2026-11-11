@@ -679,7 +679,7 @@ def _latest_run_id_for_command(command: str, ws_root: Path | str) -> str | None:
 def execute_action(ws_root: Path | str, inv_slug: str, *, autonomous: bool = False,
                    runner=None, decider=None, target: str | None = None,
                    action: str | None = None, render_hook=None, build_hook=None,
-                   worktree: Path | str | None = None) -> dict:
+                   worktree: Path | str | None = None, policy=None) -> dict:
     """The bridge's execution step: take the top value-ranked action and carry it out,
     gated by consequence.
 
@@ -716,14 +716,24 @@ def execute_action(ws_root: Path | str, inv_slug: str, *, autonomous: bool = Fal
     rec = {"action": top["action_type"], "source": top["source"], "command": top["command"],
            "consequence": top["consequence"], "score": top["score"]}
 
+    # One autonomy gate for every consequential op: resolve the legacy `autonomous` bool
+    # (or an explicit AutonomyPolicy) into the single policy object. `autonomous` below then
+    # reads from it, so all existing consequence/decider checks consult one source; the
+    # run/render/seed gates additionally honor `approved_ids` (per-item HITL approval) and
+    # the allowlist, which the bare bool could not express.
+    from discovery_engine.discover._policy import AutonomyPolicy, decision_record
+    pol = AutonomyPolicy.resolve(policy, autonomous)
+    autonomous = pol.is_autonomous
+
     if top["auto_safe"]:
         snap = snapshot_validations(ws_root, inv_slug)
         rec["status"] = "executed"
         rec["outcome"] = {"ok": True, "detail": f"snapshot-validations: {len(snap)} records accepted"}
     elif top["consequence"] in ("simulation", "simulation+study"):
-        if not autonomous:
+        if not pol.allows(consequence=top["consequence"], target=top["source"]):
             rec["status"] = "gated"
-            rec["outcome"] = {"ok": None, "detail": "consequential — re-run with --autonomous to execute"}
+            rec["outcome"] = {"ok": None, "detail": "consequential — re-run with --autonomous "
+                              "(or approve this item in the policy) to execute"}
         else:
             # Run-readiness: refuse to deploy a sim that can't produce an evaluable result
             # (the run-spec contract). A run whose emitter/observables don't satisfy the
@@ -754,9 +764,10 @@ def execute_action(ws_root: Path | str, inv_slug: str, *, autonomous: bool = Fal
         # recipe). The executor is the injected `render_hook` (in-process) else the
         # templated `render-viz` subprocess via `runner`. Never fabricates: a render that
         # leaves no file is `failed`, and a failed render leaves any existing figure alone.
-        if not autonomous:
+        if not pol.allows(consequence="render", target=top["source"]):
             rec["status"] = "gated"
-            rec["outcome"] = {"ok": None, "detail": "consequential — re-run with --autonomous to execute"}
+            rec["outcome"] = {"ok": None, "detail": "consequential — re-run with --autonomous "
+                              "(or approve this item in the policy) to execute"}
         else:
             vt = _viz_target(top["source"])
             entry = _viz_entry(studies, *vt) if vt else None
@@ -930,6 +941,15 @@ def execute_action(ws_root: Path | str, inv_slug: str, *, autonomous: bool = Fal
         rec["status"] = "gated-human"
         rec["outcome"] = {"ok": None, "detail": f"{top['consequence']} — needs a human decision"}
 
+    # Per-decision provenance: record WHY this op was (or was not) allowed to run, under
+    # which policy version and actor — the audit the roadmap's autonomy log calls for.
+    rec["decision"] = decision_record(
+        pol,
+        actor=("discovery-ai" if decider is not None and pol.is_autonomous
+               else "autonomous" if pol.is_autonomous else "human-approved"),
+        consequence=top["consequence"], target=top["source"],
+        rationale=(rec.get("outcome") or {}).get("detail") or "", result=rec["status"])
+
     if rec["status"] == "executed":
         _append_executed(inv_path, rec)
         _, inv2, studies2 = load_cycle_inputs(ws_root, inv_slug)
@@ -943,11 +963,14 @@ def _append_executed(inv_path: Path | str, record: dict) -> None:
     path = Path(inv_path)
     on_disk = load_yaml_mapping(path) if path.exists() else {}
     log = list(on_disk.get("executed_actions") or [])
-    log.append({"action": record["action"], "source": record["source"],
-                "command": record["command"], "status": record["status"],
-                "outcome": (record.get("outcome") or {}).get("detail")
-                or ("ok" if (record.get("outcome") or {}).get("ok") else "see runner output"),
-                "at": _dt.datetime.now(_dt.timezone.utc).isoformat(timespec="seconds")})
+    entry = {"action": record["action"], "source": record["source"],
+             "command": record["command"], "status": record["status"],
+             "outcome": (record.get("outcome") or {}).get("detail")
+             or ("ok" if (record.get("outcome") or {}).get("ok") else "see runner output"),
+             "at": _dt.datetime.now(_dt.timezone.utc).isoformat(timespec="seconds")}
+    if record.get("decision"):
+        entry["decision"] = record["decision"]
+    log.append(entry)
     on_disk["executed_actions"] = log
     save_yaml_atomic(path, on_disk)
 
@@ -1303,7 +1326,7 @@ def _post_run_sync(sdir, before_runs: set) -> None:
 
 def advance_cycle(ws_root: Path | str, inv_slug: str, *, autonomous: bool = False,
                   runner=None, max_runs: int = 12, render_hook=None,
-                  worktree: Path | str | None = None) -> dict:
+                  worktree: Path | str | None = None, policy=None) -> dict:
     """The cycle's ADVANCE phase — build-if-needed and RUN the open questions, so turning
     the crank moves the science forward instead of only describing it.
 
@@ -1315,8 +1338,16 @@ def advance_cycle(ws_root: Path | str, inv_slug: str, *, autonomous: bool = Fals
 
     This makes "run the open questions" a defined phase of a cycle, not an afterthought.
     Without ``autonomous`` it reports what it WOULD run (dry). Returns
-    ``{runs, needs_build, frontier_before, frontier_after}``."""
+    ``{runs, needs_build, frontier_before, frontier_after}``.
+
+    Autonomy is one object: pass an :class:`AutonomyPolicy` as ``policy`` (its ``mode``
+    decides dry-vs-execute and its ``budget`` caps the run count), or the legacy
+    ``autonomous`` bool, which is resolved into the same policy."""
+    from discovery_engine.discover._policy import AutonomyPolicy
     from discovery_engine.projection import engine as de
+    pol = AutonomyPolicy.resolve(policy, autonomous)
+    if pol.budget is not None:
+        max_runs = min(max_runs, pol.budget)
     ran: list[dict] = []
     needs_build: list[dict] = []
     seen: set = set()
@@ -1352,14 +1383,14 @@ def advance_cycle(ws_root: Path | str, inv_slug: str, *, autonomous: bool = Fals
             break
         if target is None:
             break                                   # no runnable test op left
-        if not autonomous:
+        if not pol.is_autonomous:
             seen.add(target)
             seen_slugs.add(target_slug)
             ran.append({"target": target, "status": "would-run (pass --autonomous to execute)"})
             break
         sdir = _study_dir_on_disk(ws_root, inv_slug, target_slug)
         before_runs = _run_names(sdir)
-        rec = execute_action(ws_root, inv_slug, autonomous=True, runner=runner, target=target,
+        rec = execute_action(ws_root, inv_slug, policy=pol, runner=runner, target=target,
                              action=target_op, render_hook=render_hook, worktree=worktree)
         if target_op in ("build_viz", "refine_viz"):
             # a render claims neither the study nor stops the loop; a failed/gated render
