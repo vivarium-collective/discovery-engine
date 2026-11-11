@@ -372,31 +372,33 @@ def persist_cycle(inv_path: Path | str, inv_spec: dict, result: dict, *, studies
     if studies is not None:  # per-tab freshness against the post-renew on-disk spec
         on_disk["cycle_state"]["freshness"] = _tab_freshness(on_disk, studies)
     if studies is not None:
-        # FR-08.02: a verdict that flipped to a settled outcome on verified evidence
-        # this cycle is a first-class Discovery (not just a passed gate).
+        # FR-08.02: a verdict that flipped to a settled outcome on verified evidence this
+        # cycle is recorded as a FindingCandidate — an evidence fact. It becomes a
+        # Discovery only via a reviewed promotion (`discover review-findings`), which
+        # attaches a novelty/significance assessment; nothing mints a Discovery directly
+        # from a flip.
         from discovery_engine.phases import evaluation as _evm
-        from discovery_engine.phases.discovery_record import detect_discoveries
+        from discovery_engine.phases.discovery_record import detect_finding_candidates
         _new_snap = (on_disk["cycle_state"] or {}).get("evaluation_snapshot") or {}
-        # A verdict flip diffed against a snapshot computed under a different grader/
-        # resolver *version* is a provenance artifact (method drift), not a clean
-        # Discovery — re-baseline instead of mining it. A flip driven by new measured
-        # evidence under the SAME evaluator is a genuine Discovery and DOES surface
-        # (inputs_hash alone must not imply stale science). No-op for a pre-versioning
-        # (0.4.x) prev snapshot, so existing behavior is unchanged.
+        # A flip diffed against a snapshot computed under a different grader/resolver
+        # *version* is a provenance artifact (method drift) — re-baseline, don't surface it.
+        # A flip driven by new measured evidence under the SAME evaluator is a genuine
+        # result and DOES surface (inputs_hash alone must not imply stale science). No-op
+        # for a pre-versioning (0.4.x) prev snapshot, so existing behavior is unchanged.
         _nv = _new_snap.get("versions") or {}
         _stale = _evm.snapshot_is_stale(_prev_snapshot, grader=_nv.get("grader"),
                                         resolver=_nv.get("resolver"),
                                         inputs_hash=_new_snap.get("inputs_hash"))
-        _found = [] if _stale else detect_discoveries(_prev_snapshot, _new_snap, studies,
+        _cands = [] if _stale else detect_finding_candidates(_prev_snapshot, _new_snap, studies,
                                     fingerprint=_new_snap.get("fingerprint"))
-        if _found:
-            _have = [d for d in on_disk.get("discoveries") or [] if isinstance(d, dict)]
-            _ids = {d.get("id") for d in _have}
-            for d in _found:
-                if d["id"] not in _ids:  # content-addressed: idempotent across re-persists
-                    _have.append(d)
-                    _ids.add(d["id"])
-            on_disk["discoveries"] = _have
+        if _cands:
+            _have = [c for c in on_disk.get("finding_candidates") or [] if isinstance(c, dict)]
+            _ids = {c.get("id") for c in _have}
+            for c in _cands:
+                if c["id"] not in _ids:  # content-addressed: idempotent across re-persists
+                    _have.append(c)
+                    _ids.add(c["id"])
+            on_disk["finding_candidates"] = _have
     _validate_extensions({"cycle_state": on_disk["cycle_state"]})
     save_yaml_atomic(path, on_disk)
     return on_disk["cycle_state"]
