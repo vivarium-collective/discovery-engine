@@ -67,4 +67,4 @@ from .projection.knowledge import (  # noqa: F401
     merge_knowledge,
 )
 
-__version__ = "0.3.1"
+__version__ = "0.4.0"

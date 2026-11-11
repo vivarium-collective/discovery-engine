@@ -44,7 +44,7 @@ audit, gates, validators, suggestions. Over it:
 
 | Function | Produces |
 |---|---|
-| `frontier` | the prioritized unresolved items (by kind: `unaddressed_criterion`, `narrative_gap`, `pending_gate`, `open_question`, `open_challenge`, `open_decision`) |
+| `frontier` | the prioritized unresolved items (by kind: `unaddressed_criterion`, `narrative_gap`, `pending_gate`, `open_question`, `open_challenge`, `open_decision`, `pending_feedback`) |
 | `closure` | the machine-checkable closure test — `{closed, open_items, …}` |
 | `opportunities` / `next_action` | value-ranked frontier (info · impact · enable · closure − cost) |
 | `diagnose` | the crank's productivity bottlenecks |
@@ -113,6 +113,16 @@ resolved history, not a live caveat. `discovery_delta` is the per-cycle record o
 added/qualified claims, gated studies, disagreements, anomalies, and recorded
 regressions.
 
+A **Discovery** (`discovery_record`, `detect_discoveries`) is recorded for each
+claim verdict that flips to a *settled* outcome (`supported`/`contested`) on
+**verified** evidence since the previous snapshot — passing a gate is not a
+discovery, and a flip on merely provisional evidence is not either. On a
+**refutation**, model-error diagnosis (`model_error.diagnose_refutation`) emits a
+typed **EvidenceUpdate** — `revise-model` (competing model arms disagree on the
+refuting observable, so the model is implicated) vs `revise-hypothesis` (no live
+disagreement; the prediction was wrong) — which steers *which* child seed
+`suggest_studies` proposes.
+
 ### N+2 — Transition composition (extracted)
 This was a domain analysis and no longer ships in the engine; see `docs/extracted/transition_model.py`. Description of what it did:
 
@@ -138,6 +148,8 @@ module:
 | **CandidateAction** | kind (repair/resolve/extend), op, value, discrimination, depends_on, discriminates | `candidate_action` |
 | **ModelBuildRequest** / **ModelVersion** | question_id, required_mechanisms, routes; id, components, parent_ids, executable_digest, validation | `model_architect` |
 | **DiscoveryDelta** | added_or_qualified, gated, model_disagreements, anomalies, regressions, fingerprint | `evaluation` |
+| **Discovery** | id, study, from_verdict, to_verdict, scope, novelty, counterevidence, evidence_refs, fingerprint | `discovery_record` |
+| **EvidenceUpdate** | study, finding, diagnosis (revise-model / revise-hypothesis), rationale | `model_error` |
 
 ---
 
@@ -168,6 +180,13 @@ setting:
 A parameter-sweep variant arm characterizes a regime; it is tagged as a variant
 so it does not gate the baseline claim (the canonical arm gates; the sweep maps
 the boundary).
+
+- **reopen** (`reconcile_and_reopen`) — closes the loop back to a human. Staged
+  scientist feedback (a compiled request written to the investigation's
+  `pending_feedback[]` by `ingest-feedback`) surfaces as a `pending_feedback`
+  frontier item whose op is **reopen**; `advance` applies it under the autonomy
+  policy, re-opening the closed investigation and recording the applied id in
+  `applied_feedback[]` so it is not re-applied.
 
 ---
 
