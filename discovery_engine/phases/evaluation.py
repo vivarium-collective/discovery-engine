@@ -327,23 +327,32 @@ def evidence_inputs_hash(evidence_state: dict | None) -> str:
     return _sha16(json.dumps(rows, sort_keys=True, default=str))
 
 
-def snapshot_is_stale(prev: dict | None, *, grader, resolver, inputs_hash) -> bool:
-    """True when a persisted snapshot was computed under a different grader/resolver
-    version or different measured inputs than the current ones — so a verdict flip
-    diffed against it is a provenance artifact, not a clean result. Pure.
+def snapshot_is_stale(prev: dict | None, *, grader, resolver, inputs_hash=None) -> bool:
+    """True ONLY when a persisted snapshot was computed under a different grader or
+    resolver version than the current one — a *methodological* change, which makes a
+    verdict flip diffed against it a provenance artifact to re-baseline rather than a
+    clean result. Pure.
 
-    A snapshot that predates versioning (no ``versions``/``inputs_hash`` — the 0.4.x
-    shape) is NOT reported stale: there is nothing to compare against, so back-compat
-    behavior is preserved and recompute is driven only by a real, recorded drift."""
+    A change in the *measured inputs* with the SAME evaluator is deliberately NOT
+    stale: that is the normal, expected path to a genuine Discovery — new evidence
+    (a fresh run) moves a verdict — and suppressing it would re-baseline real results
+    out of existence. Detecting the evidence delta is ``detect_discoveries``' job
+    (it diffs the by-study verdicts); this gate exists only to block *method* drift,
+    so the two are compared separately (revised 0.6 snapshot-semantics invariant).
+
+    ``inputs_hash`` is retained in the signature for call-site stability and remains
+    useful provenance (reproducibility / byte-equivalence), but it does not gate
+    staleness.
+
+    A snapshot that predates versioning (no ``versions`` — the 0.4.x shape) is NOT
+    reported stale: there is no recorded evaluator to compare against, so back-compat
+    behavior is preserved."""
     if not isinstance(prev, dict):
         return False
     pv = prev.get("versions")
-    if not isinstance(pv, dict) and prev.get("inputs_hash") is None:
-        return False  # pre-versioning snapshot: cannot prove drift, don't disrupt
-    if isinstance(pv, dict) and (pv.get("grader") != grader or pv.get("resolver") != resolver):
-        return True
-    ph = prev.get("inputs_hash")
-    return ph is not None and ph != inputs_hash
+    if not isinstance(pv, dict):
+        return False  # pre-versioning (or malformed) snapshot: cannot prove a method change
+    return pv.get("grader") != grader or pv.get("resolver") != resolver
 
 
 def snapshot_evaluation(cmp: dict, evidence_state: dict | None, model_versions,

@@ -378,8 +378,10 @@ def persist_cycle(inv_path: Path | str, inv_spec: dict, result: dict, *, studies
         from discovery_engine.phases.discovery_record import detect_discoveries
         _new_snap = (on_disk["cycle_state"] or {}).get("evaluation_snapshot") or {}
         # A verdict flip diffed against a snapshot computed under a different grader/
-        # resolver version or different measured inputs is a provenance artifact, not a
-        # clean Discovery — re-baseline instead of mining it. No-op for a pre-versioning
+        # resolver *version* is a provenance artifact (method drift), not a clean
+        # Discovery — re-baseline instead of mining it. A flip driven by new measured
+        # evidence under the SAME evaluator is a genuine Discovery and DOES surface
+        # (inputs_hash alone must not imply stale science). No-op for a pre-versioning
         # (0.4.x) prev snapshot, so existing behavior is unchanged.
         _nv = _new_snap.get("versions") or {}
         _stale = _evm.snapshot_is_stale(_prev_snapshot, grader=_nv.get("grader"),
