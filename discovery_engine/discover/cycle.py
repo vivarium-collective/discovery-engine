@@ -318,6 +318,10 @@ def persist_cycle(inv_path: Path | str, inv_spec: dict, result: dict, *, studies
     on_disk = load_yaml_mapping(path) if path.exists() else dict(inv_spec)
     for dead in (*_RETIRED_INV_CACHES, *_DEPRECATED_INV_FIELDS):
         on_disk.pop(dead, None)  # retire bloat caches + deprecated fields (0 readers)
+    # the prior evaluation snapshot, before build_cycle_state overwrites cycle_state —
+    # detect_discoveries diffs it against the new one to record verdict flips (FR-08.02)
+    _prev_snapshot = ((on_disk.get("cycle_state") or {}).get("evaluation_snapshot")
+                      if studies is not None else None)
     _renew_executive_decisions(on_disk)  # move resolved decisions out of the open list
     mvs = project_model_versions(studies, on_disk.get("model_versions")) if studies is not None else None
     if mvs is not None:
@@ -367,6 +371,21 @@ def persist_cycle(inv_path: Path | str, inv_spec: dict, result: dict, *, studies
                                     (on_disk["cycle_state"].get("evaluation_snapshot") or {}).get("fingerprint"))
     if studies is not None:  # per-tab freshness against the post-renew on-disk spec
         on_disk["cycle_state"]["freshness"] = _tab_freshness(on_disk, studies)
+    if studies is not None:
+        # FR-08.02: a verdict that flipped to a settled outcome on verified evidence
+        # this cycle is a first-class Discovery (not just a passed gate).
+        from discovery_engine.phases.discovery_record import detect_discoveries
+        _new_snap = (on_disk["cycle_state"] or {}).get("evaluation_snapshot") or {}
+        _found = detect_discoveries(_prev_snapshot, _new_snap, studies,
+                                    fingerprint=_new_snap.get("fingerprint"))
+        if _found:
+            _have = [d for d in on_disk.get("discoveries") or [] if isinstance(d, dict)]
+            _ids = {d.get("id") for d in _have}
+            for d in _found:
+                if d["id"] not in _ids:  # content-addressed: idempotent across re-persists
+                    _have.append(d)
+                    _ids.add(d["id"])
+            on_disk["discoveries"] = _have
     _validate_extensions({"cycle_state": on_disk["cycle_state"]})
     save_yaml_atomic(path, on_disk)
     return on_disk["cycle_state"]
