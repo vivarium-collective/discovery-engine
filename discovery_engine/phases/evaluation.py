@@ -28,6 +28,10 @@ CONTESTED = "contested"
 UNRESOLVED = "unresolved"
 GATED = "gated"
 
+# Bump when the persisted evaluation_snapshot SHAPE changes. Lets a reader tell a
+# current snapshot from a pre-versioning (0.4.x) one, which carries no versions/hash.
+SNAPSHOT_SCHEMA_VERSION = 1
+
 
 def _study_hyps(inv_spec: dict, slug: str) -> list[dict]:
     return [h for h in _as_list(inv_spec.get("hypotheses"))
@@ -303,10 +307,60 @@ def _fingerprint(cmp: dict, n_anoms: int) -> str:
     ).encode()).hexdigest()[:16]
 
 
+def evidence_inputs_hash(evidence_state: dict | None) -> str:
+    """Stable 16-char hash of the MEASURED inputs behind an evaluation.
+
+    Hashes the per-finding classified rows of the evidence ledger — ``(study, finding,
+    from_test, run_ids, observed, measured_value)`` — so a change in a backing run's
+    measured value changes the hash, and a prior snapshot computed on different data is
+    detectably stale. Pure, and deliberately excludes authored prose and derived statuses
+    so it tracks *measured* state only. An empty/absent ledger hashes to a stable value."""
+    from discovery_engine.study.evaluator import _sha16
+    ledger = (evidence_state or {}).get("ledger") or []
+    rows = sorted(
+        [str(r.get("study")), str(r.get("finding")), str(r.get("from_test")),
+         sorted(str(x) for x in (r.get("run_ids") or [])),
+         repr(r.get("observed")), repr(r.get("measured_value"))]
+        for r in ledger if isinstance(r, dict)
+    )
+    import json
+    return _sha16(json.dumps(rows, sort_keys=True, default=str))
+
+
+def snapshot_is_stale(prev: dict | None, *, grader, resolver, inputs_hash) -> bool:
+    """True when a persisted snapshot was computed under a different grader/resolver
+    version or different measured inputs than the current ones — so a verdict flip
+    diffed against it is a provenance artifact, not a clean result. Pure.
+
+    A snapshot that predates versioning (no ``versions``/``inputs_hash`` — the 0.4.x
+    shape) is NOT reported stale: there is nothing to compare against, so back-compat
+    behavior is preserved and recompute is driven only by a real, recorded drift."""
+    if not isinstance(prev, dict):
+        return False
+    pv = prev.get("versions")
+    if not isinstance(pv, dict) and prev.get("inputs_hash") is None:
+        return False  # pre-versioning snapshot: cannot prove drift, don't disrupt
+    if isinstance(pv, dict) and (pv.get("grader") != grader or pv.get("resolver") != resolver):
+        return True
+    ph = prev.get("inputs_hash")
+    return ph is not None and ph != inputs_hash
+
+
 def snapshot_evaluation(cmp: dict, evidence_state: dict | None, model_versions,
                         *, n_anomalies: int = 0) -> dict:
     """The §3.5 ScientificState snapshot persisted in ``cycle_state.evaluation_snapshot``:
-    just what the next cycle needs to compute a change. Pure."""
+    just what the next cycle needs to compute a change. Pure except for ``computed_at``.
+
+    Carries its own provenance — ``schema_version``, the ``grader``/``resolver`` versions,
+    and an ``inputs_hash`` over the measured evidence — so recomputation is provably
+    identical and a later snapshot can detect that this one is stale
+    (:func:`snapshot_is_stale`). ``computed_at`` is a non-deterministic stamp and is
+    excluded from the ``fingerprint`` + from byte-equivalence comparisons."""
+    from datetime import datetime, timezone
+    try:
+        from discovery_engine.study.evaluator import GRADER_VERSION, RESOLVER_VERSION
+    except Exception:  # pragma: no cover - evaluator always importable in practice
+        GRADER_VERSION = RESOLVER_VERSION = None
     ev_by = (evidence_state or {}).get("by_study", {})
     by_study = {slug: {"status": c.get("status"), "favored": c.get("favored"),
                        "evidence": (ev_by.get(slug) or {}).get("status"),
@@ -315,4 +369,8 @@ def snapshot_evaluation(cmp: dict, evidence_state: dict | None, model_versions,
     ids = [m["id"] if isinstance(m, dict) else m for m in (model_versions or [])]
     return {"fingerprint": _fingerprint(cmp or {}, n_anomalies),
             "by_study": by_study, "model_versions": ids,
-            "proposals": {"open": [], "applied": []}}
+            "proposals": {"open": [], "applied": []},
+            "schema_version": SNAPSHOT_SCHEMA_VERSION,
+            "versions": {"grader": GRADER_VERSION, "resolver": RESOLVER_VERSION},
+            "inputs_hash": evidence_inputs_hash(evidence_state),
+            "computed_at": datetime.now(timezone.utc).isoformat()}
