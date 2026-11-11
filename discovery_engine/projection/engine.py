@@ -45,6 +45,8 @@ _PRIORITY = {
     "validation_finding": 45,      # a registered validator (RFC-0007) reported a failing check
     "pending_gate": 42,            # an acceptance gate met by verdict only — behavior unrun
     "open_question": 40,           # an unassessed / inconclusive claim
+    "proposed_study": 39,          # a ready, seed-bearing proposal to promote into a runnable study
+                                   #   (ranks just below running existing studies — prefer test over seed)
     # Closed-loop feedback (NON-blocking, never in _CLOSURE_BLOCKING): a model revision
     # the engine proposed, or the raw signal behind one.
     "revision_proposed": 58,       # a ModelRevisionProposal awaiting review
@@ -68,6 +70,7 @@ _OP = {
     "validation_finding": "revise",      # act on the validator's recommendation, then resolve
     "pending_gate": "test",              # run the gate's behavior — it is met by verdict only
     "open_question": "test",             # evaluate the claim
+    "proposed_study": "seed",            # promote the proposal into a real study.yaml (authoring)
     "revision_proposed": "revise_model",  # review/apply the proposed model revision
     "model_disagreement": "revise_model",
     "anomaly": "revise_model",
@@ -184,6 +187,18 @@ def frontier(cycle_result: dict, inv_spec: dict) -> list[dict]:
         refs = call.get("refs") or []
         target = refs[0] if refs else (call.get("title") or kind)
         add(kind, target, call.get("title") or "")
+
+    # 3b. proposed studies: a READY, seed-bearing suggestion (the generative loop's
+    #     refuted-finding child — suggest_studies source 5) becomes a frontier item,
+    #     op `seed`, consequence `authoring`. Promoting it (write_child_study) turns "a
+    #     negative result proposes the next study" into "runs the next study": once the
+    #     child is on disk, the next crank raises its own `test` op and advance runs it.
+    #     Non-blocking. `awaiting_expert` proposals are NOT raised here — they wait on a
+    #     human decision and surface only as suggestions, never as a runnable frontier item.
+    for s in cycle_result.get("suggestions") or []:
+        if (isinstance(s, dict) and s.get("status") == "ready"
+                and s.get("seed") and s.get("parent_study") and s.get("id")):
+            add("proposed_study", s["id"], s.get("title") or s.get("motivation") or s["id"])
 
     # 4. validator findings (RFC-0007): a registered validator reported a failing
     #    check. Records already surfaced by another path (narrative coherence is
@@ -683,6 +698,15 @@ def _executor_for(op: str, target: str, kind: str | None = None) -> dict:
                 "command": f"viva-study seed-from-followup <parent> <proposal>; "
                            f"{run_command(study)}",
                 "consequence": "simulation+study", "auto_safe": False}
+    if op == "seed":
+        # Promote a ready, seed-bearing proposal (the generative loop's refuted-finding
+        # child) into a real study.yaml. Consequence `authoring`: it WRITES authored
+        # substrate (gated by the autonomy policy, like a simulation), after which the new
+        # study's own `test` op runs it on the next crank. This is the seam that turns
+        # "proposes the next study" into "runs the next study".
+        return {"executor": "promote-seed",
+                "command": f"discover seed-study <inv> {target} --write",
+                "consequence": "authoring", "auto_safe": False}
     if op == "reconcile":
         return {"executor": "set-verdict", "command": f"discover set-verdict {study} <derived> --rationale '…'",
                 "consequence": "review", "auto_safe": False}
