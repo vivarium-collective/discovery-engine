@@ -58,6 +58,9 @@ _PRIORITY = {
     "viz_misplaced": 37, "viz_duplicated": 36, "viz_untied": 35,
     # Capability-gap loop (NON-blocking): a required mechanism no catalog component provides.
     "capability_gap": 43,
+    # Feedback loop (NON-blocking): staged human feedback that would reopen the
+    # investigation — a first-class cycle move, not a side `ingest-feedback` CLI.
+    "pending_feedback": 59,
 }
 # Recommended operation per item kind (the RFC-0005 op that resolves it).
 _OP = {
@@ -78,6 +81,7 @@ _OP = {
     "viz_proposed": "build_viz", "viz_stale": "refine_viz",
     "viz_misplaced": "relocate_viz", "viz_duplicated": "relocate_viz", "viz_untied": "relocate_viz",
     "capability_gap": "build_process",
+    "pending_feedback": "reopen",        # apply the staged feedback and re-enter the loop
 }
 # open_calls kinds map straight onto frontier kinds.
 _CALL_KIND = {"narrative_gap": "narrative_gap", "decision": "open_decision",
@@ -340,6 +344,21 @@ def frontier(cycle_result: dict, inv_spec: dict) -> list[dict]:
         if p.get("detail") and st in ("needs_author", "failed"):
             why += f" ({p['detail']})"
         add("capability_gap", gid, why)
+
+    # Staged human feedback that would REOPEN the investigation — a first-class loop move.
+    # Each entry is a CompiledRequest (compile_feedback) staged on the investigation; once
+    # advance applies it (reconcile_and_reopen) its id is recorded in applied_feedback, so
+    # it drops out here (idempotent — no re-reopen stream).
+    applied_fb = {a.get("feedback") for a in inv_spec.get("applied_feedback") or []
+                  if isinstance(a, dict)}
+    for fb in inv_spec.get("pending_feedback") or []:
+        if not isinstance(fb, dict):
+            continue
+        fid = fb.get("id")
+        if not fid or fid in applied_fb:
+            continue
+        if any(isinstance(a, dict) and a.get("type") == "reopen" for a in fb.get("actions") or []):
+            add("pending_feedback", fid, "staged human feedback would reopen the investigation")
 
     items.sort(key=lambda x: (-x["priority"], str(x["kind"]), str(x["target"])))
     return items
@@ -711,6 +730,13 @@ def _executor_for(op: str, target: str, kind: str | None = None) -> dict:
         return {"executor": "promote-seed",
                 "command": f"discover seed-study <inv> {target} --write",
                 "consequence": "authoring", "auto_safe": False}
+    if op == "reopen":
+        # Re-enter the loop on staged human feedback: apply the CompiledRequest's reopen
+        # (status + verdict_status + lifecycle history) via reconcile_and_reopen. Consequence
+        # `reopen` — policy-gated like authoring; it mutates the investigation's lifecycle.
+        return {"executor": "reconcile-and-reopen",
+                "command": f"discover ingest-feedback <request> --write  # {target}",
+                "consequence": "reopen", "auto_safe": False}
     if op == "reconcile":
         return {"executor": "set-verdict", "command": f"discover set-verdict {study} <derived> --rationale '…'",
                 "consequence": "review", "auto_safe": False}

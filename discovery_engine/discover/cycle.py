@@ -917,6 +917,50 @@ def execute_action(ws_root: Path | str, inv_slug: str, *, autonomous: bool = Fal
                 except Exception as e:  # noqa: BLE001 — a malformed seed never crashes the cycle
                     rec["status"] = "failed"
                     rec["outcome"] = {"ok": False, "detail": f"seed write failed: {type(e).__name__}: {e}"}
+    elif top["consequence"] == "reopen":
+        # Re-enter the loop on staged human feedback — the move that folds the old
+        # `ingest-feedback` CLI into advance. Policy-gated like authoring: apply the staged
+        # CompiledRequest via reconcile_and_reopen, write the reopened lifecycle fields (and
+        # any new studies), and record the feedback id in applied_feedback so it is not
+        # re-applied (idempotent).
+        if not pol.allows(consequence="reopen", target=top["source"]):
+            rec["status"] = "gated"
+            rec["outcome"] = {"ok": None, "detail": "reopen — re-run with --autonomous "
+                              "(or approve this item in the policy) to apply the feedback"}
+        else:
+            fb = next((f for f in inv_spec.get("pending_feedback") or []
+                       if isinstance(f, dict) and f.get("id") == top["source"]), None)
+            if fb is None:
+                rec["status"] = "gated"
+                rec["outcome"] = {"ok": None, "detail": "staged feedback not found — run `discover cycle` first"}
+            else:
+                from discovery_engine.feedback.compiler import reconcile_and_reopen
+                try:
+                    res = reconcile_and_reopen(fb, inv_spec, studies)
+                    reopened = res["inv_spec"]
+                    _inv_disk = load_yaml_mapping(inv_path)
+                    _inv_disk["status"] = reopened.get("status")
+                    if reopened.get("executive") is not None:
+                        _inv_disk["executive"] = reopened["executive"]
+                    if reopened.get("lifecycle_history") is not None:
+                        _inv_disk["lifecycle_history"] = reopened["lifecycle_history"]
+                    _applied = [a for a in _inv_disk.get("applied_feedback") or [] if isinstance(a, dict)]
+                    _applied.append({"feedback": top["source"],
+                                     "at": _dt.datetime.now(_dt.timezone.utc).isoformat(timespec="seconds")})
+                    _inv_disk["applied_feedback"] = _applied
+                    save_yaml_atomic(inv_path, _inv_disk)
+                    # write any studies the reopen seeded (mirrors ingest_feedback --write)
+                    for _slug, _spec in (res.get("new_studies") or {}).items():
+                        _sdir = studies_dir(Path(ws_root)) / _slug
+                        _sdir.mkdir(parents=True, exist_ok=True)
+                        save_yaml_atomic(_sdir / "study.yaml", _spec)
+                    rec["status"] = "executed"
+                    rec["command"] = f"reconcile-and-reopen {top['source']}"
+                    rec["outcome"] = {"ok": True, "detail": f"reopened the investigation on "
+                                      f"feedback {top['source']} (re-enters the loop)"}
+                except Exception as e:  # noqa: BLE001 — malformed feedback never crashes the cycle
+                    rec["status"] = "failed"
+                    rec["outcome"] = {"ok": False, "detail": f"reopen failed: {type(e).__name__}: {e}"}
     elif top["action_type"] == "steer" and decider is not None and autonomous:
         # AI drives the expert decision: pick the option that maximizes discovery.
         detail = next((i["rationale"] for i in de.frontier(cyc, inv_spec)
@@ -1275,7 +1319,7 @@ def _post_render_stamp(sdir, entry: dict, latest: dict | None, command: str | No
 
 # An applied revision's child runs as a `test` op (applied proposals are off the frontier);
 # `revise_model` is review-consequence, never dispatched.
-_ADVANCE_OPS = ("test", "branch", "build_viz", "refine_viz", "seed", "build_process")
+_ADVANCE_OPS = ("test", "branch", "build_viz", "refine_viz", "seed", "build_process", "reopen")
 
 def _advance_study_for(source, studies: dict) -> str | None:
     """The on-disk study an advance op would run, or None (gated). The applied child of a
@@ -1346,6 +1390,12 @@ def _dispatch_classify(p: dict, studies: dict, ws_root, inv_slug: str,
     op = p["action_type"]
     if op not in _ADVANCE_OPS:
         return ("skip", None, [])
+    if op == "reopen":
+        # Staged human feedback with a reopen action is dispatchable: advance applies it via
+        # reconcile_and_reopen under the policy. The frontier only raises it while it is
+        # unapplied (applied_feedback drops it), so if it is on the plan it is promotable. It
+        # mutates the investigation lifecycle, claiming no study slug.
+        return ("run", None, [])
     if op == "seed":
         # A proposed_study (the generative loop's ready, seed-bearing child) is dispatchable:
         # advance promotes it via write_child_study under the policy. The frontier only raises
@@ -1530,7 +1580,7 @@ def advance_cycle(ws_root: Path | str, inv_slug: str, *, autonomous: bool = Fals
             ran.append({"target": target, "status": rec["status"],
                         "outcome": (rec.get("outcome") or {}).get("detail")})
             continue
-        if target_op in ("seed", "build_process"):
+        if target_op in ("seed", "build_process", "reopen"):
             # seed wrote a NEW study; build_process ran the workspace build_hook and wrote a
             # composite — neither is a study run. Mark seen and re-crank: a study that needed the
             # just-built mechanism becomes run-ready, or the new study's `test` op is dispatched.
