@@ -40,9 +40,11 @@ from discovery_engine.discover.actions import (
     apply_revision,
     connect_investigation,
     declare_viz,
+    record_critique_report,
     record_hypothesis_proposal,
     record_resolution,
     review_findings,
+    set_critique_report_status,
     set_hypothesis_proposal_status,
     reject_capability_gap,
     reject_viz_proposal,
@@ -627,6 +629,19 @@ def main(argv: list[str] | None = None) -> int:
     p_hz.add_argument("--list-proposals", action="store_true", help="list recorded proposals + status")
     p_hz.add_argument("--json", action="store_true", help="emit as JSON")
 
+    p_cq = sub.add_parser("critique",
+                          help="surface where a result should be challenged (a verdict/confidence that "
+                               "outruns its evidence), and validate+record an agent-authored CritiqueReport; "
+                               "advisory — it never changes a verdict")
+    p_cq.add_argument("investigation", help="investigation slug")
+    p_cq.add_argument("--from", dest="from_file", default=None, metavar="FILE",
+                      help="validate a CritiqueReport (YAML/JSON) and record it as 'open'")
+    p_cq.add_argument("--address", default=None, metavar="CR_ID", help="mark a recorded critique addressed")
+    p_cq.add_argument("--dismiss", default=None, metavar="CR_ID", help="dismiss a recorded critique")
+    p_cq.add_argument("--rationale", default=None, help="rationale for --address/--dismiss")
+    p_cq.add_argument("--list-reports", action="store_true", help="list recorded critiques + status")
+    p_cq.add_argument("--json", action="store_true", help="emit as JSON")
+
     p_rf = sub.add_parser("review-findings",
                           help="list pending FindingCandidates (verified verdict flips) and promote "
                                "reviewed ones to Discoveries; promotion is the only path that writes a "
@@ -751,6 +766,54 @@ def main(argv: list[str] | None = None) -> int:
             print(f"  {t['id']}  {t['study']}#{t['observable']} = {t['observed']}  ({t['note']})")
         print(f"\nauthor one per skills/hypothesize/SKILL.md, then: discover --workspace "
               f"{args.workspace} hypothesize {args.investigation} --from <proposal.yaml>")
+        return 0
+
+    if args.cmd == "critique":
+        import json as _json
+        from discovery_engine.phases.critique_report import critique_triggers
+        inv_path = investigations_dir(ws) / args.investigation / "investigation.yaml"
+        if not inv_path.exists():
+            parser.error(f"no investigation.yaml at {inv_path}")
+        if args.address or args.dismiss:
+            status = "addressed" if args.address else "dismissed"
+            rec = set_critique_report_status(inv_path, args.address or args.dismiss, status,
+                                             rationale=args.rationale)
+            print(f"{rec['id']}: {rec['status']}")
+            return 0
+        if args.from_file:
+            report = load_yaml(Path(args.from_file))
+            try:
+                rec = record_critique_report(inv_path, report)
+            except ValueError as e:
+                parser.error(f"invalid CritiqueReport: {e}")
+            print(f"recorded {rec['id']} (status={rec['status']}) against {rec['target']}")
+            return 0
+        spec = load_yaml_mapping(inv_path)
+        if args.list_reports:
+            reps = [r for r in spec.get("critique_reports") or [] if isinstance(r, dict)]
+            if args.json:
+                print(_json.dumps(reps, indent=2, default=str))
+                return 0
+            if not reps:
+                print("no recorded critique reports")
+                return 0
+            for r in reps:
+                print(f"{r['id']}  [{r.get('status')}]  {r.get('target')}")
+            return 0
+        _, _, studies = load_cycle_inputs(ws, args.investigation)
+        triggers = critique_triggers(list((studies or {}).values()))
+        if args.json:
+            print(_json.dumps(triggers, indent=2, default=str))
+            return 0
+        if not triggers:
+            print("no overclaimed results — authored verdicts/confidence match the evidence")
+            return 0
+        print("a result should be challenged for:")
+        for t in triggers:
+            print(f"  {t['id']}  {t['study']}  [{t['kind']}] authored={t['authored']!r} "
+                  f"derived={t['derived']!r}  ({t['note']})")
+        print(f"\nauthor a critique per skills/critique/SKILL.md, then: discover --workspace "
+              f"{args.workspace} critique {args.investigation} --from <critique.yaml>")
         return 0
 
     if args.cmd == "review-findings":

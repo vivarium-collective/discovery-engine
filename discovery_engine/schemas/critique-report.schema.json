@@ -1,0 +1,35 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "CritiqueReport — an adversarial review of a result (DE-06)",
+  "type": "object",
+  "required": ["id", "target", "status", "provenance"],
+  "additionalProperties": true,
+  "anyOf": [
+    {"required": ["alternative_diagnoses"], "properties": {"alternative_diagnoses": {"minItems": 1}}},
+    {"required": ["unsupported_claims"], "properties": {"unsupported_claims": {"minItems": 1}}},
+    {"required": ["suggested_discriminations"], "properties": {"suggested_discriminations": {"minItems": 1}}}
+  ],
+  "properties": {
+    "id": {"type": "string", "pattern": "^cr:[0-9a-f]{12}$"},
+    "target": {"type": "string", "minLength": 1},
+    "alternative_diagnoses": {"type": "array", "items": {"type": "string"}},
+    "unsupported_claims": {
+      "type": "array",
+      "items": {"type": "object", "required": ["claim"],
+                "properties": {"claim": {"type": "string", "minLength": 1}, "why": {"type": "string"}}}
+    },
+    "suggested_discriminations": {
+      "type": "array",
+      "items": {"type": "object",
+                "properties": {"observable": {"type": "string"}, "test": {"type": "string"}}}
+    },
+    "status": {"enum": ["open", "addressed", "dismissed"]},
+    "provenance": {
+      "type": "object",
+      "required": ["trigger"],
+      "properties": {"trigger": {"type": "string", "minLength": 1},
+                     "source": {"type": "string"}, "by": {"type": "string"}}
+    },
+    "at": {"type": "string"}
+  }
+}

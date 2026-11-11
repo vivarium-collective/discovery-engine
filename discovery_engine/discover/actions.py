@@ -232,6 +232,44 @@ def set_hypothesis_proposal_status(inv_path: Path | str, proposal_id: str, statu
     save_yaml_atomic(path, spec)
     return {"id": proposal_id, "status": status, "promoted": promoted}
 
+
+def record_critique_report(inv_path: Path | str, report: dict) -> dict:
+    """Validate an agent-authored CritiqueReport and record it (status ``open``) in
+    ``investigation.yaml::critique_reports[]``, idempotent by id. Advisory — it does not
+    change any verdict. The engine validates; the agent authors. Returns the report."""
+    from discovery_engine.phases.critique_report import coerce_critique_report
+    report = coerce_critique_report(report)          # validate + assign id/status/at
+    path = Path(inv_path)
+    spec = load_yaml_mapping(path)
+    have = [r for r in spec.get("critique_reports") or [] if isinstance(r, dict)]
+    ids = {r.get("id") for r in have}
+    if report["id"] not in ids:
+        have.append(report)
+        spec["critique_reports"] = have
+        save_yaml_atomic(path, spec)
+    return report
+
+
+def set_critique_report_status(inv_path: Path | str, report_id: str, status: str,
+                               *, by: str = "human", rationale: str | None = None) -> dict:
+    """Address or dismiss a recorded CritiqueReport (advisory — no state is promoted).
+    Returns ``{id, status}``."""
+    from discovery_engine.phases.critique_report import ADDRESSED, DISMISSED
+    if status not in (ADDRESSED, DISMISSED):
+        raise ValueError(f"status must be '{ADDRESSED}' or '{DISMISSED}', got {status!r}")
+    path = Path(inv_path)
+    spec = load_yaml_mapping(path)
+    reports = [r for r in spec.get("critique_reports") or [] if isinstance(r, dict)]
+    target = next((r for r in reports if r.get("id") == report_id), None)
+    if target is None:
+        raise ValueError(f"no critique_report with id {report_id!r}")
+    target["status"] = status
+    target["review"] = {"by": by, "rationale": rationale, "at": _dt.datetime.now(
+        _dt.timezone.utc).isoformat(timespec="seconds")}
+    spec["critique_reports"] = reports
+    save_yaml_atomic(path, spec)
+    return {"id": report_id, "status": status}
+
 def declare_viz(ws_root: Path | str, inv_slug: str, target: str, declare: dict,
                 rationale: str, by: str = "human") -> dict:
     """Review-tier write-back for a ``viz_broken`` figure: set ``address`` / ``render`` /
