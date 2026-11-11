@@ -183,6 +183,55 @@ def review_findings(inv_path: Path | str, *, promote=None, hold=None, promote_al
         save_yaml_atomic(path, spec)
     return out
 
+
+def record_hypothesis_proposal(inv_path: Path | str, proposal: dict) -> dict:
+    """Validate an agent-authored HypothesisProposal and record it (status ``proposed``)
+    in ``investigation.yaml::hypothesis_proposals[]``, idempotent by id. The engine
+    validates the contract; it never authors the content. Returns the recorded proposal."""
+    from discovery_engine.phases.hypothesis_proposal import coerce_hypothesis_proposal
+    proposal = coerce_hypothesis_proposal(proposal)   # validate + assign id/status/at
+    path = Path(inv_path)
+    spec = load_yaml_mapping(path)
+    have = [p for p in spec.get("hypothesis_proposals") or [] if isinstance(p, dict)]
+    ids = {p.get("id") for p in have}
+    if proposal["id"] not in ids:
+        have.append(proposal)
+        spec["hypothesis_proposals"] = have
+        save_yaml_atomic(path, spec)
+    return proposal
+
+
+def set_hypothesis_proposal_status(inv_path: Path | str, proposal_id: str, status: str,
+                                   *, by: str = "human", rationale: str | None = None) -> dict:
+    """Accept or decline a recorded HypothesisProposal. On ``accepted`` the proposal is
+    promoted into the authored ``hypotheses[]`` the evaluator reads (idempotent); on
+    ``declined`` it is left out. Authored-wins: this is a human/agent review action, never
+    dispatched by ``advance``. Returns ``{id, status, promoted}``."""
+    from discovery_engine.phases.hypothesis_proposal import (
+        promote_to_hypothesis, ACCEPTED, DECLINED)
+    if status not in (ACCEPTED, DECLINED):
+        raise ValueError(f"status must be '{ACCEPTED}' or '{DECLINED}', got {status!r}")
+    path = Path(inv_path)
+    spec = load_yaml_mapping(path)
+    props = [p for p in spec.get("hypothesis_proposals") or [] if isinstance(p, dict)]
+    target = next((p for p in props if p.get("id") == proposal_id), None)
+    if target is None:
+        raise ValueError(f"no hypothesis_proposal with id {proposal_id!r}")
+    target["status"] = status
+    target.setdefault("review", {})
+    target["review"] = {"by": by, "rationale": rationale, "at": _dt.datetime.now(
+        _dt.timezone.utc).isoformat(timespec="seconds")}
+    promoted = False
+    if status == ACCEPTED:
+        hyps = [h for h in spec.get("hypotheses") or [] if isinstance(h, dict)]
+        if not any(h.get("id") == proposal_id for h in hyps):
+            hyps.append(promote_to_hypothesis(target))
+            spec["hypotheses"] = hyps
+            promoted = True
+    spec["hypothesis_proposals"] = props
+    save_yaml_atomic(path, spec)
+    return {"id": proposal_id, "status": status, "promoted": promoted}
+
 def declare_viz(ws_root: Path | str, inv_slug: str, target: str, declare: dict,
                 rationale: str, by: str = "human") -> dict:
     """Review-tier write-back for a ``viz_broken`` figure: set ``address`` / ``render`` /
