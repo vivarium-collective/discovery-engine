@@ -188,16 +188,20 @@ def frontier(cycle_result: dict, inv_spec: dict) -> list[dict]:
         target = refs[0] if refs else (call.get("title") or kind)
         add(kind, target, call.get("title") or "")
 
-    # 3b. proposed studies: a READY, seed-bearing suggestion (the generative loop's
-    #     refuted-finding child — suggest_studies source 5) becomes a frontier item,
-    #     op `seed`, consequence `authoring`. Promoting it (write_child_study) turns "a
-    #     negative result proposes the next study" into "runs the next study": once the
-    #     child is on disk, the next crank raises its own `test` op and advance runs it.
-    #     Non-blocking. `awaiting_expert` proposals are NOT raised here — they wait on a
-    #     human decision and surface only as suggestions, never as a runnable frontier item.
+    # 3b. proposed studies: a READY suggestion that names a PARENT becomes a frontier item,
+    #     op `seed`, consequence `authoring` — promotable into a real study.yaml via
+    #     write_child_study. This covers the whole "author a study to move forward" set, not
+    #     just the generative loop's refuted-finding seeds: an authored `followup_proposal`
+    #     and an audit-derived narrative-gap followup are promoted the same way (the proposal
+    #     path seeds the study's purpose from the proposal prose). Promoting one turns
+    #     "proposes the next study" into "runs the next study": once on disk + registered, the
+    #     next crank raises its own `test` op and advance runs it. Non-blocking.
+    #     `awaiting_expert` proposals are NOT raised here — they wait on a human decision and
+    #     surface only as suggestions; a proposal with no parent (synthesis-frontier) has
+    #     nothing to branch from, so it stays a suggestion too.
     for s in cycle_result.get("suggestions") or []:
         if (isinstance(s, dict) and s.get("status") == "ready"
-                and s.get("seed") and s.get("parent_study") and s.get("id")):
+                and s.get("parent_study") and s.get("id")):
             add("proposed_study", s["id"], s.get("title") or s.get("motivation") or s["id"])
 
     # 4. validator findings (RFC-0007): a registered validator reported a failing
