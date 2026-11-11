@@ -564,6 +564,46 @@ def main(argv: list[str] | None = None) -> int:
     p_ingest.add_argument("--write", action="store_true",
                           help="apply the mutations (default: dry-run, print the summary)")
 
+    p_report = sub.add_parser("report",
+                              help="render the workspace report (reports/index.html); Pass B lints first, "
+                                   "and blocking errors refuse to render unless --force")
+    p_report.add_argument("--force", action="store_true",
+                          help="log blocking lint errors to the override file and render anyway")
+    p_report.add_argument("--no-lint", action="store_true",
+                          help="skip the pre-render lint (internal/testing; not recommended)")
+    p_report.add_argument("--today", default=None, metavar="ISO_DATE",
+                          help="pin the report date (YYYY-MM-DD) for byte-stable CI renders")
+
+    p_lint = sub.add_parser("lint",
+                            help="run the Pass B report linter over the workspace and print findings "
+                                 "(no render); exits 1 if blocking errors remain")
+    p_lint.add_argument("--json", action="store_true", help="emit findings as JSON")
+    p_lint.add_argument("--force", action="store_true",
+                        help="log blocking errors to the override file and exit 0")
+    p_lint.add_argument("--strict", action="store_true",
+                        help="promote opt-in warning checks to errors")
+    p_lint.add_argument("--ruleset", action="append", default=None,
+                        help="enable an opt-in ruleset (repeatable), e.g. --ruleset campaign")
+
+    p_pop = sub.add_parser("populate-observations",
+                           help="fill finding evidence/expected/provenance slots from computed_outcomes "
+                                "(spine stage #5) — writes study.yaml")
+    g_pop = p_pop.add_mutually_exclusive_group(required=True)
+    g_pop.add_argument("--study", help="study slug")
+    g_pop.add_argument("--all", action="store_true", help="every study in the workspace")
+
+    p_romig = sub.add_parser("readout-migrate",
+                             help="migrate a study's legacy readouts to canonical form (dry-run by default)")
+    p_romig.add_argument("study", help="study slug")
+    p_romig.add_argument("--write", action="store_true",
+                         help="rewrite study.yaml's readouts block (default: dry-run)")
+
+    p_band = sub.add_parser("band-provenance",
+                            help="list a study's acceptance bands that have no cites "
+                                 "(no machine-linked source in references/papers.bib)")
+    p_band.add_argument("study", help="study slug")
+    p_band.add_argument("--json", action="store_true", help="emit the missing-provenance bands as JSON")
+
     args = parser.parse_args(argv)
     ws = Path(args.workspace).resolve()
 
@@ -796,6 +836,87 @@ def main(argv: list[str] | None = None) -> int:
         _, inv_spec, studies = load_cycle_inputs(ws, args.investigation)
         specs = list(studies.values()) if isinstance(studies, dict) else list(studies or [])
         print(_summarize_hypotheses(inv_spec, specs))
+        return 0
+
+    if args.cmd == "report":
+        import sys as _sys
+
+        from discovery_engine.reporting.report import ReportLintBlocked, render_workspace_report
+        try:
+            out = render_workspace_report(ws, lint=not args.no_lint, force=args.force,
+                                          today=args.today)
+        except ReportLintBlocked as blocked:
+            print(f"BLOCKING: report lint refused to render — "
+                  f"{len(blocked.findings)} error-level finding(s):", file=_sys.stderr)
+            for f in blocked.findings:
+                print(f"  [error] {f.study_slug}:{f.field_path} — {f.message}", file=_sys.stderr)
+            print("Re-run `discover report --force` to log overrides and render anyway, "
+                  "or fix the findings (see `discover lint`).", file=_sys.stderr)
+            return 1
+        print(f"rendered workspace report -> {out}")
+        return 0
+
+    if args.cmd == "lint":
+        import json as _json
+        import sys as _sys
+
+        from discovery_engine.reporting.linter import (
+            apply_overrides,
+            format_findings,
+            lint_workspace_report,
+            load_overrides,
+            override_path,
+            write_override,
+        )
+        findings = lint_workspace_report(ws, strict=args.strict, rulesets=args.ruleset)
+        overrides = load_overrides(ws)
+        visible = apply_overrides(findings, overrides)
+        if args.json:
+            print(_json.dumps([f.to_dict() for f in visible], indent=2))
+        else:
+            print(format_findings(visible))
+        blocking = [f for f in findings if f.level == "error" and f.override_key not in overrides]
+        if not blocking:
+            return 0
+        if args.force:
+            for f in blocking:
+                write_override(ws, f)
+            print(f"--force: logged {len(blocking)} blocking finding(s) to "
+                  f"{override_path(ws).relative_to(ws)}", file=_sys.stderr)
+            return 0
+        print(f"BLOCKING: {len(blocking)} error-level finding(s) — refusing publication. "
+              "Re-run with --force to log overrides and proceed.", file=_sys.stderr)
+        return 1
+
+    if args.cmd == "populate-observations":
+        from discovery_engine.study.finding_observations import main as _fo_main
+        fo_argv = ["--workspace", str(ws)]
+        fo_argv += ["--all"] if args.all else ["--study", args.study]
+        return _fo_main(fo_argv)
+
+    if args.cmd == "readout-migrate":
+        from discovery_engine.study.readout_migration import main as _rm_main
+        rm_argv = ["--workspace", str(ws), "--study", args.study]
+        if args.write:
+            rm_argv.append("--write")
+        return _rm_main(rm_argv)
+
+    if args.cmd == "band-provenance":
+        import json as _json
+
+        from discovery_engine.study.band_provenance import bands_missing_provenance
+        sp = studies_dir(ws) / args.study / "study.yaml"
+        if not sp.exists():
+            parser.error(f"no study.yaml at {sp}")
+        missing = bands_missing_provenance(load_yaml_mapping(sp))
+        if args.json:
+            print(_json.dumps(missing, indent=2, default=str))
+        elif not missing:
+            print(f"{args.study}: all acceptance bands have cites (no provenance gaps)")
+        else:
+            print(f"{args.study}: {len(missing)} band(s) missing provenance (no cites):")
+            for m in missing:
+                print(f"  [{m['kind']}] {m['name']}  {m['field_path']}  band={m['band']}")
         return 0
 
     if args.cmd == "reconcile-evidence":
