@@ -129,6 +129,12 @@ def load_workspace_evaluators(ws_root: Any) -> dict[str, Callable]:
 # a stale computed gate and force a re-grade when the grader has moved on.
 GRADER_VERSION = "3-freshness"
 
+# Bump when the derived-scalar RESOLVER logic changes (the arithmetic/selector engine
+# that turns a run's raw observables into a measured value). Recorded alongside
+# GRADER_VERSION in the evaluation snapshot so a prior snapshot computed under a
+# different resolver is detectably stale (see phases.evaluation.snapshot_is_stale).
+RESOLVER_VERSION = "1"
+
 
 def storeless(fn: Callable) -> Callable:
     """Mark a workspace evaluator as STORE-LESS: it re-derives its result internally

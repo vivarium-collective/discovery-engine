@@ -195,7 +195,9 @@ def test_snapshot_shape_and_pure():
     inv, studies = _inv_and_studies()
     cmp = E.compare_hypotheses(inv, studies)
     snap = E.snapshot_evaluation(cmp, {"by_study": {"s2": {"status": VERIFIED}}}, [{"id": "mv:a"}])
-    assert set(snap) == {"fingerprint", "by_study", "model_versions", "proposals"}
+    # core keys unchanged (cycle + discovery_record consumers) + provenance keys added
+    assert set(snap) == {"fingerprint", "by_study", "model_versions", "proposals",
+                         "schema_version", "versions", "inputs_hash", "computed_at"}
     assert snap["by_study"]["s2"]["evidence"] == VERIFIED
     assert set(snap["by_study"]["s2"]) == {"status", "favored", "evidence", "model_version"}
     assert snap["model_versions"] == ["mv:a"]

@@ -89,6 +89,7 @@ from .grading import (
 )
 from .workspace_plugins import (
     GRADER_VERSION,
+    RESOLVER_VERSION,
     _evaluator_fingerprint,
     _grader_stamp,
     _inputs_hash,

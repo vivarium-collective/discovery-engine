@@ -374,9 +374,18 @@ def persist_cycle(inv_path: Path | str, inv_spec: dict, result: dict, *, studies
     if studies is not None:
         # FR-08.02: a verdict that flipped to a settled outcome on verified evidence
         # this cycle is a first-class Discovery (not just a passed gate).
+        from discovery_engine.phases import evaluation as _evm
         from discovery_engine.phases.discovery_record import detect_discoveries
         _new_snap = (on_disk["cycle_state"] or {}).get("evaluation_snapshot") or {}
-        _found = detect_discoveries(_prev_snapshot, _new_snap, studies,
+        # A verdict flip diffed against a snapshot computed under a different grader/
+        # resolver version or different measured inputs is a provenance artifact, not a
+        # clean Discovery — re-baseline instead of mining it. No-op for a pre-versioning
+        # (0.4.x) prev snapshot, so existing behavior is unchanged.
+        _nv = _new_snap.get("versions") or {}
+        _stale = _evm.snapshot_is_stale(_prev_snapshot, grader=_nv.get("grader"),
+                                        resolver=_nv.get("resolver"),
+                                        inputs_hash=_new_snap.get("inputs_hash"))
+        _found = [] if _stale else detect_discoveries(_prev_snapshot, _new_snap, studies,
                                     fingerprint=_new_snap.get("fingerprint"))
         if _found:
             _have = [d for d in on_disk.get("discoveries") or [] if isinstance(d, dict)]
