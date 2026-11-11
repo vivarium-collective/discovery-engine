@@ -1,6 +1,9 @@
 # discovery-engine roadmap — the eight-stage scientific cycle
 
-DE2.0 shipped Phases A–F + N+2 (see the Shipped section below and `architecture.md`).
+DE2.0 shipped Phases A–F + N+2, and the 2026-11-11 generative-cycle work (v0.4.0)
+closed the loop from proposal to discovery and back to a human — seed → run →
+model-build, first-class Discovery records, model-error diagnosis, and a
+policy-gated `reopen` (see the two Shipped sections below and `architecture.md`).
 This tracks the remaining gap between the engine and the full eight-stage
 scientific discovery cycle (the *Scientific Discovery Cycle Technical
 Specification & Requirements*, 2026-10-28). Each item carries its FR/AC id, a
@@ -32,11 +35,34 @@ CLI verbs. See [`architecture.md`](architecture.md). Landed:
 - Transition composition (Cycle N+2) was a domain analysis; moved out of the framework to `docs/extracted/transition_model.py` for the workspace to adopt.
 - ✅ **Growth loop** (`study_seeding` / `study_refinement`, `discover seed-study` / `refine-study`) — propose→seed→run→promote→refine, with a `human_in_the_loop` vs `autonomous` policy. Covers FR-03.04 (designs → run-ready study.yaml) and part of FR-04.01 (needs_build → build routing).
 
+## Shipped 2026-11-11 — the generative cycle closes (PRs #49/#53/#51/#52/#54)
+
+The five-PR generative-cycle plan is merged, closing the loop from proposal to
+discovery and back to a human. Landed:
+
+- ✅ **One AutonomyPolicy for every consequential op** (#49) — a single
+  `AutonomyPolicy.allows()` gate for every mutating advance move (was per-op).
+- ✅ **Seed op + authoring write-back** (#53) — a proposal promotes to a run-ready
+  `study.yaml` on disk, closing propose→seed as an advance op.
+- ✅ **Chain promotion → run** (#51) — promoting a ready proposal chains straight
+  into its run; all ready proposals promote in one advance.
+- ✅ **Real model-build into autonomous advance** (#52) — `needs_build` resolves
+  into an actual `ModelVersion` build during `advance` (completes FR-04.01).
+- ✅ **FR-08.02 first-class Discovery records** (`discovery_record`, #54) — a claim
+  verdict flipping to a settled outcome on *verified* evidence writes a `Discovery`
+  (scope / novelty / counterevidence); passing a gate is not a discovery.
+- ✅ **FR-07.04 model-error diagnosis** (`model_error`, #54) — a refutation emits a
+  typed `EvidenceUpdate` (`revise-model` vs `revise-hypothesis`) that steers which
+  child seed `suggest_studies` proposes.
+- ✅ **`reopen` op** (#54) — staged scientist feedback (`pending_feedback[]`) is a
+  first-class frontier item + advance move (`reconcile_and_reopen`), folded out of
+  the side `ingest-feedback` CLI into the policy-gated loop.
+
 ## Still missing — new data entities
 Target package: `discovery_engine/contracts/`
 - ◑ **Hypothesis** — a `hypotheses` module + discrimination exist; not yet the fully generative entity (FR-02.01 credible-alternative generation).
 - ◑ **Figure** (review_status + scientific critique) — only a file-exists check.
-- ⬜ **Discovery** (novelty_basis, alternatives_considered, limitations) — passing a gate ≠ a discovery (FR-08.02).
+- ✅ **Discovery** (scope, novelty, counterevidence) — first-class `Discovery` records; passing a gate ≠ a discovery (FR-08.02, `discovery_record`, #54).
 - ◑ **Cycle state machine** DRAFT→…→INTEGRATED — the phases exist as functions; the explicit per-action state record + transitions are not yet first-class.
 
 ## Missing — stage capabilities
@@ -57,7 +83,7 @@ Target package: `discovery_engine/contracts/`
 
 ### Stage 4 — Build, compose, calibrate, revise models · `discovery_engine/model_build/`
 - ◑ `run_readiness` *reports* `needs_build`; the builder is new:
-- ⬜ FR-04.01 resolve needs_build into concrete build tasks (and build them)
+- ✅ FR-04.01 resolve needs_build into concrete build tasks (and build them) — real `ModelVersion` build wired into autonomous `advance` (#52)
 - ⬜ FR-04.02 compose via explicit process/bigraph interfaces + state-variable mappings; record units/sync
 - ⬜ FR-04.03 parameter fit / structural alternative / model replacement as distinct revision kinds
 - ✅ FR-04.04 immutable ModelVersion — never overwrite the model that produced prior evidence (`model_architect`)
@@ -74,20 +100,20 @@ Target package: `discovery_engine/contracts/`
 - ◑ grades pass/fail today; the following are new:
 - ⬜ FR-07.01 quantitative predicted-vs-observed comparison incl. uncertainty + untested regimes
 - ⬜ FR-07.03 Bayesian / likelihood belief updates where defensible, qualitative otherwise
-- ⬜ FR-07.04 model-error diagnosis — distinguish mechanism refutation from model/implementation limitation (EvidenceUpdate)
+- ✅ FR-07.04 model-error diagnosis — distinguish mechanism refutation from model/implementation limitation (typed `EvidenceUpdate`, `model_error`, #54)
 
 ### Stage 8 — Record discoveries, renew
 - ✅ FR-08.01 **DiscoveryDelta** — semantic change between cycle states (`evaluation.discovery_delta`)
-- ⬜ FR-08.02 first-class Discovery records (scope / novelty / counterevidence); passing a gate ≠ a discovery
-- ◑ FR-08.03 follow-ups from anomalies / sensitivity boundaries (only divergence/open-question driven today)
+- ✅ FR-08.02 first-class Discovery records (scope / novelty / counterevidence); passing a gate ≠ a discovery (`discovery_record`, #54)
+- ◑ FR-08.03 follow-ups from anomalies / sensitivity boundaries (divergence/open-question driven, now also refutation-steered via `model_error`)
 - ◑ FR-08.04 closure along **four** axes (operational / empirical / explanatory / publication) — ~3 today
 
 ## Missing — cross-cutting infrastructure
 - ⬜ **Immutable versioned dependencies** for models/datasets/runs/analyses/figures + invalidation (only validator-snapshot drift today)
 - ◑ **Uncertainty + assumptions + counterevidence + qualification** fields on claims/conclusions (provenance check only)
-- ⬜ **Autonomy policy + budget/cost-ceiling + tool allowlist + per-decision log** `{policy_version, actor, input_hashes, rationale, consequence, result}`
+- ◑ **Autonomy policy + budget/cost-ceiling + tool allowlist + per-decision log** `{policy_version, actor, input_hashes, rationale, consequence, result}` — one `AutonomyPolicy` now gates every consequential op (#49); budget/cost-ceiling, tool allowlist, and the per-decision log are still to come.
 - ⬜ **Scientific quality metrics** — information gain, discrimination, model correction, evidence quality, figure adequacy, cycle efficiency
-- ◑ **Typed feedback transitions** (result→model, viz→analysis, interpretation→experiment, discovery→hypotheses) — partially via execute_action/advance routing
+- ◑ **Typed feedback transitions** (result→model, viz→analysis, interpretation→experiment, discovery→hypotheses) — result→model (`model_error` EvidenceUpdate) and the human reopen (`reopen` op) now typed; viz→analysis + interpretation→experiment still via execute_action/advance routing.
 
 ## Implementation waves (from the spec)
 0. Core contracts — entity schemas, cycle-state fingerprints, typed feedback actions
