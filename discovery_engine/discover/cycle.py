@@ -1508,6 +1508,34 @@ def _post_run_sync(sdir, before_runs: set) -> None:
     except Exception:  # noqa: BLE001 -- sync is best-effort, never fails an advance
         pass
 
+def _pending_design_studies(inv_spec: dict, studies: dict) -> list[str]:
+    """Member studies that carry a *discriminable* competing-hypothesis fork but have no
+    discriminating child study yet. Pure — the DE-10 trigger for autonomous design.
+
+    Skips, so advance never loops or over-designs:
+    - a study whose ``<slug>-discriminating`` child already exists (idempotent); and
+    - a study that is itself already a discriminating experiment — its competing
+      hypotheses were produced BY a ``design``/``revision`` (so running *it* discriminates;
+      designing a grandchild would be wrong)."""
+    from discovery_engine.phases.hypotheses import _as_list, discriminating_hypotheses
+    have = set(studies or {})
+    _designed_origin = {"design", "revision"}
+    origin_by_study: dict[str, set] = {}
+    for h in _as_list((inv_spec or {}).get("hypotheses")):
+        if isinstance(h, dict) and h.get("study"):
+            origin_by_study.setdefault(h["study"], set()).add(
+                str((h.get("origin") or {}).get("kind") or ""))
+    out: list[str] = []
+    for slug, info in sorted(discriminating_hypotheses(inv_spec or {}).items()):
+        if not (isinstance(info, dict) and info.get("discriminable")):
+            continue
+        if slug not in have or f"{slug}-discriminating" in have:
+            continue
+        if origin_by_study.get(slug, set()) & _designed_origin:
+            continue   # already a discriminating/revision study — running it discriminates
+        out.append(slug)
+    return out
+
 def advance_cycle(ws_root: Path | str, inv_slug: str, *, autonomous: bool = False,
                   runner=None, max_runs: int = 12, render_hook=None,
                   worktree: Path | str | None = None, policy=None, build_hook=None) -> dict:
@@ -1539,6 +1567,27 @@ def advance_cycle(ws_root: Path | str, inv_slug: str, *, autonomous: bool = Fals
     gated_ops: set = set()      # (op, source) already gated: not retried, but they do not claim the study
     _, inv0, st0 = load_cycle_inputs(ws_root, inv_slug)
     before = de.closure(_cycle_with_evidence(ws_root, inv_slug, inv0, st0), inv0)["open_items"]
+    # DE-10: before running, autonomously AUTHOR a discriminating study for any member that
+    # carries a discriminable competing-hypothesis fork and has no discriminating child yet —
+    # gated by the autonomy policy, exactly like a seed. The materialized child is registered,
+    # so the run loop below raises and runs its own `test` op on the next crank. Idempotent:
+    # _pending_design_studies skips a study once its child exists, so advance never loops on it.
+    designed: list[dict] = []
+    for _dslug in _pending_design_studies(inv0, st0):
+        _dtgt = f"design:{_dslug}"
+        if not pol.is_autonomous:
+            designed.append({"study": _dslug, "status": "would-design (pass --autonomous to author)"})
+            continue
+        if not pol.allows(consequence="authoring", target=_dtgt):
+            designed.append({"study": _dslug, "status": "gated"})
+            continue
+        try:
+            from discovery_engine.discover.actions import materialize_design_study
+            _rep = materialize_design_study(ws_root, inv_slug, _dslug)
+            designed.append({"study": _dslug, "status": "designed",
+                             "child": _rep["child_slug"], "design_id": _rep["design_id"]})
+        except ValueError as _e:   # no discriminable fork after all — never crash an advance
+            designed.append({"study": _dslug, "status": "skipped", "detail": str(_e)})
     for _ in range(max_runs):
         _, inv, studies = load_cycle_inputs(ws_root, inv_slug)
         plan = de.execute_plan(_cycle_with_evidence(ws_root, inv_slug, inv, studies), inv)
@@ -1620,7 +1669,7 @@ def advance_cycle(ws_root: Path | str, inv_slug: str, *, autonomous: bool = Fals
             break               # hard failure
     _, inv2, st2 = load_cycle_inputs(ws_root, inv_slug)
     after = de.closure(_cycle_with_evidence(ws_root, inv_slug, inv2, st2), inv2)["open_items"]
-    return {"runs": ran, "needs_build": needs_build,
+    return {"runs": ran, "needs_build": needs_build, "designed": designed,
             "frontier_before": before, "frontier_after": after}
 
 def build_completion_map(ws_root: Path | str, inv_slug: str) -> dict:
