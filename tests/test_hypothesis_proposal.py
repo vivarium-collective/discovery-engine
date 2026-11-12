@@ -132,3 +132,37 @@ def test_promote_to_hypothesis_shape():
     h = promote_to_hypothesis(_good())
     assert h["status"] == "open" and h["origin"]["kind"] == "proposed"
     assert h["predictions"][0]["falsifier"]
+
+
+def _forked_proposal(study, op, value):
+    p = build_hypothesis_proposal(
+        f"Formate {op} {value} under the in-situ gradient.",
+        mechanism="H2-driven CO2 reduction at reduced gradient efficiency.",
+        predictions=[{"observable": "settled_formate_mM", "when": {"gradient_efficiency": 0.1},
+                      "expected": {"op": op, "value": value},
+                      "falsifier": f"settled_formate_mM not {op} {value} at gradient_efficiency=0.1"}],
+        provenance={"trigger": "competing_frameworks", "source": f"{study}#settled_formate_mM"})
+    p["study"] = study
+    return p
+
+
+def test_promote_preserves_the_discriminating_when_condition():
+    """A prediction's experimental condition (`when`) is what the autonomous design pass
+    turns into the discriminating arm (experiment_design.design_discriminating_study). If
+    promotion drops it, the materialized arms lose their concrete condition — so promotion
+    must carry `when` through onto the authored hypothesis."""
+    h = promote_to_hypothesis(_forked_proposal("og-01", ">=", 1.0))
+    assert h["predictions"][0]["when"] == {"gradient_efficiency": 0.1}
+
+
+def test_promote_preserves_study_so_the_fork_is_discoverable():
+    """A hypothesis must carry its `study`, or discriminating_hypotheses can't scope it and
+    the autonomous design pass never sees the fork. Two accepted proposals on the same study
+    predicting disjoint bands on one observable must form a discriminable fork."""
+    from discovery_engine.phases.hypotheses import discriminating_hypotheses
+    classical = promote_to_hypothesis(_forked_proposal("og-01", ">=", 1.0))
+    reassess = promote_to_hypothesis(_forked_proposal("og-01", "<=", 0.05))
+    assert classical["study"] == "og-01" and reassess["study"] == "og-01"
+    disc = discriminating_hypotheses({"hypotheses": [classical, reassess]})
+    assert disc.get("og-01", {}).get("discriminable") is True
+    assert disc["og-01"]["observable"] == "settled_formate_mM"
