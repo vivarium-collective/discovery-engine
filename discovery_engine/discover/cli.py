@@ -88,11 +88,14 @@ def summarize_advance(result: dict) -> str:
     """Human-readable advance log: what ran, what needs building, the frontier delta."""
     L = [f"frontier {result['frontier_before']} → {result['frontier_after']} "
          f"({len(result['runs'])} run attempt(s))"]
+    for d in result.get("designed") or []:
+        tail = (f" — {d['child']}" if d.get("child") else (f" — {d['detail']}" if d.get("detail") else ""))
+        L.append(f"  [design:{d['status']}] {d['study']}{tail}")
     for r in result["runs"]:
         L.append(f"  [{r['status']}] {r['target']}" + (f" — {r['outcome']}" if r.get("outcome") else ""))
     for b in result["needs_build"]:
         L.append(f"  [needs build] {b['study']}: {'; '.join(b['gaps'][:2])}")
-    if not result["runs"] and not result["needs_build"]:
+    if not result["runs"] and not result["needs_build"] and not (result.get("designed")):
         L.append("  (no runnable open questions — nothing to advance)")
     return "\n".join(L)
 
