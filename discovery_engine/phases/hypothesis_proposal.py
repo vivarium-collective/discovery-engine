@@ -161,8 +161,14 @@ def promote_to_hypothesis(proposal: dict) -> dict:
         "id": proposal["id"],
         "statement": proposal.get("statement"),
         "mechanism": proposal.get("mechanism"),
+        # `study` scopes the hypothesis to its member study; without it the fork is invisible
+        # to discriminating_hypotheses / the autonomous design pass. Carry it through when set.
+        **({"study": proposal["study"]} if proposal.get("study") else {}),
         "predictions": [{"observable": p.get("observable"), "expected": p.get("expected"),
-                         "falsifier": p.get("falsifier")}
+                         "falsifier": p.get("falsifier"),
+                         # `when` is the experimental condition the autonomous design pass turns
+                         # into the discriminating arm; carry it through when the proposal set it.
+                         **({"when": p["when"]} if isinstance(p, dict) and p.get("when") else {})}
                         for p in proposal.get("predictions") or [] if isinstance(p, dict)],
         "status": "open",
         "origin": {"kind": "proposed", "from": proposal["id"]},
