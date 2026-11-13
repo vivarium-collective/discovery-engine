@@ -415,6 +415,8 @@ def main(argv: list[str] | None = None) -> int:
     p_bm = sub.add_parser("benchmark",
                           help="run the DE-13 ablation benchmark in a temp dir (read-only)")
     p_bm.add_argument("--json", action="store_true", help="emit config -> metrics as JSON")
+    p_bm.add_argument("--recovery", action="store_true",
+                      help="run the recovery track (mechanism recovery + held-out error) instead")
 
     p_snap = sub.add_parser("snapshot-validations",
                             help="accept the current validation state; later drift is flagged stale")
@@ -699,7 +701,8 @@ def main(argv: list[str] | None = None) -> int:
         import tempfile
         from dataclasses import asdict as _asdict
         from pathlib import Path as _P
-        from discovery_engine.benchmark.report import render_matrix, run_matrix
+        from discovery_engine.benchmark.report import (
+            render_matrix, render_recovery_matrix, run_matrix, run_recovery_matrix)
 
         class _Factory:
             def __init__(self, base):
@@ -712,11 +715,15 @@ def main(argv: list[str] | None = None) -> int:
                 return d
 
         with tempfile.TemporaryDirectory(prefix="de-benchmark-") as td:
-            matrix = run_matrix(tmp_path_factory=_Factory(td))
+            if args.recovery:
+                matrix = run_recovery_matrix(tmp_path_factory=_Factory(td))
+            else:
+                matrix = run_matrix(tmp_path_factory=_Factory(td))
+        render = render_recovery_matrix if args.recovery else render_matrix
         if args.json:
             print(_json.dumps({k: _asdict(v) for k, v in matrix.items()}, indent=2))
         else:
-            print(render_matrix(matrix))
+            print(render(matrix))
         return 0
 
     if args.cmd == "ingest-feedback":

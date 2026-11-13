@@ -21,10 +21,25 @@ Scope of this slice — read before trusting a number here:
 - Deterministic: no real LLM, no real simulation. A single
   ``run_cycle → propose(oracle) → apply_result`` pass; no ``advance_cycle``/``FakeRunner``.
 
-Deferred follow-ups: the acquire→build→run bridge for true
-``mechanism_recovered``/``held_out_error``; the real-LLM filler; and the remaining §17 matrix
-rows. ``overreach_critiqued`` keys on the *presence* of a critique, not its substance — a
-content-quality check on the critique is a further follow-up.
+Slice 2 — recovery track. ``discover benchmark --recovery`` drives the engine's REAL loop end
+to end: ``capability_gap → accept → build_hook → advance_cycle → run → store-less grade →
+finding observation``. Two metrics are EARNED by that run, not flagged: ``mechanism_recovered``
+(the built model's observable lands in the acceptance band) and ``held_out_error``
+(|observed − true_value|). The matrix: ``full`` builds a faithful model and is recovered;
+``full_decoy`` builds a model that PASSES the structural coverage gate (it declares the
+required capability) but IMPLEMENTS the wrong mechanism, so its run lands OUT of band and it is
+not recovered — the behavioral-test run is the arbiter that catches a model fooling the
+name-only gate; ``no_acquire`` has no build capability, so no run happens and it is not
+recovered. Honest scope: the model is a TOY (not a real simulator). The per-config
+``build_hook`` is the model-builder analog — by engine design the engine never builds itself,
+a workspace-injected hook does. The observable is computed by a store-less evaluator reading
+the BUILT model's implemented mechanism, so the result is keyed on a real computation, not a
+config name.
+
+Deferred follow-ups: wiring the *acquisition-proposal* path (slice 1) to this capability-gap
+recovery loop, so the actual proposal path closes the loop end to end; the real-LLM filler; and
+the remaining §17 matrix rows. ``overreach_critiqued`` keys on the *presence* of a critique, not
+its substance — a content-quality check on the critique is a further follow-up.
 """
 from discovery_engine.benchmark.scenario import GroundTruth, Scenario, build_scenario
 
