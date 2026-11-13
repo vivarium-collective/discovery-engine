@@ -6,7 +6,13 @@ validates an agent-authored proposal against a strict contract, and records it a
 ``proposed`` with provenance. The mechanism itself is authored by an agent following
 ``skills/acquire_model/SKILL.md``; the engine owns the type and the gate.
 
-A proposal is never built, promoted, or marked verified by this code.
+A proposal is never built, promoted, or marked verified by this code. This module only types
+and validates a proposal. Acceptance lives in
+``discovery_engine.discover.actions.accept_model_acquisition_proposal``: an accepted proposal
+whose mechanism is identifier-shaped is added to the investigation's ``required_mechanisms``,
+and from there the capability-gap loop builds and runs it. Acceptance is still a decider
+(human) step; there is no automatic accept for proposals yet. A prose (non-identifier)
+mechanism is accepted but not fed to a capability gap.
 
 Shape (``investigation.yaml::model_acquisition_proposals[]``)::
 

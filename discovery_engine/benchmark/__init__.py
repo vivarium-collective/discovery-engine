@@ -36,9 +36,11 @@ a workspace-injected hook does. The observable is computed by a store-less evalu
 the BUILT model's implemented mechanism, so the result is keyed on a real computation, not a
 config name.
 
-Deferred follow-ups: wiring the *acquisition-proposal* path (slice 1) to this capability-gap
-recovery loop, so the actual proposal path closes the loop end to end; the real-LLM filler; and
-the remaining §17 matrix rows. ``overreach_critiqued`` keys on the *presence* of a critique, not
+The acquisition-proposal path now closes the loop: accepting a proposal via
+``discover.actions.accept_model_acquisition_proposal`` feeds its (identifier-shaped) mechanism into
+``required_mechanisms``, which the capability-gap loop then builds and runs.
+
+Deferred follow-ups: the real-LLM filler; and the remaining §17 matrix rows. ``overreach_critiqued`` keys on the *presence* of a critique, not
 its substance — a content-quality check on the critique is a further follow-up.
 """
 from discovery_engine.benchmark.scenario import GroundTruth, Scenario, build_scenario
