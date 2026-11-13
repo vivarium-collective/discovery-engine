@@ -6,9 +6,9 @@ from discovery_engine.discover.actions import (
     record_hypothesis_proposal,
     record_model_acquisition_proposal,
 )
-from discovery_engine.phases.model_acquisition import coerce_model_acquisition_proposal
 from discovery_engine.phases.critique_report import coerce_critique_report
 from discovery_engine.phases.hypothesis_proposal import coerce_hypothesis_proposal
+from discovery_engine.phases.model_acquisition import coerce_model_acquisition_proposal
 
 
 def test_registry_routes_hypothesize_to_its_validator_and_recorder():

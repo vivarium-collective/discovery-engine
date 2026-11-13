@@ -19,7 +19,9 @@ needed) and validates + records what the agent writes. The engine owns the schem
 |---|---|---|---|
 | `hypothesize` | a measured surprise the live hypotheses did not predict | `HypothesisProposal` | `discover hypothesize` |
 | `critique` | a verdict/confidence that outruns its evidence | `CritiqueReport` | `discover critique` |
-| `acquire_model` | a `needs_author` model mechanism the frontier cannot fill | `ModelAcquisitionProposal` | `discover acquire_model` |
+| `acquire_model` | a `needs_author` model mechanism the frontier cannot fill | `ModelAcquisitionProposal` | coordinator (`propose --fill` → `apply_result`) |
+
+`acquire_model` is driven through the coordinator, not a dedicated verb yet.
 
 **Hard rules for every skill.** Never mark evidence `verified`, never promote a proposal to
 a Finding/Discovery, never introduce a mechanism, parameter, or literature value that was

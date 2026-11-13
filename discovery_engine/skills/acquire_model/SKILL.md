@@ -2,7 +2,7 @@
 name: acquire_model
 summary: Author a ModelAcquisitionProposal when the engine surfaces a needs_author model mechanism.
 proposal_type: ModelAcquisitionProposal
-verb: discover acquire_model
+verb: discover propose --fill
 ---
 
 # acquire_model
@@ -32,13 +32,11 @@ A YAML/JSON `ModelAcquisitionProposal` with:
 
 ## Record it
 
-```
-discover acquire_model <investigation> --from proposal.yaml
-```
-
-The engine validates the contract (mechanism, expected_behavioral_test, provenance.trigger)
-and records it as `status: proposed` in `model_acquisition_proposals[]`. A human or reviewer
-decides whether it is accepted and built.
+The coordinator fills this kind via `discover propose --fill` (the DiscoveryAgent routes the
+`acquire_model` request to this skill). `apply_result` validates the artifact (coerce:
+mechanism, expected_behavioral_test, provenance.trigger) and records it to
+`investigation.yaml::model_acquisition_proposals[]` as `status: proposed`. A human or
+reviewer decides whether it is accepted and built.
 
 ## Hard rules
 

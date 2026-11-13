@@ -70,6 +70,7 @@ def default_registry() -> SkillRegistry:
             name="acquire_model",
             proposal_type="ModelAcquisitionProposal",
             skill_md="discovery_engine/skills/acquire_model/SKILL.md",
+            # matches generation_emit._PRODUCES["acquire_model"]; the recorded artifact is a ModelAcquisitionProposal satisfying that contract
             produces="model_spec/v1",
             consequence="authoring",
             coerce=coerce_model_acquisition_proposal,
