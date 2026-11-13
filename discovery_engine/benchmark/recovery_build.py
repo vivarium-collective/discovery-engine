@@ -11,7 +11,7 @@ gap's declared mechanism is still ``feedback_inhibition``: the structural covera
 still passes (capability covers the declared mechanism) but the implemented mechanism is
 wrong, so the recovered observable lands out of band.
 
-Minimal-but-real spike helper; Task 2 finalizes it.
+Faithful vs decoy is expressed only through the ``implemented_mechanism`` argument.
 """
 from __future__ import annotations
 
@@ -67,7 +67,7 @@ def build_hook(implemented_mechanism: str) -> Callable[[dict, Any], dict]:
             "observables": [],
             "behavior_tests": [{
                 "name": "recover",
-                "measure": {"kind": TOY_KIND},            # store-less toy kind, no path
+                "measure": {"kind": TOY_KIND, "study": slug},   # store-less; names the study to read implements: from
                 "pass_if": dict(BAND),
             }],
             "findings": [{

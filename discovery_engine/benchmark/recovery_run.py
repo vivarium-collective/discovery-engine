@@ -11,7 +11,6 @@ Note: the engine reads runs via ``discovery_engine.study.run_registry`` (there i
 ``viva_emitters.run_registry`` in this environment), so the row is registered there — the
 same module the engine's ``record_runs`` lists from.
 
-Minimal-but-real spike helper; Task 2 finalizes it.
 """
 from __future__ import annotations
 
