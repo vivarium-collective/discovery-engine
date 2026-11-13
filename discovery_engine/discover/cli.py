@@ -417,6 +417,11 @@ def main(argv: list[str] | None = None) -> int:
     p_bm.add_argument("--json", action="store_true", help="emit config -> metrics as JSON")
     p_bm.add_argument("--recovery", action="store_true",
                       help="run the recovery track (mechanism recovery + held-out error) instead")
+    p_bm.add_argument("--real-llm", action="store_true",
+                      help="fill proposals with $VIVA_FILLER_CMD (a real model) instead of the "
+                           "deterministic oracle; result reflects that model and is not a fixed pass")
+    p_bm.add_argument("--filler-cmd", default=None,
+                      help="explicit fill command for --real-llm (overrides $VIVA_FILLER_CMD)")
 
     p_snap = sub.add_parser("snapshot-validations",
                             help="accept the current validation state; later drift is flagged stale")
@@ -714,11 +719,28 @@ def main(argv: list[str] | None = None) -> int:
                 d.mkdir(parents=True)
                 return d
 
+        fill = None
+        if getattr(args, "real_llm", False):
+            import sys as _sys
+            if args.recovery:
+                print("--real-llm applies to the proposal track, not --recovery "
+                      "(the recovery track builds a model via a build hook, not a fill)",
+                      file=_sys.stderr)
+                return 2
+            import os as _os
+
+            from discovery_engine.phases.generation_apply import subprocess_filler
+            cmd = args.filler_cmd or _os.environ.get("VIVA_FILLER_CMD")
+            if not cmd:
+                print("--real-llm needs a fill command: set $VIVA_FILLER_CMD or pass --filler-cmd",
+                      file=_sys.stderr)
+                return 2
+            fill = subprocess_filler(cmd)
         with tempfile.TemporaryDirectory(prefix="de-benchmark-") as td:
             if args.recovery:
                 matrix = run_recovery_matrix(tmp_path_factory=_Factory(td))
             else:
-                matrix = run_matrix(tmp_path_factory=_Factory(td))
+                matrix = run_matrix(tmp_path_factory=_Factory(td), fill=fill)
         render = render_recovery_matrix if args.recovery else render_matrix
         if args.json:
             print(_json.dumps({k: _asdict(v) for k, v in matrix.items()}, indent=2))
