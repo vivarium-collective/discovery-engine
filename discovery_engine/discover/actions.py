@@ -201,6 +201,42 @@ def record_hypothesis_proposal(inv_path: Path | str, proposal: dict) -> dict:
     return proposal
 
 
+def record_captures(inv_path: Path | str, captures) -> list[dict]:
+    """Append coordinator ProposalCaptures to ``investigation.yaml::agent_captures[]``
+    (append-only audit log), idempotent by a derived content id (sha1 of
+    ``request_id|at|outcome``). Every capture needs ``request_id``; a ``proposed`` capture
+    also needs a non-empty ``artifact`` and a ``filler``. ``error``/``empty``/``invalid``
+    captures are accepted without them (failure records are the point). Validates all
+    before writing. Returns the newly recorded captures."""
+    import hashlib
+    import dataclasses
+    rows: list[dict] = []
+    for c in captures or []:
+        d = dataclasses.asdict(c) if dataclasses.is_dataclass(c) else dict(c)
+        if not d.get("request_id"):
+            raise ValueError("capture missing request_id")
+        if d.get("outcome") == "proposed":
+            if not d.get("artifact"):
+                raise ValueError(f"proposed capture {d['request_id']!r} missing artifact")
+            if not d.get("filler"):
+                raise ValueError(f"proposed capture {d['request_id']!r} missing filler")
+        d["id"] = "cap:" + hashlib.sha1(
+            f"{d['request_id']}|{d.get('at')}|{d.get('outcome')}".encode()).hexdigest()[:12]
+        rows.append(d)
+    path = Path(inv_path)
+    spec = load_yaml_mapping(path)
+    have = [x for x in spec.get("agent_captures") or [] if isinstance(x, dict)]
+    ids = {x.get("id") for x in have}
+    new = []
+    for d in rows:
+        if d["id"] not in ids:
+            ids.add(d["id"]); have.append(d); new.append(d)
+    if new:
+        spec["agent_captures"] = have
+        save_yaml_atomic(path, spec)
+    return new
+
+
 def set_hypothesis_proposal_status(inv_path: Path | str, proposal_id: str, status: str,
                                    *, by: str = "human", rationale: str | None = None) -> dict:
     """Accept or decline a recorded HypothesisProposal. On ``accepted`` the proposal is

@@ -14,7 +14,7 @@
     },
     "kind": {
       "type": "string",
-      "enum": ["propose_study", "acquire_model", "author_tests", "interpret_finding", "resolve_decision", "explain", "visualize"]
+      "enum": ["propose_study", "acquire_model", "author_tests", "interpret_finding", "resolve_decision", "explain", "visualize", "hypothesize", "critique"]
     },
     "target": {
       "type": "string",

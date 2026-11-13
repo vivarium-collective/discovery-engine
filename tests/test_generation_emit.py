@@ -55,3 +55,45 @@ def test_order_preserved_and_malformed_items_skipped():
 def test_empty_and_none_input():
     assert generation_requests([]) == []
     assert generation_requests(None) == []
+
+
+def test_anomaly_opportunity_emits_hypothesize_with_trigger_context():
+    opp = {"id": "anomaly:s3:colo", "source": "s3:colo", "action_type": "revise_model",
+           "kind": "anomaly", "question": "colo=0.9 outside all live bands",
+           "competing_predictions": None, "value": {"score": 0.5}}
+    reqs = generation_requests([opp])
+    assert [r.kind for r in reqs] == ["hypothesize"]
+    r = reqs[0]
+    assert r.produces == "hypothesis_proposal/v1"
+    assert r.target == "s3:colo"
+    assert r.gate == "review"                      # branch-point default
+    assert r.context.get("kind") == "anomaly"      # trigger carried for the SKILL.md
+    assert "0.9" in r.rationale                    # observed value reaches the filler
+
+
+def test_model_disagreement_opportunity_emits_hypothesize():
+    opp = {"id": "model_disagreement:s2:k", "source": "s2:k", "action_type": "revise_model",
+           "kind": "model_disagreement", "value": {"score": 0.4}}
+    assert [r.kind for r in generation_requests([opp])] == ["hypothesize"]
+
+
+def test_revision_proposed_still_emits_acquire_model():
+    opp = {"id": "revision_proposed:rp1", "source": "rp1", "action_type": "revise_model",
+           "kind": "revision_proposed", "value": {"score": 0.6}}
+    assert [r.kind for r in generation_requests([opp])] == ["acquire_model"]
+
+
+def test_overreaching_verdict_opportunity_emits_critique():
+    opp = {"id": "verdict_overreach:claim:x", "source": "claim:x", "action_type": "synthesize",
+           "kind": "verdict_overreach", "value": {"score": 0.3}}
+    assert [r.kind for r in generation_requests([opp])] == ["critique"]
+
+
+def test_competing_predictions_carried_into_hypothesize_context():
+    preds = [{"model": "a", "value": 0.1}, {"model": "b", "value": 0.8}]
+    opp = {"id": "model_disagreement:s2:k", "source": "s2:k", "action_type": "revise_model",
+           "kind": "model_disagreement", "competing_predictions": preds,
+           "value": {"score": 0.4}}
+    reqs = generation_requests([opp])
+    assert reqs[0].kind == "hypothesize"
+    assert reqs[0].context["competing_predictions"] == preds

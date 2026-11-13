@@ -65,6 +65,10 @@ def _apply_finding_interpretation(sdir: Path, finding_id: str, art: dict) -> lis
     return applied
 
 
+# investigation.yaml block each registry skill's recorder writes to.
+_SKILL_BLOCKS = {"hypothesize": "hypothesis_proposals", "critique": "critique_reports"}
+
+
 def apply_result(request: GenerationRequest, result: GenerationResult, *,
                  ws_root, inv_slug: str) -> dict:
     """Route ``(request, result)`` to the canonical write op for ``request.kind``.
@@ -95,6 +99,14 @@ def apply_result(request: GenerationRequest, result: GenerationResult, *,
             raise ValueError(f"no study.yaml for {study!r}")
         applied = _apply_finding_interpretation(sdir, str(finding_id), art)
         return {"status": "applied", "applied_to": applied}
+
+    from discovery_engine.agents.skill_registry import default_registry  # lazy: avoid cycles
+    sk = default_registry().get(kind)
+    if sk is not None:
+        block = _SKILL_BLOCKS.get(sk.kind, f"{sk.kind}_proposals")
+        coerced = sk.coerce(art)          # ValueError propagates on a malformed artifact
+        rec = sk.record(_inv_path(ws_root, inv_slug), coerced)
+        return {"status": "applied", "applied_to": [f"{inv_slug}/{block}"], "detail": rec}
 
     return {"status": "queued_for_review", "applied_to": [],
             "reason": f"apply not wired for kind {kind!r} yet"}
