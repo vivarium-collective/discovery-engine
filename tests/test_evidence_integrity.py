@@ -60,6 +60,94 @@ def test_observed_violating_its_pass_if_is_contradicted():
     assert r["status"] == E.CONTRADICTED
 
 
+def _finding_src(fid, observed, source_type, from_test=None, run_ids=None, uncertainty=None):
+    f = _finding(fid, observed=observed, from_test=from_test, run_ids=run_ids)
+    f["evidence"]["source_type"] = source_type
+    if uncertainty is not None:
+        f["evidence"]["uncertainty"] = uncertainty
+    return f
+
+
+def test_default_source_type_is_simulation_and_unchanged():
+    # No source_type -> treated as simulation; the existing VERIFIED rule still applies,
+    # and the record carries source_type=simulation.
+    f = _finding("f1", observed=0.9, from_test="gate", run_ids=["r1"])
+    r = E.classify_finding_evidence(f, _study("s", [f]), {"r1"}, {"r1": _row(0.9)})
+    assert r["status"] == E.VERIFIED
+    assert r["source_type"] == E.SIMULATION
+
+
+def test_non_simulation_source_is_not_verified_by_the_sim_rule():
+    # Honesty guard: even if a non-simulation finding cites a resolvable registered run,
+    # the simulation VERIFIED rule must NOT apply — it is PROVISIONAL pending a source validator.
+    f = _finding_src("f2", 0.9, "literature", from_test="gate", run_ids=["r1"])
+    r = E.classify_finding_evidence(f, _study("s", [f]), {"r1"}, {"r1": _row(0.9)})
+    assert r["status"] == E.PROVISIONAL
+    assert r["source_type"] == "literature"
+    assert "non-simulation" in r["reason"] and "literature" in r["reason"]
+
+
+def test_lab_and_external_sources_are_provisional_with_source_reason():
+    for st in ("lab", "external_dataset"):
+        f = _finding_src(f"f-{st}", 0.7, st)
+        r = E.classify_finding_evidence(f, _study("s", [f]), set(), {})
+        assert r["status"] == E.PROVISIONAL and r["source_type"] == st
+        assert "non-simulation" in r["reason"]
+
+
+def test_source_type_and_uncertainty_carried_into_record():
+    f = _finding_src("f3", 0.5, "lab", uncertainty={"sd": 0.05})
+    r = E.classify_finding_evidence(f, _study("s", [f]), set(), {})
+    assert r["source_type"] == "lab" and r["uncertainty"] == {"sd": 0.05}
+
+
+def test_non_sim_prose_only_still_unsupported():
+    f = {"id": "f4", "evidence": {"source_type": "literature"}}
+    r = E.classify_finding_evidence(f, _study("s", [f]), set(), {})
+    assert r["status"] == E.UNSUPPORTED
+
+
+def test_blank_or_missing_or_mixedcase_source_type_defaults_to_simulation():
+    for st in (None, "", "   ", "Simulation"):
+        f = _finding("fs", observed=0.9, from_test="gate", run_ids=["r1"])
+        if st is not None:
+            f["evidence"]["source_type"] = st
+        r = E.classify_finding_evidence(f, _study("s", [f]), {"r1"}, {"r1": _row(0.9)})
+        assert r["status"] == E.VERIFIED and r["source_type"] == E.SIMULATION, st
+
+
+def test_falsy_nonstring_source_type_fails_closed_not_verified():
+    # A YAML typo like `source_type: false` must NOT fall back to simulation and verify.
+    f = _finding_src("ff", 0.9, False, from_test="gate", run_ids=["r1"])
+    r = E.classify_finding_evidence(f, _study("s", [f]), {"r1"}, {"r1": _row(0.9)})
+    assert r["status"] == E.PROVISIONAL and r["source_type"] == "false"
+
+
+def test_unknown_source_type_is_provisional_with_unknown_reason():
+    f = _finding_src("fu", 0.5, "labb")   # typo
+    r = E.classify_finding_evidence(f, _study("s", [f]), set(), {})
+    assert r["status"] == E.PROVISIONAL and "unknown source_type" in r["reason"]
+
+
+def test_reconcile_rollup_with_non_simulation_finding_is_provisional():
+    inv = {"studies": ["s1"]}
+    f_sim = _finding("a", 0.9, "g", ["r1"])
+    f_lit = _finding_src("b", 0.9, "literature")
+    studies = {"s1": _study("s1", [f_sim, f_lit], runs=[{"name": "r1", **_row(0.9, "g")}])}
+    out = E.reconcile_evidence_state(inv, studies, {"s1": [{"run_id": "r1"}]})
+    assert out["summary"][E.VERIFIED] == 1 and out["summary"][E.PROVISIONAL] == 1
+    assert out["by_study"]["s1"]["status"] == E.PROVISIONAL  # the literature finding is the weakest
+
+
+def test_non_sim_observed_violating_pass_if_is_contradicted():
+    # A contradiction is source-agnostic: a cited value that violates a stated band argues
+    # against the claim regardless of where it came from.
+    tests = [{"name": "gate", "pass_if": {"op": ">", "value": 0.5}}]
+    f = _finding_src("f5", 0.2, "literature", from_test="gate")
+    r = E.classify_finding_evidence(f, _study("s", [f], tests), set(), {})
+    assert r["status"] == E.CONTRADICTED
+
+
 def test_reconcile_rolls_up_study_to_its_weakest_numeric_finding():
     inv = {"studies": ["s1", "s2"]}
     studies = {
