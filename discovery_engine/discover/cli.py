@@ -421,7 +421,7 @@ def main(argv: list[str] | None = None) -> int:
                       help="fill proposals with $VIVA_FILLER_CMD (a real model) instead of the "
                            "deterministic oracle; result reflects that model and is not a fixed pass")
     p_bm.add_argument("--filler-cmd", default=None,
-                      help="explicit fill command for --real-llm (overrides $VIVA_FILLER_CMD)")
+                      help="explicit fill command (implies --real-llm; overrides $VIVA_FILLER_CMD)")
 
     p_snap = sub.add_parser("snapshot-validations",
                             help="accept the current validation state; later drift is flagged stale")
@@ -720,7 +720,7 @@ def main(argv: list[str] | None = None) -> int:
                 return d
 
         fill = None
-        if getattr(args, "real_llm", False):
+        if getattr(args, "real_llm", False) or getattr(args, "filler_cmd", None):
             import sys as _sys
             if args.recovery:
                 print("--real-llm applies to the proposal track, not --recovery "

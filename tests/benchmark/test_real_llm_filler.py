@@ -79,6 +79,32 @@ def test_subprocess_filler_no_command_fills_nothing(tmp_path, monkeypatch):
     assert m.mechanism_proposed is False and m.proposal_count == 0
 
 
+def test_cli_real_llm_without_command_errors(tmp_path, monkeypatch, capsys):
+    from discovery_engine.discover import cli
+    monkeypatch.delenv("VIVA_FILLER_CMD", raising=False)
+    monkeypatch.chdir(tmp_path)
+    assert cli.main(["benchmark", "--real-llm", "--json"]) == 2
+    assert "VIVA_FILLER_CMD" in capsys.readouterr().err
+
+
+def test_cli_real_llm_with_recovery_errors(tmp_path, monkeypatch, capsys):
+    from discovery_engine.discover import cli
+    monkeypatch.chdir(tmp_path)
+    assert cli.main(["benchmark", "--real-llm", "--recovery", "--filler-cmd", "x"]) == 2
+    assert "recovery" in capsys.readouterr().err.lower()
+
+
+def test_cli_filler_cmd_implies_real_llm(tmp_path, monkeypatch, capsys):
+    # --filler-cmd alone (no --real-llm) drives the real subprocess seam.
+    import json
+
+    from discovery_engine.discover import cli
+    monkeypatch.chdir(tmp_path)
+    assert cli.main(["benchmark", "--filler-cmd", _canned_cmd(tmp_path), "--json"]) == 0
+    data = json.loads(capsys.readouterr().out)
+    assert data["full"]["mechanism_proposed"] is True
+
+
 @pytest.mark.skipif(not os.environ.get("VIVA_FILLER_CMD"),
                     reason="no real $VIVA_FILLER_CMD configured")
 def test_real_llm_filler_runs(tmp_path):
