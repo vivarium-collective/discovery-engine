@@ -33,6 +33,8 @@ KINDS = (
     "resolve_decision",
     "explain",
     "visualize",
+    "hypothesize",
+    "critique",
 )
 GATES = ("auto", "review")
 
@@ -50,6 +52,8 @@ _DEFAULT_BY_KIND = {
     "resolve_decision": "review",
     "explain": "auto",
     "visualize": "auto",
+    "hypothesize": "review",
+    "critique": "review",
 }
 
 

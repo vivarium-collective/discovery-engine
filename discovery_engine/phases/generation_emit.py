@@ -39,9 +39,12 @@ _PRODUCES = {
     "resolve_decision": "decision/v1",
     "explain": "explanation/v1",
     "visualize": "viz_spec/v1",
+    "hypothesize": "hypothesis_proposal/v1",
+    "critique": "critique_report/v1",
 }
 
-_CONTEXT_KEYS = ("kind", "competing_predictions", "unknowns", "confidence", "state", "priority")
+_CONTEXT_KEYS = ("kind", "competing_predictions", "unknowns", "confidence", "state", "priority",
+                 "observed")
 
 
 def _request_kind(opp: dict) -> str | None:
@@ -50,6 +53,12 @@ def _request_kind(opp: dict) -> str | None:
     # prose for a promoted claim), not a proposal for a new study.
     if op == "branch" and opp.get("kind") == "narrative_gap":
         return "explain"
+    # A raw surprise (anomaly / models disagreeing) is first a hypothesis to
+    # generate, not yet a model to acquire; revision_proposed stays acquire_model.
+    if opp.get("kind") in ("anomaly", "model_disagreement"):
+        return "hypothesize"
+    if opp.get("kind") == "verdict_overreach":
+        return "critique"
     return _OP_TO_KIND.get(op)
 
 
