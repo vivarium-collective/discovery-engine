@@ -139,7 +139,7 @@ def test_contradicted_study_spawns_no_revise_items_via_ledger(monkeypatch):
     ev = {"ledger": [{"study": "s3", "status": "contradicted"}], "by_study": {}, "summary": {}}
     res = discover.run_cycle(inv, _studies(), evidence_state=ev)
     assert res["revision_proposals"] == []
-    assert res["signals"] == {"model_disagreements": [], "anomalies": []}
+    assert res["signals"] == {"model_disagreements": [], "anomalies": [], "verdict_overreach": []}
     assert not _NEW & _kinds(de.frontier(res, inv))
     # control: without the evidence state the same study does spawn one
     assert discover.run_cycle(inv, _studies())["revision_proposals"]

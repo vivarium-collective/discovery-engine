@@ -51,7 +51,7 @@ EPISTEMIC_RELATIONS = ("builds-on", "tests", "refutes", "alternative-to", "motiv
 RESOLUTION_KINDS = ("unaddressed_criterion", "open_challenge", "narrative_gap",
                     "open_decision", "divergence", "open_question",
                     "validation_finding", "stale_validation", "pending_gate",
-                    "revision_proposed", "model_disagreement", "anomaly",
+                    "revision_proposed", "model_disagreement", "anomaly", "verdict_overreach",
                     "viz_broken", "viz_missing", "viz_proposed", "viz_stale",
                     "viz_misplaced", "viz_duplicated", "viz_untied")
 

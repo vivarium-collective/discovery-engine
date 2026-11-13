@@ -52,6 +52,7 @@ _PRIORITY = {
     "revision_proposed": 58,       # a ModelRevisionProposal awaiting review
     "model_disagreement": 48,      # arms disagree on an observable (no proposal yet)
     "anomaly": 48,                 # an observation outside every live hypothesis band
+    "verdict_overreach": 46,       # a verdict/confidence that outruns its evidence (advisory critique)
     # Visualization loop (NON-blocking): a declared figure that is broken/missing/stale.
     "viz_broken": 47, "viz_missing": 46, "viz_proposed": 44, "viz_stale": 38,
     # Viz appropriateness (NON-blocking, review tier): a figure shown where it does not belong.
@@ -77,6 +78,7 @@ _OP = {
     "revision_proposed": "revise_model",  # review/apply the proposed model revision
     "model_disagreement": "revise_model",
     "anomaly": "revise_model",
+    "verdict_overreach": "critique",     # author an advisory CritiqueReport; never engine-executed
     "viz_broken": "refine_viz", "viz_missing": "build_viz",
     "viz_proposed": "build_viz", "viz_stale": "refine_viz",
     "viz_misplaced": "relocate_viz", "viz_duplicated": "relocate_viz", "viz_untied": "relocate_viz",
@@ -274,6 +276,19 @@ def frontier(cycle_result: dict, inv_spec: dict) -> list[dict]:
             continue
         add("anomaly", f"{a.get('study')}:{a.get('observable')}",
             a.get("proposed_question") or f"{a.get('observable')} outside every live hypothesis band")
+    # A verdict/confidence that outruns its evidence surfaces as an ADVISORY critique trigger
+    # (the counterpart to an anomaly), emitted only when no CritiqueReport (of any status) already
+    # covers the study — so a recorded/dismissed critique is not re-raised forever. Op `critique`
+    # is filled by the critique skill across the seam; it is never dispatched by advance and never
+    # changes a verdict (non-blocking, like the other closed-loop signals).
+    critiqued = {c.get("target") for c in inv_spec.get("critique_reports") or []
+                 if isinstance(c, dict) and c.get("target")}
+    for t in sig.get("verdict_overreach") or []:
+        study = t.get("study")
+        if not study or study in critiqued:
+            continue
+        add("verdict_overreach", study,
+            t.get("note") or "a verdict/confidence outruns its evidence — critique it")
 
     # 7. visualization loop (non-blocking): one typed item per non-fresh declared figure.
     #    fresh emits nothing (derivation discharge).
@@ -596,11 +611,13 @@ _CLOSURE_BLOCKING = ("unaddressed_criterion", "narrative_gap", "open_challenge")
 # can teach something new; reconciling/adjudicating resolves bookkeeping.
 _OPP_INFO = {"test": 1.0, "branch": 1.0, "steer": 0.5, "synthesize": 0.3,
              "reconcile": 0.3, "revise": 0.3, "revalidate": 0.3, "revise_model": 0.6,
-             "build_viz": 0.4, "refine_viz": 0.2, "relocate_viz": 0.1, "build_process": 0.4}
+             "build_viz": 0.4, "refine_viz": 0.2, "relocate_viz": 0.1, "build_process": 0.4,
+             "critique": 0.4}   # advisory: names an overclaim worth adjudicating
 # Cost by action: a new study + simulation is dear; a reconcile is cheap.
 _OPP_COST = {"branch": 1.0, "test": 0.6, "steer": 0.3, "synthesize": 0.2,
              "reconcile": 0.2, "revise": 0.2, "revalidate": 0.2, "revise_model": 0.4,
-             "build_viz": 0.3, "refine_viz": 0.2, "relocate_viz": 0.2, "build_process": 0.5}
+             "build_viz": 0.3, "refine_viz": 0.2, "relocate_viz": 0.2, "build_process": 0.5,
+             "critique": 0.2}   # cheap: author one report, no simulation
 
 
 def _opp_impact(target: str, edges: list) -> float:
@@ -747,6 +764,12 @@ def _executor_for(op: str, target: str, kind: str | None = None) -> dict:
                 "consequence": "review", "auto_safe": False}
     if op == "revise_model":
         return {"executor": "discover revise", "command": f"discover revise <inv> {target} --apply",
+                "consequence": "review", "auto_safe": False}
+    if op == "critique":
+        # Advisory only: the critique skill authors a CritiqueReport; the engine records it and
+        # never changes a verdict. No auto-execution — it is filled across the generation seam.
+        return {"executor": "discover critique",
+                "command": f"discover critique <inv> {target} --from <report.yaml>",
                 "consequence": "review", "auto_safe": False}
     if op == "steer":
         return {"executor": "expert", "command": None, "consequence": "human-only", "auto_safe": False}
