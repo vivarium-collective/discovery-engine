@@ -412,6 +412,10 @@ def main(argv: list[str] | None = None) -> int:
     p_status = sub.add_parser("status", help="project one cycle and print the summary (no write)")
     p_status.add_argument("investigation", help="investigation slug")
 
+    p_bm = sub.add_parser("benchmark",
+                          help="run the DE-13 ablation benchmark in a temp dir (read-only)")
+    p_bm.add_argument("--json", action="store_true", help="emit config -> metrics as JSON")
+
     p_snap = sub.add_parser("snapshot-validations",
                             help="accept the current validation state; later drift is flagged stale")
     p_snap.add_argument("investigation", help="investigation slug")
@@ -688,6 +692,31 @@ def main(argv: list[str] | None = None) -> int:
             persist_cycle(inv_path, inv_spec, result, studies=studies, evidence_state=ev_state,
                           viz_state=viz_inventory(ws, args.investigation, studies))
             print(f"persisted cycle_state -> {inv_path}")
+        return 0
+
+    if args.cmd == "benchmark":
+        import json as _json
+        import tempfile
+        from dataclasses import asdict as _asdict
+        from pathlib import Path as _P
+        from discovery_engine.benchmark.report import render_matrix, run_matrix
+
+        class _Factory:
+            def __init__(self, base):
+                self.base, self.n = _P(base), 0
+
+            def mktemp(self, name):
+                self.n += 1
+                d = self.base / f"{name}-{self.n}"
+                d.mkdir(parents=True)
+                return d
+
+        with tempfile.TemporaryDirectory(prefix="de-benchmark-") as td:
+            matrix = run_matrix(tmp_path_factory=_Factory(td))
+        if args.json:
+            print(_json.dumps({k: _asdict(v) for k, v in matrix.items()}, indent=2))
+        else:
+            print(render_matrix(matrix))
         return 0
 
     if args.cmd == "ingest-feedback":
