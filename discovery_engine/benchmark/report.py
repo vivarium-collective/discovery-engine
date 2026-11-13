@@ -13,7 +13,8 @@ def run_matrix(configs=CONFIGS, *, tmp_path_factory) -> dict:
     out = {}
     for name, cfg in configs.items():
         sc = build_scenario(tmp_path_factory.mktemp(f"bench_{name}"))
-        out[name] = score(run_benchmark(sc, cfg), sc.ground_truth)
+        out[name] = score(run_benchmark(sc, cfg, oracle=cfg.oracle(sc.ground_truth)),
+                          sc.ground_truth)
     return out
 
 

@@ -17,6 +17,19 @@ def test_matrix_discriminates(tmp_path_factory):
     assert "mechanism_proposed" in out
 
 
+def test_decoy_control_makes_mechanism_match_load_bearing(tmp_path_factory):
+    # The negative control: full_decoy records a well-formed proposal naming the
+    # WRONG mechanism. It must score mechanism_proposed=False with the SAME
+    # proposal_count as full — otherwise the metric would just be counting proposals.
+    m = run_matrix(tmp_path_factory=tmp_path_factory)
+    full, decoy = m["full"], m["full_decoy"]
+    assert full.mechanism_proposed is True
+    assert decoy.mechanism_proposed is False
+    assert decoy.proposal_count >= 1
+    assert decoy.proposal_count == full.proposal_count
+    assert "full_decoy" in render_matrix(m)
+
+
 def test_cli_benchmark_json(tmp_path, monkeypatch, capsys):
     monkeypatch.chdir(tmp_path)
     assert cli.main(["benchmark", "--json"]) == 0

@@ -25,6 +25,7 @@ class GroundTruth:
     band: dict
     concealed_mechanism: str
     correct_composite: str
+    decoy_mechanism: str = "substrate_depletion"  # wrong-but-plausible; drives the negative control
 
 
 @dataclass(frozen=True)
