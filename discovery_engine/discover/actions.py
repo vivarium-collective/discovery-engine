@@ -537,6 +537,70 @@ def reject_capability_gap(ws_root: Path | str, inv_slug: str, cg: str, *, ration
     save_yaml_atomic(inv_path, spec)
     return gap
 
+def _ma_load(ws_root: Path | str, inv_slug: str, ma_id: str, rationale: str):
+    if not (rationale or "").strip():
+        raise ValueError("a non-empty rationale is required")
+    inv_path = investigations_dir(Path(ws_root)) / inv_slug / "investigation.yaml"
+    spec = load_yaml_mapping(inv_path)
+    prop = next((p for p in spec.get("model_acquisition_proposals") or []
+                 if isinstance(p, dict) and p.get("id") == ma_id), None)
+    if prop is None:
+        raise ValueError(f"unknown model acquisition proposal {ma_id!r}")
+    from discovery_engine.phases.model_acquisition import PROPOSED
+    if prop.get("status", PROPOSED) != PROPOSED:
+        raise ValueError(f"model acquisition proposal {ma_id!r} is already {prop.get('status')!r}")
+    return inv_path, spec, prop
+
+
+def _ma_stamp(prop: dict, entry: dict) -> None:
+    hist = prop.get("history")
+    if not isinstance(hist, list):
+        hist = []
+        prop["history"] = hist
+    hist.append(entry)
+
+
+def _ma_now() -> str:
+    return _dt.datetime.now(_dt.timezone.utc).isoformat(timespec="seconds")
+
+
+def accept_model_acquisition_proposal(ws_root: Path | str, inv_slug: str, ma_id: str, *,
+                                      rationale: str, by: str = "human") -> dict:
+    """Rationale-gated accept of a recorded ModelAcquisitionProposal. If its mechanism is
+    identifier-shaped (buildable), it is idempotently appended to the spec's
+    ``required_mechanisms`` so ``propose_capability_gaps`` raises a buildable gap; a prose
+    mechanism is accepted but never fed. Returns the updated proposal."""
+    from discovery_engine.feedback.capability_gaps import _is_buildable_mechanism
+    from discovery_engine.phases.model_acquisition import ACCEPTED
+    inv_path, spec, prop = _ma_load(ws_root, inv_slug, ma_id, rationale)
+    prop["status"] = ACCEPTED
+    _ma_stamp(prop, {"at": _ma_now(), "event": "accepted", "by": by, "rationale": rationale.strip()})
+    mech = prop.get("mechanism")
+    if _is_buildable_mechanism(mech):
+        req = spec.get("required_mechanisms")
+        if not isinstance(req, list):
+            req = []
+        if mech not in req:
+            req.append(mech)
+        spec["required_mechanisms"] = req
+    else:
+        _ma_stamp(prop, {"at": _ma_now(), "event": "accepted_no_gap",
+                         "reason": "mechanism is not identifier-shaped; a buildable mechanism id "
+                                   "is needed to raise a capability gap"})
+    save_yaml_atomic(inv_path, spec)
+    return prop
+
+
+def decline_model_acquisition_proposal(ws_root: Path | str, inv_slug: str, ma_id: str, *,
+                                       rationale: str, by: str = "human") -> dict:
+    """Rationale-gated decline; no spec-feeding. Returns the updated proposal."""
+    from discovery_engine.phases.model_acquisition import DECLINED
+    inv_path, spec, prop = _ma_load(ws_root, inv_slug, ma_id, rationale)
+    prop["status"] = DECLINED
+    _ma_stamp(prop, {"at": _ma_now(), "event": "declined", "by": by, "rationale": rationale.strip()})
+    save_yaml_atomic(inv_path, spec)
+    return prop
+
 def _close_built_viz_proposals(on_disk: dict, viz_state: dict, studies: dict) -> list[str]:
     """§2E: flip an ``accepted`` proposal to ``built`` once its materialized entry (matched by
     ``origin.ref``) classifies ``fresh`` (rendered AND current). Mutates ``on_disk``;
