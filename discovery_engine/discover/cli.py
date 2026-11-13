@@ -437,6 +437,16 @@ def main(argv: list[str] | None = None) -> int:
     p_requests.add_argument("--free-run", action="store_true",
                             help="with --fill: treat every request as auto (the free_run gate preset)")
 
+    p_prop = sub.add_parser("propose",
+                            help="DiscoveryAgent coordinator: route opportunities to scientific skills (dry-run by default; --fill runs the filler, records captures, applies auto-gated proposals under policy)")
+    p_prop.add_argument("investigation", help="investigation slug")
+    p_prop.add_argument("--json", action="store_true", help="machine output")
+    p_prop.add_argument("--fill", action="store_true",
+                        help="run $VIVA_FILLER_CMD, record captures, apply auto-gated proposals")
+    p_prop.add_argument("--free-run", action="store_true", help="treat every request as auto gate")
+    p_prop.add_argument("--autonomous", action="store_true",
+                        help="with --fill: AutonomyPolicy(autonomous) authorizes authoring")
+
     p_hyp = sub.add_parser("hypotheses",
                            help="the competing-hypotheses contest: each hypothesis, its predicted observable, and the support its studies' runs give it")
     p_hyp.add_argument("investigation", help="investigation slug")
@@ -1030,6 +1040,75 @@ def main(argv: list[str] | None = None) -> int:
             print(_json.dumps([r.to_dict() for r in reqs], indent=2, default=str))
         else:
             print(summarize_requests(reqs))
+        return 0
+
+    if args.cmd == "propose":
+        import json as _json
+
+        from discovery_engine.agents.discovery_agent import DiscoveryAgent
+        from discovery_engine.agents.skill_registry import default_registry
+        from discovery_engine.discover._policy import AutonomyPolicy, AUTONOMOUS
+        from discovery_engine.discover.actions import record_captures
+        from discovery_engine.projection import engine as discovery_engine
+        from discovery_engine.phases.generation import GateConfig, GenerationResult
+        from discovery_engine.phases.generation_emit import generation_requests
+        inv_path, inv_spec, studies = load_cycle_inputs(ws, args.investigation)
+        result = _cycle_with_evidence(ws, args.investigation, inv_spec, studies)
+        opps = discovery_engine.opportunities(result, inv_spec)
+        if getattr(args, "free_run", False):
+            gates = GateConfig.preset("free_run")
+        else:
+            gc = (inv_spec.get("discovery") or {}).get("gates") if isinstance(inv_spec, dict) else None
+            gates = (GateConfig(default=gc.get("default"), by_kind=gc.get("by_kind") or {})
+                     if isinstance(gc, dict) else GateConfig())
+        reqs = generation_requests(opps, gates=gates, inv_spec=inv_spec)
+        registry = default_registry()
+        if not getattr(args, "fill", False):                       # dry-run: pure preview
+            rows = []
+            for r in reqs:
+                sk = registry.get(r.kind)
+                rows.append({"request_id": r.id, "kind": r.kind, "target": r.target,
+                             "skill": sk.name if sk else None, "gate": r.gate})
+            if args.json:
+                print(_json.dumps(rows, indent=2, default=str))
+            elif not rows:
+                print("no requests to route")
+            else:
+                for x in rows:
+                    print(f"{x['kind']}  {x['target']}  skill={x['skill'] or '(none)'}  gate={x['gate']}")
+                print(f"\n{len(rows)} would be routed (dry-run; pass --fill to run the filler)")
+            return 0
+        from discovery_engine.phases.generation_apply import apply_result, subprocess_filler
+        portfolio = DiscoveryAgent().propose(opps, fill=subprocess_filler(), gates=gates)
+        record_captures(inv_path, portfolio.captures)
+        pol = AutonomyPolicy(mode=AUTONOMOUS) if args.autonomous else AutonomyPolicy()
+        by_id = {r.id: r for r in reqs}
+        applied, queued, errors = [], [], []
+        for cap in portfolio.captures:
+            if cap.outcome != "proposed":
+                continue
+            req = by_id.get(cap.request_id)
+            if req is not None and req.gate == "auto" and pol.allows(
+                    consequence="authoring", target=req.target):
+                try:
+                    res = apply_result(req, GenerationResult(
+                        request_id=req.id, artifact=cap.artifact, filler=cap.filler),
+                        ws_root=ws, inv_slug=args.investigation)
+                    applied.append({"request_id": req.id, "applied_to": res.get("applied_to", [])})
+                except ValueError as e:
+                    errors.append({"request_id": req.id, "reason": str(e)})
+            else:
+                queued.append(cap.request_id)
+        summary = {"captured": len(portfolio.captures), "applied": len(applied),
+                   "queued": len(queued), "skipped": len(portfolio.skipped),
+                   "errors": len(errors), "applied_detail": applied,
+                   "queued_ids": queued, "skipped_detail": portfolio.skipped}
+        if args.json:
+            print(_json.dumps(summary, indent=2, default=str))
+        else:
+            print(f"captured {summary['captured']}, applied {summary['applied']}, "
+                  f"queued {summary['queued']}, skipped {summary['skipped']}, "
+                  f"errors {summary['errors']}")
         return 0
 
     if args.cmd == "hypotheses":
