@@ -23,57 +23,17 @@ from __future__ import annotations
 import yaml
 
 from discovery_engine import discover
-from discovery_engine.benchmark import recovery_build, recovery_model, recovery_run
+from discovery_engine.benchmark import recovery_build, recovery_run
+from discovery_engine.benchmark.recovery_scenario import build_recovery_scenario
 from discovery_engine.investigation.import_ import investigations_dir, studies_dir
-from discovery_engine.study import evaluator as se
 
-SLUG = "recovery"
 MECH = "feedback_inhibition"
-BASE = recovery_model.DEFAULT_BASE
-TOY_KIND = recovery_model.TOY_KIND
 
 
 def _mini_recovery_ws(tmp_path, implemented: str):
-    """Smallest workspace that (a) declares required_mechanisms:[feedback_inhibition],
-    (b) has a catalog entry (study s1) that does NOT provide it, so the gap routes to BUILD,
-    (c) a pbg_<ws>/evaluators.py from recovery_model.STORELESS_EVALUATOR_SRC registering the
-    store-less toy kind. The study UNDER TEST — whose single behavior-test is the store-less toy
-    kind, whose finding links evidence.from_test, and which carries the ``implements:`` the
-    evaluator reads — is MATERIALIZED by the build hook (built-<mechanism>), because the engine
-    ranks a ``test`` op above a ``build_process`` op: a study present before the build would run
-    first (mechanism absent) and be marked seen. Returns the (future) recovered-study dir."""
-    se.clear_workspace_evaluator_cache()
-    ws = tmp_path
-    (ws / "workspace.yaml").write_text("name: recws\n", encoding="utf-8")
-
-    pkg = ws / "pbg_recws"
-    pkg.mkdir(parents=True)
-    (pkg / "__init__.py").write_text("", encoding="utf-8")
-    (pkg / "evaluators.py").write_text(
-        recovery_model.STORELESS_EVALUATOR_SRC(TOY_KIND, BASE), encoding="utf-8")
-
-    inv = investigations_dir(ws) / SLUG
-    inv.mkdir(parents=True)
-    (inv / "investigation.yaml").write_text(yaml.safe_dump({
-        "name": SLUG, "slug": SLUG, "studies": ["s1"],
-        "required_mechanisms": [MECH],
-    }), encoding="utf-8")
-
-    # s1: the gap TRIGGER — a catalog entry whose composite does NOT cover feedback_inhibition
-    # (topic "growth", top pkg not importable -> run-ready, no behavior test / finding).
-    sd1 = studies_dir(ws) / "s1"
-    sd1.mkdir(parents=True)
-    (sd1 / "study.yaml").write_text(yaml.safe_dump({
-        "schema_version": 4,
-        "name": "s1",
-        "topic": "growth",                           # does NOT tokenize to feedback_inhibition
-        "required_mechanisms": [MECH],
-        "builds": [MECH],                            # derivable gap (accept authorizes the build)
-        "baseline": [{"composite": "pkg.mod.GrowthComposite"}],
-    }), encoding="utf-8")
-
-    recovered_dir = studies_dir(ws) / recovery_build.built_study_slug(MECH)
-    return ws, SLUG, recovered_dir
+    sc = build_recovery_scenario(tmp_path)
+    recovered_dir = studies_dir(sc.ws_root) / recovery_build.built_study_slug(MECH)
+    return sc.ws_root, sc.inv_slug, recovered_dir
 
 
 def _accept_gap(ws, slug):
