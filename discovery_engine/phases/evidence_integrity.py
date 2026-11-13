@@ -19,6 +19,11 @@ Classes (the Cycle N+1 Phase A vocabulary):
 - ``provisional``  a numeric result with no resolvable registered run.
 - ``contradicted`` a numeric result that violates the behavior-test it claims to pass.
 - ``unsupported``  a finding with no numeric observed value (prose only).
+
+Evidence may declare an ``evidence.source_type`` (``simulation`` (default) / ``lab`` /
+``external_dataset`` / ``literature``) and an ``evidence.uncertainty``; both are carried into
+the classification record. The VERIFIED rule is simulation-specific, so non-simulation evidence
+is never VERIFIED by it — it stays PROVISIONAL pending a source-specific validator (DE-11).
 """
 from __future__ import annotations
 
@@ -33,6 +38,18 @@ PROVISIONAL = "provisional"
 CONTRADICTED = "contradicted"
 UNSUPPORTED = "unsupported"
 _STATUSES = (VERIFIED, PROVISIONAL, CONTRADICTED, UNSUPPORTED)
+
+# Evidence source types (DE-11, plan §7 EvidenceRecord / §13 multi-source). The
+# registered-run VERIFIED rule below is SIMULATION-specific: it matches `observed` against a
+# simulation run's code-graded `computed_outcome`. Non-simulation evidence (a lab measurement,
+# a curated external dataset, a literature value) cannot be verified by that rule and must not
+# be — until a source-specific validator exists it stays PROVISIONAL. Absent/blank source_type
+# defaults to `simulation`, so all existing evidence classifies exactly as before.
+SIMULATION = "simulation"
+LAB = "lab"
+EXTERNAL_DATASET = "external_dataset"
+LITERATURE = "literature"
+SOURCE_TYPES = (SIMULATION, LAB, EXTERNAL_DATASET, LITERATURE)
 
 
 def _run_ids(run: dict) -> set[str]:
@@ -170,8 +187,14 @@ def classify_finding_evidence(finding: dict, study_spec: dict,
     fid = finding.get("id") or finding.get("name")
     from_test = ev.get("from_test")
     run_ids = [str(r) for r in _as_list(prov.get("run_ids")) if str(r).strip()]
+    # Absent (None) or blank -> simulation (the backward-compatible default). Any other value,
+    # including a falsy non-string like `False`/`0` from a YAML typo, is normalized and routed to
+    # the non-simulation branch — malformed source_type fails CLOSED (never silently verified).
+    _raw_src = ev.get("source_type")
+    source_type = SIMULATION if _raw_src is None else (str(_raw_src).strip().lower() or SIMULATION)
     base = {"finding": fid, "measure": measure, "observed": observed,
-            "run_ids": run_ids, "from_test": from_test,
+            "run_ids": run_ids, "from_test": from_test, "source_type": source_type,
+            "uncertainty": ev.get("uncertainty"),
             "measured_value": None, "evaluated_by": None}
 
     if val is None:
@@ -190,6 +213,16 @@ def classify_finding_evidence(finding: dict, study_spec: dict,
     if band is not None and not _evaluate(val, band):
         return {**base, "status": CONTRADICTED,
                 "reason": f"observed {observed} violates the pass_if of '{from_test}'"}
+
+    # The registered-run VERIFIED rule below matches `observed` against a simulation run's
+    # code-graded outcome, so it applies ONLY to simulation evidence. Non-simulation evidence
+    # (lab / external_dataset / literature, or any unrecognized source) is never VERIFIED by it —
+    # it stays PROVISIONAL until a source-specific validator exists (DE-11 follow-up).
+    if source_type != SIMULATION:
+        kind = source_type if source_type in SOURCE_TYPES else f"unknown source_type '{source_type}'"
+        return {**base, "status": PROVISIONAL,
+                "reason": f"non-simulation evidence ({kind}) — the simulation run rule does not "
+                          f"apply; a source-specific validator is required"}
 
     resolvable = bool(from_test) and bool(run_ids) and all(r in registered_run_ids for r in run_ids)
     if resolvable:

@@ -143,7 +143,7 @@ module:
 |---|---|---|
 | **Hypothesis** | id, study, statement, predictions[], status | `hypotheses` |
 | **Prediction** | id, hypothesis_id, intervention, observable, expected, falsifier | `experiment_design` |
-| **Evidence** (classification) | status, reason, from_test, run_ids | `evidence_integrity` |
+| **Evidence** (classification) | status, reason, from_test, run_ids, source_type, uncertainty | `evidence_integrity` |
 | **ExperimentDesign** | id, study, hypothesis_contrast, interventions, controls, predictions, decision_criterion | `experiment_design` |
 | **CandidateAction** | kind (repair/resolve/extend), op, value, discrimination, depends_on, discriminates | `candidate_action` |
 | **ModelBuildRequest** / **ModelVersion** | question_id, required_mechanisms, routes; id, components, parent_ids, executable_digest, validation | `model_architect` |
