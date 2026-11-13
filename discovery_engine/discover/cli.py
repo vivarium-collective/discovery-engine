@@ -438,7 +438,7 @@ def main(argv: list[str] | None = None) -> int:
                             help="with --fill: treat every request as auto (the free_run gate preset)")
 
     p_prop = sub.add_parser("propose",
-                            help="DiscoveryAgent coordinator: route opportunities to scientific skills (dry-run by default; --fill runs the filler, records captures, applies auto-gated proposals under policy)")
+                            help="DiscoveryAgent coordinator: route opportunities to scientific skills (dry-run by default; --fill runs the filler, records captures, applies auto-gated proposals under policy). Unlike 'requests --fill', --fill DOES run the filler on review-gated requests (to capture them for audit) but never auto-applies them")
     p_prop.add_argument("investigation", help="investigation slug")
     p_prop.add_argument("--json", action="store_true", help="machine output")
     p_prop.add_argument("--fill", action="store_true",
