@@ -10,6 +10,17 @@
 
 **Spec:** The Revised Upgrade Plan §16 (first end-to-end vertical slice) and §17 (benchmark matrix + core evaluation metrics), and `docs/upgrade-plan-0.6-reconciliation.md` DE-13 ("No harness. Needed to justify the whole effort; build alongside the first vertical slice"). The reconciliation doc is the binding authority.
 
+> ## DELIVERED vs PLANNED (read this before the tasks below)
+>
+> This plan was written for a `no_hypothesize` headline with a `mechanism_recovered`/`held_out_error` metric driven by a multi-cycle `advance_cycle` + `FakeRunner` loop. **Running Task 1 against the real engine falsified that premise** (documented as the "ENGINE FACT" in `tests/benchmark/test_scenario.py`): the engine converts an anomaly into a `revision_proposed` opportunity whose generation request is **`acquire_model`**, not a `hypothesize` chain. After `acquire_model` was wired through the coordinator (PR #74), the benchmark was re-aimed — and this is what **shipped**:
+>
+> - **Headline ablation:** `no_acquire_model` (drops the `acquire_model` skill), not `no_hypothesize`.
+> - **Metric:** `mechanism_proposed` (a `ModelAcquisitionProposal` naming the concealed mechanism was authored + recorded through the real coerce/record seam), plus `proposal_count` / `agent_calls` / `acquire_model_skipped`. **Not** `mechanism_recovered`/`held_out_error`.
+> - **Loop:** a single deterministic `run_cycle → opportunities → DiscoveryAgent.propose(oracle) → apply_result` pass. **No** `advance_cycle`, **no** `FakeRunner`.
+> - **What it proves:** the full engine *proposes* the concealed mechanism; the `no_acquire_model` ablation does not. It does **not** yet prove predictive *recovery* (building + running the correct model and landing the held-out value).
+>
+> **Follow-ups** (deliberately out of this slice): a decoy-mechanism negative control (so the `mechanism == concealed_mechanism` check is load-bearing, not tautological against a perfect oracle); the acquire→build→run bridge for true `mechanism_recovered`/`held_out_error`; a metric that discriminates `no_critique`; the real-LLM filler; and the rest of the §17 matrix rows. The task sections below are the **original** plan, kept for provenance — where they disagree with this box, this box is what shipped.
+
 ## Global Constraints
 
 - **No AI attribution, ever** (no `Co-Authored-By` / "Generated with" in commits/PR).
