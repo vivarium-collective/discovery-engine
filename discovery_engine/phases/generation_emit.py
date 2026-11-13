@@ -43,8 +43,7 @@ _PRODUCES = {
     "critique": "critique_report/v1",
 }
 
-_CONTEXT_KEYS = ("kind", "competing_predictions", "unknowns", "confidence", "state", "priority",
-                 "observed")
+_CONTEXT_KEYS = ("kind", "competing_predictions", "unknowns", "confidence", "state", "priority")
 
 
 def _request_kind(opp: dict) -> str | None:
@@ -53,6 +52,8 @@ def _request_kind(opp: dict) -> str | None:
     # prose for a promoted claim), not a proposal for a new study.
     if op == "branch" and opp.get("kind") == "narrative_gap":
         return "explain"
+    # The anomaly's observed value rides in the request rationale (the
+    # opportunity question); richer trigger enrichment is the coordinator's job.
     # A raw surprise (anomaly / models disagreeing) is first a hypothesis to
     # generate, not yet a model to acquire; revision_proposed stays acquire_model.
     if opp.get("kind") in ("anomaly", "model_disagreement"):
