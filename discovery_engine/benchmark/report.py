@@ -12,12 +12,22 @@ from discovery_engine.benchmark.runner import run_benchmark
 from discovery_engine.benchmark.scenario import build_scenario
 
 
-def run_matrix(configs=CONFIGS, *, tmp_path_factory) -> dict:
+def run_matrix(configs=CONFIGS, *, tmp_path_factory, fill=None) -> dict:
+    """Run the proposal ablation matrix.
+
+    ``fill`` is an optional filler ``fill(request) -> GenerationResult | None`` used
+    for EVERY config in place of the deterministic ground-truth oracle — e.g.
+    ``generation_apply.subprocess_filler()`` to run against a real model behind
+    ``$VIVA_FILLER_CMD``. When ``None`` (the default) each config uses its own perfect
+    oracle, so the matrix stays deterministic. A real filler makes the result reflect
+    that model's actual behaviour (it may NOT propose the concealed mechanism — that is
+    the honest point), so a real-``fill`` run is not a deterministic pass/fail.
+    """
     out = {}
     for name, cfg in configs.items():
         sc = build_scenario(tmp_path_factory.mktemp(f"bench_{name}"))
-        out[name] = score(run_benchmark(sc, cfg, oracle=cfg.oracle(sc.ground_truth)),
-                          sc.ground_truth)
+        oracle = fill if fill is not None else cfg.oracle(sc.ground_truth)
+        out[name] = score(run_benchmark(sc, cfg, oracle=oracle), sc.ground_truth)
     return out
 
 

@@ -40,7 +40,16 @@ The acquisition-proposal path now closes the loop: accepting a proposal via
 ``discover.actions.accept_model_acquisition_proposal`` feeds its (identifier-shaped) mechanism into
 ``required_mechanisms``, which the capability-gap loop then builds and runs.
 
-Deferred follow-ups: the real-LLM filler; and the remaining §17 matrix rows. ``overreach_critiqued`` keys on the *presence* of a critique, not
+The proposal track can run against a REAL model: ``discover benchmark --real-llm`` (or
+``run_matrix(fill=generation_apply.subprocess_filler())``) fills proposals via
+``$VIVA_FILLER_CMD`` instead of the perfect oracle. The result then reflects that model's
+actual behaviour and is NOT a fixed pass (it may not propose the concealed mechanism — the
+honest point); the deterministic oracle stays the default and the CI-tested path.
+
+Deferred follow-ups: a real-LLM path for the RECOVERY track (a model-authoring ``build_hook``,
+vs. the proposal track's filler which already supports ``--real-llm``); an automatic
+decider-driven accept for proposals (acceptance is a human/decider step today); and the
+remaining §17 matrix rows. ``overreach_critiqued`` keys on the *presence* of a critique, not
 its substance — a content-quality check on the critique is a further follow-up.
 """
 from discovery_engine.benchmark.scenario import GroundTruth, Scenario, build_scenario
