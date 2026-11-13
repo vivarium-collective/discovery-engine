@@ -186,3 +186,20 @@ def test_apply_hypothesize_malformed_raises(tmp_path):
     with pytest.raises(ValueError):
         apply_result(req, GenerationResult(request_id=req.id, artifact={"statement": "x"}),
                      ws_root=ws, inv_slug="demo")
+
+
+_CRIT = {"target": "claim:s1",
+         "unsupported_claims": ["rate is steady-state"],
+         "provenance": {"trigger": "unexplained_anomaly"}}
+
+
+def test_apply_critique_writes_critique_reports_block(tmp_path):
+    ws = _ws(tmp_path)
+    req = GenerationRequest(kind="critique", target="claim:s1", produces="critique_report/v1")
+    out = apply_result(req, GenerationResult(request_id=req.id, artifact=dict(_CRIT)),
+                       ws_root=ws, inv_slug="demo")
+    assert out["status"] == "applied"
+    assert out["applied_to"] == ["demo/critique_reports"]
+    inv = yaml.safe_load((ws / "investigations" / "demo" / "investigation.yaml").read_text())
+    assert inv["critique_reports"] and inv["critique_reports"][-1]["target"] == "claim:s1"
+    assert "hypothesis_proposals" not in inv
