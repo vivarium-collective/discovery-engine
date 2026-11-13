@@ -161,3 +161,28 @@ def test_result_contract_and_schema():
                                      filler={"kind": "ai", "id": "f"}).to_dict())
     with pytest.raises(ValueError):
         validate_result({"request_id": "x", "status": "bogus"})
+
+
+_HYP = {"statement": "s", "mechanism": "m",
+        "predictions": [{"observable": "o", "expected": {"op": "<", "value": 0.2},
+                         "falsifier": "o>=0.2"}],
+        "provenance": {"trigger": "unexplained_anomaly"}}
+
+
+def test_apply_hypothesize_routes_via_registry(tmp_path):
+    ws = _ws(tmp_path)
+    req = GenerationRequest(kind="hypothesize", target="anomaly", produces="hypothesis/v1")
+    out = apply_result(req, GenerationResult(request_id=req.id, artifact=dict(_HYP)),
+                       ws_root=ws, inv_slug="demo")
+    assert out["status"] == "applied"
+    assert out["applied_to"] == ["demo/hypothesis_proposals"]
+    inv = yaml.safe_load((ws / "investigations" / "demo" / "investigation.yaml").read_text())
+    assert inv["hypothesis_proposals"]
+
+
+def test_apply_hypothesize_malformed_raises(tmp_path):
+    ws = _ws(tmp_path)
+    req = GenerationRequest(kind="hypothesize", target="anomaly", produces="hypothesis/v1")
+    with pytest.raises(ValueError):
+        apply_result(req, GenerationResult(request_id=req.id, artifact={"statement": "x"}),
+                     ws_root=ws, inv_slug="demo")
