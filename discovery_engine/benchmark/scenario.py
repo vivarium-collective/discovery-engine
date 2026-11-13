@@ -61,6 +61,12 @@ def build_scenario(tmp_path, *, name: str = "bench") -> Scenario:
     save_yaml_atomic(sd / "study.yaml", {
         "name": study, "investigation": inv_slug, "schema_version": 4,
         "claim": f"{obs} falls in the accepted band",
+        # Authored gate_status "passed" disagrees with the computed verdict (the one run's
+        # test is pending → verdict is `blocked`), so the cycle raises a verdict_overreach
+        # signal → a `critique` request. It does NOT touch the anomaly path (no `from_test`
+        # link below), so acquire_model still fires too. This is what lets `no_critique`
+        # discriminate: dropping the critique skill drops the recorded CritiqueReport.
+        "gate_status": "passed",
         "baseline": [{"name": "baseline", "composite": WRONG_COMPOSITE, "params": dict(params)}],
         "observables": [obs],
         "behavior_tests": [{"name": "val_in_band",

@@ -1,7 +1,7 @@
 """Run one benchmark config over a scenario: recover -> propose -> apply -> reload."""
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from discovery_engine import discover
 from discovery_engine.agents.discovery_agent import DiscoveryAgent
@@ -21,6 +21,7 @@ class BenchmarkResult:
     recorded_proposals: list
     agent_calls: int
     skipped: list
+    recorded_critiques: list = field(default_factory=list)
 
 
 def run_benchmark(scenario, config, *, oracle=None) -> BenchmarkResult:
@@ -46,4 +47,5 @@ def run_benchmark(scenario, config, *, oracle=None) -> BenchmarkResult:
     return BenchmarkResult(
         config_name=config.name, final_inv=final,
         recorded_proposals=list(final.get("model_acquisition_proposals") or []),
-        agent_calls=len(port.captures), skipped=list(port.skipped))
+        agent_calls=len(port.captures), skipped=list(port.skipped),
+        recorded_critiques=list(final.get("critique_reports") or []))

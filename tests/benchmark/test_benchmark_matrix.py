@@ -17,6 +17,19 @@ def test_matrix_discriminates(tmp_path_factory):
     assert "mechanism_proposed" in out
 
 
+def test_no_critique_drops_only_the_critique_axis(tmp_path_factory):
+    # no_critique keeps the acquire_model skill (still proposes the mechanism) but
+    # loses the critique skill, so the overreach goes un-critiqued. This is what
+    # makes the row meaningful instead of a duplicate of full.
+    m = run_matrix(tmp_path_factory=tmp_path_factory)
+    full, no_crit = m["full"], m["no_critique"]
+    assert full.overreach_critiqued is True
+    assert no_crit.overreach_critiqued is False
+    # the other axis is unchanged — only critique was dropped
+    assert no_crit.mechanism_proposed is True
+    assert "overreach_critiqued" in render_matrix(m)
+
+
 def test_decoy_control_makes_mechanism_match_load_bearing(tmp_path_factory):
     # The negative control: full_decoy records a well-formed proposal naming the
     # WRONG mechanism. It must score mechanism_proposed=False with the SAME

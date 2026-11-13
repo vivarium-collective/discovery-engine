@@ -13,12 +13,18 @@ Scope of this slice — read before trusting a number here:
   discriminating on the mechanism string, not merely counting proposals. The default
   (``full``) oracle remains a **perfect** filler (always the correct mechanism); scoring is
   keyed on the real recorded artifact, never the config name.
+- A second axis, ``overreach_critiqued``, discriminates ``no_critique``. The scenario's study
+  authors a ``gate_status`` that outruns its evidence, so the cycle raises a
+  verdict_overreach signal → a ``critique`` request the oracle answers with a CritiqueReport.
+  ``full`` records it (True); ``no_critique`` (which drops the ``critique`` skill) cannot
+  (False). Keyed on the recorded ``critique_reports`` artifact, same as the mechanism axis.
 - Deterministic: no real LLM, no real simulation. A single
   ``run_cycle → propose(oracle) → apply_result`` pass; no ``advance_cycle``/``FakeRunner``.
 
 Deferred follow-ups: the acquire→build→run bridge for true
-``mechanism_recovered``/``held_out_error``; a metric that discriminates ``no_critique`` (today a
-placeholder row); the real-LLM filler; and the remaining §17 matrix rows.
+``mechanism_recovered``/``held_out_error``; the real-LLM filler; and the remaining §17 matrix
+rows. ``overreach_critiqued`` keys on the *presence* of a critique, not its substance — a
+content-quality check on the critique is a further follow-up.
 """
 from discovery_engine.benchmark.scenario import GroundTruth, Scenario, build_scenario
 
