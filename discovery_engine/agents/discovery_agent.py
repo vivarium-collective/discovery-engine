@@ -10,6 +10,7 @@ from datetime import datetime, timezone
 
 from discovery_engine.agents.capture import ProposalCapture
 from discovery_engine.agents.skill_registry import default_registry
+from discovery_engine.phases.generation import GenerationResult
 from discovery_engine.phases.generation_emit import generation_requests
 
 
@@ -36,23 +37,31 @@ class DiscoveryAgent:
                 continue
             artifact: dict = {}
             filler: dict = {}
+            raw = None
             try:
                 result = fill(req)
             except Exception as e:  # noqa: BLE001 - a bad filler must never crash
                 outcome, validation = "error", {"ok": False, "errors": [str(e)]}
             else:
                 if result is None:
-                    outcome, validation = "empty", {"ok": False, "errors": []}
+                    outcome = "empty"
+                    validation = {"ok": False, "errors": ["filler returned no result"]}
                 else:
-                    filler = result.filler or {}
                     try:
-                        artifact = sk.coerce(result.artifact or {})
+                        if not isinstance(result, GenerationResult):
+                            raise TypeError(
+                                f"filler returned {type(result).__name__}, "
+                                "expected GenerationResult")
+                        filler = result.filler or {}
+                        raw = result.artifact
+                        artifact = sk.coerce(raw or {})
                         outcome, validation = "proposed", {"ok": True, "errors": []}
-                    except ValueError as e:
+                    except Exception as e:  # noqa: BLE001 - never crash on a bad filler
+                        artifact = raw if isinstance(raw, dict) else {}
                         outcome, validation = "invalid", {"ok": False, "errors": [str(e)]}
             captures.append(ProposalCapture(
                 request_id=req.id, kind=req.kind, target=req.target, skill=sk.name,
-                filler=filler, context=req.context, artifact=artifact,
+                filler=filler, context=dict(req.context or {}), artifact=artifact,
                 validation=validation, outcome=outcome,
                 at=datetime.now(timezone.utc).isoformat()))
             if outcome == "proposed":
