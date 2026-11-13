@@ -1055,7 +1055,10 @@ def execute_action(ws_root: Path | str, inv_slug: str, *, autonomous: bool = Fal
         if disk is None or status not in ("proposed", "accepted"):
             rec["status"] = "gated-human"
             rec["outcome"] = {"ok": None, "detail": "gap not persisted/open — run `discover cycle` first"}
-        elif not autonomous:
+        elif not pol.allows(consequence="build", target=top["source"]):
+            # `build` is a consequential tier like run/render/authoring/reopen: honor the
+            # unified AutonomyPolicy (allowlist + per-item approved_ids), not just the bare
+            # `autonomous` bool, so "autonomous but never build" and HITL per-item approval work.
             rec["status"] = "gated-human"
             rec["outcome"] = {"ok": None, "detail": "review — needs a human accept/reject (or --autonomous)"}
         elif status == "accepted":

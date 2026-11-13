@@ -90,6 +90,50 @@ def test_advance_does_not_build_without_a_hook(tmp_path, monkeypatch):
     assert next(g for g in disk["capability_gaps"] if g["id"] == cg)["status"] == "accepted"
 
 
+def test_advance_build_respects_allowlist_excluding_build(tmp_path, monkeypatch):
+    # A `build` consequence must honor the AutonomyPolicy allowlist like every other
+    # consequential op — autonomous-but-"build"-excluded does NOT build an accepted gap.
+    from discovery_engine.discover._policy import AutonomyPolicy, AUTONOMOUS
+    ws = _fixture(tmp_path, monkeypatch)
+    cg = _accepted_gap(ws)
+    calls: list[str] = []
+    pol = AutonomyPolicy(mode=AUTONOMOUS,
+                         allowlist=frozenset({"run", "simulation", "render", "seed", "authoring", "reopen"}))
+    D.advance_cycle(ws, "inv", policy=pol, runner=_stub_runner,
+                    build_hook=_covering_hook(calls), max_runs=6)
+    assert calls == []   # build is gated by the allowlist even under autonomous
+    disk = yaml.safe_load((investigations_dir(ws) / "inv" / "investigation.yaml").read_text())
+    assert next(g for g in disk["capability_gaps"] if g["id"] == cg)["status"] == "accepted"  # not built
+
+
+def test_advance_build_allowed_when_build_in_allowlist(tmp_path, monkeypatch):
+    # Positive control: with "build" on the allowlist, the accepted gap builds as before.
+    from discovery_engine.discover._policy import AutonomyPolicy, AUTONOMOUS
+    ws = _fixture(tmp_path, monkeypatch)
+    cg = _accepted_gap(ws)
+    calls: list[str] = []
+    pol = AutonomyPolicy(mode=AUTONOMOUS, allowlist=frozenset({"build", "run", "simulation", "seed"}))
+    D.advance_cycle(ws, "inv", policy=pol, runner=_stub_runner,
+                    build_hook=_covering_hook(calls), max_runs=6)
+    assert calls == [cg]   # build proceeds when allowlisted
+
+
+def test_execute_action_builds_hitl_per_item_approved_gap(tmp_path, monkeypatch):
+    # The per-item-approval path (reachable via `execute`, not advance, which is autonomous-only):
+    # HITL + the gap target in approved_ids -> the accepted gap builds, the same approved_ids
+    # semantics the other consequential ops already honor. Without approval it stays gated
+    # (covered by test_capability_gap_wiring.test_non_autonomous_never_builds_accepted_gap).
+    from discovery_engine.discover._policy import AutonomyPolicy, HUMAN_IN_THE_LOOP
+    ws = _fixture(tmp_path, monkeypatch)
+    cg = _accepted_gap(ws)
+    calls: list[str] = []
+    pol = AutonomyPolicy(mode=HUMAN_IN_THE_LOOP, approved_ids=frozenset({cg}))
+    rec = D.execute_action(ws, "inv", policy=pol, target=cg, build_hook=_covering_hook(calls))
+    assert calls == [cg] and rec["status"] == "executed"
+    disk = yaml.safe_load((investigations_dir(ws) / "inv" / "investigation.yaml").read_text())
+    assert next(g for g in disk["capability_gaps"] if g["id"] == cg)["status"] == "built"
+
+
 def test_advance_does_not_build_an_unaccepted_gap(tmp_path, monkeypatch):
     ws = _fixture(tmp_path, monkeypatch)
     # identify + persist but DO NOT accept — a proposed gap needs a human accept first
