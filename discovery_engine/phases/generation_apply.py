@@ -66,7 +66,8 @@ def _apply_finding_interpretation(sdir: Path, finding_id: str, art: dict) -> lis
 
 
 # investigation.yaml block each registry skill's recorder writes to.
-_SKILL_BLOCKS = {"hypothesize": "hypothesis_proposals", "critique": "critique_reports"}
+_SKILL_BLOCKS = {"hypothesize": "hypothesis_proposals", "critique": "critique_reports",
+                 "acquire_model": "model_acquisition_proposals"}
 
 
 def apply_result(request: GenerationRequest, result: GenerationResult, *,

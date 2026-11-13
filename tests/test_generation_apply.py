@@ -203,3 +203,28 @@ def test_apply_critique_writes_critique_reports_block(tmp_path):
     inv = yaml.safe_load((ws / "investigations" / "demo" / "investigation.yaml").read_text())
     assert inv["critique_reports"] and inv["critique_reports"][-1]["target"] == "claim:s1"
     assert "hypothesis_proposals" not in inv
+
+
+_MA = {"mechanism": "distance-limited dispersal kernel",
+       "expected_behavioral_test": {"behavior_test": "colonization_in_band",
+                                    "pass_if": {"low": 0.1, "high": 0.3}},
+       "provenance": {"trigger": "needs_author"}}
+
+
+def test_apply_acquire_model_writes_block(tmp_path):
+    ws = _ws(tmp_path)
+    req = GenerationRequest(kind="acquire_model", target="mech", produces="model_spec/v1")
+    out = apply_result(req, GenerationResult(request_id=req.id, artifact=dict(_MA)),
+                       ws_root=ws, inv_slug="demo")
+    assert out["status"] == "applied"
+    assert out["applied_to"] == ["demo/model_acquisition_proposals"]
+    inv = yaml.safe_load((ws / "investigations" / "demo" / "investigation.yaml").read_text())
+    assert inv["model_acquisition_proposals"][0]["status"] == "proposed"
+
+
+def test_apply_acquire_model_malformed_raises(tmp_path):
+    ws = _ws(tmp_path)
+    req = GenerationRequest(kind="acquire_model", target="mech", produces="model_spec/v1")
+    with pytest.raises(ValueError):
+        apply_result(req, GenerationResult(request_id=req.id, artifact={"mechanism": "x"}),
+                     ws_root=ws, inv_slug="demo")

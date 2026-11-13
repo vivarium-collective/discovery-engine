@@ -201,6 +201,24 @@ def record_hypothesis_proposal(inv_path: Path | str, proposal: dict) -> dict:
     return proposal
 
 
+def record_model_acquisition_proposal(inv_path: Path | str, proposal: dict) -> dict:
+    """Validate an agent-authored ModelAcquisitionProposal and record it (status
+    ``proposed``) in ``investigation.yaml::model_acquisition_proposals[]``, idempotent by
+    id. The engine validates the contract; it never authors, builds, or promotes the
+    model. Returns the recorded proposal."""
+    from discovery_engine.phases.model_acquisition import coerce_model_acquisition_proposal
+    proposal = coerce_model_acquisition_proposal(proposal)   # validate + assign id/status/at
+    path = Path(inv_path)
+    spec = load_yaml_mapping(path)
+    have = [p for p in spec.get("model_acquisition_proposals") or [] if isinstance(p, dict)]
+    ids = {p.get("id") for p in have}
+    if proposal["id"] not in ids:
+        have.append(proposal)
+        spec["model_acquisition_proposals"] = have
+        save_yaml_atomic(path, spec)
+    return proposal
+
+
 def record_captures(inv_path: Path | str, captures) -> list[dict]:
     """Append coordinator ProposalCaptures to ``investigation.yaml::agent_captures[]``
     (append-only audit log), idempotent by a derived content id (sha1 of

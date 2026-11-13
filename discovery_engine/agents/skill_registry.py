@@ -38,9 +38,11 @@ def default_registry() -> SkillRegistry:
     from discovery_engine.discover.actions import (
         record_critique_report,
         record_hypothesis_proposal,
+        record_model_acquisition_proposal,
     )
     from discovery_engine.phases.critique_report import coerce_critique_report
     from discovery_engine.phases.hypothesis_proposal import coerce_hypothesis_proposal
+    from discovery_engine.phases.model_acquisition import coerce_model_acquisition_proposal
 
     skills = (
         Skill(
@@ -62,6 +64,16 @@ def default_registry() -> SkillRegistry:
             consequence="authoring",
             coerce=coerce_critique_report,
             record=record_critique_report,
+        ),
+        Skill(
+            kind="acquire_model",
+            name="acquire_model",
+            proposal_type="ModelAcquisitionProposal",
+            skill_md="discovery_engine/skills/acquire_model/SKILL.md",
+            produces="model_spec/v1",
+            consequence="authoring",
+            coerce=coerce_model_acquisition_proposal,
+            record=record_model_acquisition_proposal,
         ),
     )
     return SkillRegistry({s.kind: s for s in skills})

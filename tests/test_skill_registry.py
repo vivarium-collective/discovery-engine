@@ -4,7 +4,9 @@ from discovery_engine.agents.skill_registry import default_registry
 from discovery_engine.discover.actions import (
     record_critique_report,
     record_hypothesis_proposal,
+    record_model_acquisition_proposal,
 )
+from discovery_engine.phases.model_acquisition import coerce_model_acquisition_proposal
 from discovery_engine.phases.critique_report import coerce_critique_report
 from discovery_engine.phases.hypothesis_proposal import coerce_hypothesis_proposal
 
@@ -39,3 +41,14 @@ def test_registry_wires_each_kind_to_its_own_validator_and_recorder_by_identity(
 
 def test_unknown_kind_returns_none():
     assert default_registry().get("not_a_kind") is None
+
+
+def test_registry_wires_acquire_model():
+    sk = default_registry().get("acquire_model")
+    assert sk is not None
+    assert sk.proposal_type == "ModelAcquisitionProposal"
+    assert sk.produces == "model_spec/v1"
+    assert sk.consequence == "authoring"
+    assert sk.skill_md.endswith("skills/acquire_model/SKILL.md")
+    assert sk.coerce is coerce_model_acquisition_proposal
+    assert sk.record is record_model_acquisition_proposal
