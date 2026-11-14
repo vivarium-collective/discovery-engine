@@ -48,6 +48,34 @@ def test_measure_with_no_path_or_field_is_still_unevaluable():
     assert "t" in (rr.get("unevaluable_tests") or [])
 
 
+def test_later_code_grade_supersedes_earlier_skip():
+    # an earlier run SKIPPED (stale env), a LATER run graded by code — the test resolved; it must
+    # not stay flagged unresolved (last-run-wins).
+    spec = {"name": "s-super", "observables": [],
+            "behavior_tests": [{"name": "t", "measure": {"kind": "derived_scalar", "field": "z"},
+                                "pass_if": {"op": ">", "value": 0}}],
+            "runs": [
+                {"name": "r1", "outcomes": {"t": "x"}, "computed_outcomes": {
+                    "t": {"evaluated_by": "agent", "reason": "observable 'z' not resolvable"}}},
+                {"name": "r2", "outcomes": {"t": "x"}, "computed_outcomes": {
+                    "t": {"evaluated_by": "code", "result": "PASS"}}},
+            ]}
+    rr = run_readiness(spec, ws_root=None)
+    assert "t" not in (rr.get("unresolved_measures") or [])
+
+
+def test_non_resolvability_skip_is_not_labeled_unregistered_computer():
+    # a derived test that SKIPPED for a DIFFERENT reason (bad op) must not be labeled "register the
+    # computer" — the graded-skip catch only fires for an unresolvable-measure reason.
+    spec = {"name": "s-badop", "observables": [],
+            "behavior_tests": [{"name": "t", "measure": {"kind": "derived_scalar", "field": "z"},
+                                "pass_if": {"op": "??", "value": 0}}],
+            "runs": [{"name": "r1", "outcomes": {"t": "x"}, "computed_outcomes": {
+                "t": {"evaluated_by": "agent", "reason": "unsupported op: '??'"}}}]}
+    rr = run_readiness(spec, ws_root=None)
+    assert "t" not in (rr.get("unresolved_measures") or [])
+
+
 def test_derived_field_not_flagged_when_it_graded_normally():
     # a derived field test that graded by CODE (resolved fine) must not be flagged unresolved.
     spec = {"name": "s-ok", "observables": [],

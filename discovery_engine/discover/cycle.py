@@ -1186,16 +1186,21 @@ def run_readiness(study_spec: dict, ws_root: Path | str | None = None) -> dict:
     # after a run (observed: several tracked runs graded SKIP because the run
     # env-worker imported a stale venv without the merged `register_derived_scalars` evaluators).
     unresolved_measures: list[str] = []
-    # Ground truth from the recorded run(s): a test that already graded in the `agent` (SKIP) bucket
-    # never resolved its gate — e.g. its derived-scalar computer was unresolvable in the run env.
-    # This catches an unresolved measure even when THIS readiness env's registry is empty (and the
-    # registry check below can't confirm it), without false-flagging a test that actually graded.
-    _graded_skip: set = set()
+    # Ground truth from the recorded run(s): a test whose LATEST grade is in the `agent` (SKIP)
+    # bucket *because its measure was unresolvable* never resolved its gate — e.g. its derived-scalar
+    # computer was absent from the run env. This catches an unresolved measure even when THIS
+    # readiness env's registry is empty (so the registry check below can't confirm it), without
+    # false-flagging a test that later graded by code, and without mislabeling a SKIP that was for a
+    # different reason (bad op / missing pass_if) as a missing computer.
+    _latest_grade: dict = {}
     for _r in (study_spec.get("runs") or []):
         if isinstance(_r, dict):
             for _tn, _ent in (_r.get("computed_outcomes") or {}).items():
-                if isinstance(_ent, dict) and _ent.get("evaluated_by") == "agent":
-                    _graded_skip.add(_tn)
+                if isinstance(_ent, dict) and _ent.get("evaluated_by"):
+                    _latest_grade[_tn] = _ent            # later runs overwrite earlier → last wins
+    _graded_skip = {tn for tn, ent in _latest_grade.items()
+                    if ent.get("evaluated_by") == "agent"
+                    and "resolv" in str(ent.get("reason") or "").lower()}
     for t in tests:
         if not isinstance(t, dict):
             continue

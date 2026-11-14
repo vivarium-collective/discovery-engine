@@ -109,6 +109,12 @@ def test_planner_limited_message_blames_value_model_not_id_order():
     assert "orders only by id — no value signal" not in ev
 
 
+def test_planner_limited_does_not_fire_below_the_tie_threshold():
+    # fewer than three tied opportunities -> the plan can rank them -> no planner_limited.
+    cyc = _cycle(open_calls=[{"kind": "divergence", "title": f"v{i}", "refs": [f"c{i}"]} for i in range(2)])
+    assert "planner_limited" not in {f["flag"] for f in de.diagnose(cyc, {})["flags"]}
+
+
 def test_diagnose_validation_limited_on_low_pass_rate():
     recs = [_record(type="empirical", scope="claim", target=f"claim:{i}", execution="failed")
             for i in range(4)]
