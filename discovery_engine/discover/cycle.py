@@ -1100,6 +1100,37 @@ def execute_action(ws_root: Path | str, inv_slug: str, *, autonomous: bool = Fal
                 fn(ws_root, inv_slug, top["source"], rationale=f"[ai-driven] {why}", by="discovery-ai")
                 rec["status"] = "executed"
                 rec["outcome"] = {"ok": True, "detail": f"ai-{verb}: {top['source']}", "rationale": why}
+    elif top["action_type"] == "accept_model_acquisition" and str(top["source"]).startswith("ma:"):
+        # A proposed model acquisition is REVIEW tier: accepting commits the workspace to
+        # building the mechanism (feeds required_mechanisms). Gated on decider+autonomy, an
+        # open proposal, the AutonomyPolicy `build` tier, then a usable choice with a rationale.
+        disk = next((p for p in load_yaml_mapping(inv_path).get("model_acquisition_proposals") or []
+                     if isinstance(p, dict) and p.get("id") == top["source"]), None)
+        if decider is None or not autonomous:
+            rec["status"] = "gated-human"
+            rec["outcome"] = {"ok": None, "detail": "review — needs a human accept/decline"}
+        elif disk is None or disk.get("status", "proposed") != "proposed":
+            rec["status"] = "gated-human"
+            rec["outcome"] = {"ok": None, "detail": "proposal not persisted/open — run `discover cycle` first"}
+        elif not pol.allows(consequence="build", target=top["source"]):
+            rec["status"] = "gated-human"
+            rec["outcome"] = {"ok": None, "detail": "review — needs a human accept/decline (or --autonomous)"}
+        else:
+            choice = decider(top["source"], top["source"])
+            choice = choice if isinstance(choice, dict) else {}
+            verb = str(choice.get("choice") or "").strip().lower()
+            why = (choice.get("rationale") or "").strip()
+            if verb not in ("approve", "accept", "reject") or not why:
+                rec["status"] = "gated-human"
+                rec["outcome"] = {"ok": None, "detail": "decider gave no usable choice with a rationale"}
+            else:
+                from discovery_engine.discover.actions import (
+                    accept_model_acquisition_proposal, decline_model_acquisition_proposal)
+                fn = decline_model_acquisition_proposal if verb == "reject" else accept_model_acquisition_proposal
+                fn(ws_root, inv_slug, top["source"], rationale=f"[ai-driven] {why}", by="discovery-ai")
+                rec["status"] = "executed"
+                rec["outcome"] = {"ok": True, "rationale": why,
+                                  "detail": f"ai-{'declined' if verb == 'reject' else 'accepted'}: {top['source']}"}
     else:  # review / human-only with no decider
         rec["status"] = "gated-human"
         rec["outcome"] = {"ok": None, "detail": f"{top['consequence']} — needs a human decision"}

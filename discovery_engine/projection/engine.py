@@ -738,8 +738,8 @@ def _executor_for(op: str, target: str, kind: str | None = None) -> dict:
                 "command": f"discover viz <inv> {target} --declare scope=… covers=… --rationale '…'",
                 "consequence": "review", "auto_safe": False}
     if op == "accept_model_acquisition":
-        return {"executor": "discover acquire-model",
-                "command": f"discover acquire-model <inv> --accept|--decline {target}",
+        return {"executor": "discover execute",
+                "command": f"discover execute <inv> --ai-decide  # decider accepts/declines {target}",
                 "consequence": "review", "auto_safe": False}
     if op == "build_process":
         return {"executor": "discover gap", "command": f"discover gap <inv> --accept|--reject {target}",
