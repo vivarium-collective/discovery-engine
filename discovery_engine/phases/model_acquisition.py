@@ -10,9 +10,12 @@ A proposal is never built, promoted, or marked verified by this code. This modul
 and validates a proposal. Acceptance lives in
 ``discovery_engine.discover.actions.accept_model_acquisition_proposal``: an accepted proposal
 whose mechanism is identifier-shaped is added to the investigation's ``required_mechanisms``,
-and from there the capability-gap loop builds and runs it. Acceptance is still a decider
-(human) step; there is no automatic accept for proposals yet. A prose (non-identifier)
-mechanism is accepted but not fed to a capability gap.
+and from there the capability-gap loop builds and runs it. Acceptance can be a human call, or —
+under autonomy — automatic: an AI ``decider`` reaches it through the ``accept_model_acquisition``
+frontier item and ``execute_action``, gated on ``autonomous`` plus an ``AutonomyPolicy`` that
+allows the build (it is not unconditional). So the full acquisition→recovery loop can run with
+no human in the accept step. A prose (non-identifier) mechanism is accepted but not fed to a
+capability gap.
 
 Shape (``investigation.yaml::model_acquisition_proposals[]``)::
 

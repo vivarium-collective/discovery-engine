@@ -58,7 +58,7 @@ _PRIORITY = {
     # Viz appropriateness (NON-blocking, review tier): a figure shown where it does not belong.
     "viz_misplaced": 37, "viz_duplicated": 36, "viz_untied": 35,
     # Capability-gap loop (NON-blocking): a required mechanism no catalog component provides.
-    "capability_gap": 43,
+    "capability_gap": 43, "model_acquisition": 43,
     # Feedback loop (NON-blocking): staged human feedback that would reopen the
     # investigation — a first-class cycle move, not a side `ingest-feedback` CLI.
     "pending_feedback": 59,
@@ -82,7 +82,7 @@ _OP = {
     "viz_broken": "refine_viz", "viz_missing": "build_viz",
     "viz_proposed": "build_viz", "viz_stale": "refine_viz",
     "viz_misplaced": "relocate_viz", "viz_duplicated": "relocate_viz", "viz_untied": "relocate_viz",
-    "capability_gap": "build_process",
+    "capability_gap": "build_process", "model_acquisition": "accept_model_acquisition",
     "pending_feedback": "reopen",        # apply the staged feedback and re-enter the loop
 }
 # open_calls kinds map straight onto frontier kinds.
@@ -317,6 +317,15 @@ def frontier(cycle_result: dict, inv_spec: dict) -> list[dict]:
         add("viz_proposed", p.get("id"),
             f"propose {sug.get('form')} for {src.get('observable')} in {p.get('study')} "
             f"({src.get('kind')}; {'needs_author' if sug.get('needs_author') else 'derivable'})")
+
+    # 8a. proposed model acquisitions (review tier). Only `proposed` is emitted; accepted /
+    #     declined are never re-raised.
+    for p in inv_spec.get("model_acquisition_proposals") or []:
+        if not isinstance(p, dict) or p.get("status", "proposed") != "proposed":
+            continue
+        add("model_acquisition", p.get("id"),
+            f"accept or decline model acquisition {p.get('id')}"
+            + (f" — {p.get('mechanism')}" if p.get("mechanism") else ""))
 
     # 8b. viz appropriateness (non-blocking, REVIEW tier, never auto-executed). Only OPEN issues
     #     project; `not_assessed` (scope unresolved / headless) is inert. `untied` is behind the
@@ -727,6 +736,10 @@ def _executor_for(op: str, target: str, kind: str | None = None) -> dict:
     if op == "relocate_viz":
         return {"executor": "discover viz",
                 "command": f"discover viz <inv> {target} --declare scope=… covers=… --rationale '…'",
+                "consequence": "review", "auto_safe": False}
+    if op == "accept_model_acquisition":
+        return {"executor": "discover execute",
+                "command": f"discover execute <inv> --ai-decide  # decider accepts/declines {target}",
                 "consequence": "review", "auto_safe": False}
     if op == "build_process":
         return {"executor": "discover gap", "command": f"discover gap <inv> --accept|--reject {target}",

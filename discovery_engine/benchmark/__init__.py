@@ -49,10 +49,13 @@ engine's behavioral run grades whether that choice recovers. Either way the resu
 that model and is NOT a fixed pass (it may not propose/choose the concealed mechanism — the
 honest point); the deterministic oracle/hook stays the default and the CI-tested path.
 
-Deferred follow-ups: an automatic decider-driven accept for proposals (acceptance is a
-human/decider step today); and the remaining §17 matrix rows. ``overreach_critiqued`` keys on
-the *presence* of a critique, not its substance — a content-quality check on the critique is a
-further follow-up.
+Deferred follow-ups: the remaining §17 matrix rows. (An automatic decider-driven accept for
+model-acquisition proposals is now DONE — under autonomy, an AI ``decider`` plus an
+``AutonomyPolicy`` that allows the build can accept a proposal through the
+``accept_model_acquisition`` frontier item + ``execute_action``, so the full
+acquisition→recovery loop runs with no human in the accept step.) ``overreach_critiqued`` keys
+on the *presence* of a critique, not its substance — a content-quality check on the critique is
+a further follow-up.
 """
 from discovery_engine.benchmark.scenario import GroundTruth, Scenario, build_scenario
 
