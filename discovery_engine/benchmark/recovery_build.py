@@ -15,7 +15,10 @@ Faithful vs decoy is expressed only through the ``implemented_mechanism`` argume
 """
 from __future__ import annotations
 
+import json
+import os
 import re
+import subprocess
 from typing import Any, Callable
 
 import yaml
@@ -84,4 +87,43 @@ def build_hook(implemented_mechanism: str) -> Callable[[dict, Any], dict]:
             ip.write_text(yaml.safe_dump(d), encoding="utf-8")
         return {"status": "built", "process": composite, "gap_id": gap["id"],
                 "detail": f"built {composite} implementing {implemented_mechanism!r}"}
+    return hook
+
+
+def real_build_hook(cmd: str | None = None, *, timeout: float = 1800) -> Callable[[dict, Any], dict]:
+    """A build hook that asks a REAL model (``cmd`` or ``$VIVA_FILLER_CMD``) which mechanism to
+    implement for the gap, then builds it via :func:`build_hook`.
+
+    The model receives the gap as JSON on stdin and must print JSON naming the mechanism — either
+    ``{"implements": "<mech>"}`` or a ModelAcquisitionProposal-shaped ``{"artifact": {"mechanism":
+    "<mech>"}}``. Recovery then depends on the MODEL's choice, computed honestly by the store-less
+    evaluator: a model that authors ``feedback_inhibition`` recovers (observable in band); a wrong
+    choice lands out of band. With no command configured, a filler error, or a reply that names no
+    mechanism, the hook returns ``needs_implementation`` (the engine then leaves the gap
+    ``needs_author`` — honest: the model did not author a buildable mechanism, so nothing runs).
+
+    The analog of the proposal track's ``$VIVA_FILLER_CMD`` filler, on the build side — the engine
+    still never builds itself; the (real) model behind the command authors the mechanism, and the
+    engine's coverage gate + behavioral-run arbitration are unchanged.
+    """
+    command = cmd or os.environ.get("VIVA_FILLER_CMD")
+
+    def hook(gap: dict, ws_root: Any) -> dict:
+        if not command:
+            return {"status": "needs_implementation", "gap_id": gap.get("id"),
+                    "detail": "no fill command configured ($VIVA_FILLER_CMD unset)"}
+        try:
+            proc = subprocess.run(command, shell=True, check=False,
+                                  input=json.dumps(gap, default=str),
+                                  capture_output=True, text=True, timeout=timeout)
+            doc = json.loads((proc.stdout or "").strip() or "{}")
+        except Exception as e:  # noqa: BLE001 — a bad model must not crash the build drain
+            return {"status": "needs_implementation", "gap_id": gap.get("id"),
+                    "detail": f"fill command failed: {type(e).__name__}: {e}"}
+        mech = doc.get("implements") or (doc.get("artifact") or {}).get("mechanism")
+        if not mech or not str(mech).strip():
+            return {"status": "needs_implementation", "gap_id": gap.get("id"),
+                    "detail": "model named no mechanism to implement"}
+        return build_hook(str(mech).strip())(gap, ws_root)
+
     return hook
