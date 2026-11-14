@@ -418,8 +418,9 @@ def main(argv: list[str] | None = None) -> int:
     p_bm.add_argument("--recovery", action="store_true",
                       help="run the recovery track (mechanism recovery + held-out error) instead")
     p_bm.add_argument("--real-llm", action="store_true",
-                      help="fill proposals with $VIVA_FILLER_CMD (a real model) instead of the "
-                           "deterministic oracle; result reflects that model and is not a fixed pass")
+                      help="use $VIVA_FILLER_CMD (a real model) instead of the deterministic "
+                           "oracle/hook: fills proposals, or with --recovery authors the recovery "
+                           "model (one real run, not the ablation matrix); not a fixed pass")
     p_bm.add_argument("--filler-cmd", default=None,
                       help="explicit fill command (implies --real-llm; overrides $VIVA_FILLER_CMD)")
 
