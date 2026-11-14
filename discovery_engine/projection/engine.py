@@ -496,7 +496,7 @@ def diagnose(cycle_result: dict, inv_spec: dict) -> dict:
     Returns ``{closed, frontier_size, validator_pass_rate, census, flags}`` where each
     flag is ``{flag, evidence, intervention}``. Flags: ``task_saturated`` (nothing worth
     doing left), ``input_limited`` (waiting on expert priors/data — steer items dominate),
-    ``planner_limited`` (a large same-priority cluster the crank can't rank by value),
+    ``planner_limited`` (a cluster of equal-value opportunities the value model can't rank),
     ``validation_limited`` (low validator pass-rate / ungrounded claims), and
     ``capability_limited`` (a validator could not run)."""
     f = frontier(cycle_result, inv_spec)
@@ -521,11 +521,16 @@ def diagnose(cycle_result: dict, inv_spec: dict) -> dict:
                    and (r.get("result") or {}).get("execution_status") == "failed"]
 
     steer = [i for i in f if i["kind"] in _STEER_KINDS]
-    actionable = [i for i in f if i["kind"] not in _STEER_KINDS]
-    tiers: dict[int, int] = {}
-    for i in actionable:
-        tiers[i["priority"]] = tiers.get(i["priority"], 0) + 1
-    top_tier_pri, top_tier_n = (max(tiers.items(), key=lambda kv: kv[1]) if tiers else (None, 0))
+    # planner_limited is about VALUE non-discrimination, not priority-tier size: next_action already
+    # ranks by the value score (via opportunities), so a large same-priority tier is fine as long as
+    # value separates it. The real limit is a cluster of actionable opportunities that share ONE
+    # value score — only there must the plan break the tie by id. Find the largest equal-value group.
+    _vopps = [o for o in opportunities(cycle_result, inv_spec) if o.get("kind") not in _STEER_KINDS]
+    _by_score: dict = {}
+    for _o in _vopps:
+        _s = round(float((_o.get("value") or {}).get("score") or 0.0), 3)
+        _by_score[_s] = _by_score.get(_s, 0) + 1
+    tie_score, tie_n = (max(_by_score.items(), key=lambda kv: kv[1]) if _by_score else (0.0, 0))
 
     flags: list[dict] = []
     if clo["closed"] and not f:
@@ -538,12 +543,13 @@ def diagnose(cycle_result: dict, inv_spec: dict) -> dict:
                             f"dominated by steer items (the next action is 'the expert decides')",
                             "supply the requested priors / datasets / scope choices (new inputs), "
                             "not more planning"))
-    if top_tier_n >= 3:
+    if tie_n >= 3:
         flags.append(_flag("planner_limited",
-                            f"{top_tier_n} actionable items at priority {top_tier_pri} the crank "
-                            f"orders only by id — no value signal to rank within the tier",
-                            "add a value/EVSI estimate or lookahead to next_action (not fixed "
-                            "priority alone)"))
+                            f"{tie_n} actionable opportunities share value score {tie_score:+.2f} — "
+                            f"the value model does not discriminate them, so the plan can only break "
+                            f"the tie by id (next_action already ranks by value, not by priority)",
+                            "strengthen the value signal (discriminate / EVSI / impact / cost) for "
+                            "these items so the plan can rank within the tie"))
     if pass_rate is not None and pass_rate < 0.5:
         flags.append(_flag("validation_limited",
                             f"actionable validator pass-rate {passed}/{len(gradeable)} "

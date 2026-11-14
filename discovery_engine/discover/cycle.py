@@ -1186,6 +1186,16 @@ def run_readiness(study_spec: dict, ws_root: Path | str | None = None) -> dict:
     # after a run (observed: several tracked runs graded SKIP because the run
     # env-worker imported a stale venv without the merged `register_derived_scalars` evaluators).
     unresolved_measures: list[str] = []
+    # Ground truth from the recorded run(s): a test that already graded in the `agent` (SKIP) bucket
+    # never resolved its gate — e.g. its derived-scalar computer was unresolvable in the run env.
+    # This catches an unresolved measure even when THIS readiness env's registry is empty (and the
+    # registry check below can't confirm it), without false-flagging a test that actually graded.
+    _graded_skip: set = set()
+    for _r in (study_spec.get("runs") or []):
+        if isinstance(_r, dict):
+            for _tn, _ent in (_r.get("computed_outcomes") or {}).items():
+                if isinstance(_ent, dict) and _ent.get("evaluated_by") == "agent":
+                    _graded_skip.add(_tn)
     for t in tests:
         if not isinstance(t, dict):
             continue
@@ -1193,12 +1203,22 @@ def run_readiness(study_spec: dict, ws_root: Path | str | None = None) -> dict:
         if not isinstance(m, dict):
             m = {}  # a bare-string measure (a composite-observable function) needs no declared
                     # readout — it is computed from the raw trajectory; treat as readiness-neutral.
-        kind, path = m.get("kind"), m.get("path")
+        # The grader resolves a measure's identifier as `path` OR `field` (evaluator/config.py,
+        # evaluator/__init__.py) — a `derived_scalar` conventionally declares `field`, not `path`.
+        # Readiness must honor the same fallback, else a field-based derived measure is
+        # mis-flagged "no measure.path" (sending the author to add a path) when the real gap is an
+        # unregistered computer (the `unresolved_measures` branch below).
+        kind = m.get("kind")
+        path = m.get("path") or m.get("field")
         if kind and kind not in ("config_value", "cross_run", "run_delta") and not path:
             unevaluable.append(t.get("name") or "<unnamed>")
         if kind in ("derived_scalar", "derived") and path and _registry_trustworthy \
                 and _registry.get(path) is None:
             unresolved_measures.append(t.get("name") or path)
+        _tname = t.get("name")
+        if kind in ("derived_scalar", "derived") and _tname and _tname in _graded_skip \
+                and _tname not in unresolved_measures:
+            unresolved_measures.append(_tname)
         required |= required_observables_for_measure(m, ws_root)
     declared = [str(o) for o in (study_spec.get("observables") or [])]
     declared_leaves = {o.split("/")[-1] for o in declared}
