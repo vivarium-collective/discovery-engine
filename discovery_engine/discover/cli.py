@@ -719,27 +719,37 @@ def main(argv: list[str] | None = None) -> int:
                 d.mkdir(parents=True)
                 return d
 
-        fill = None
+        # Resolve an optional real-model command, used on the proposal track as the
+        # generation filler and on the recovery track as the model-authoring build hook.
+        real_cmd = None
         if getattr(args, "real_llm", False) or getattr(args, "filler_cmd", None):
-            import sys as _sys
-            if args.recovery:
-                print("--real-llm applies to the proposal track, not --recovery "
-                      "(the recovery track builds a model via a build hook, not a fill)",
-                      file=_sys.stderr)
-                return 2
             import os as _os
-
-            from discovery_engine.phases.generation_apply import subprocess_filler
-            cmd = args.filler_cmd or _os.environ.get("VIVA_FILLER_CMD")
-            if not cmd:
+            import sys as _sys
+            real_cmd = args.filler_cmd or _os.environ.get("VIVA_FILLER_CMD")
+            if not real_cmd:
                 print("--real-llm needs a fill command: set $VIVA_FILLER_CMD or pass --filler-cmd",
                       file=_sys.stderr)
                 return 2
-            fill = subprocess_filler(cmd)
         with tempfile.TemporaryDirectory(prefix="de-benchmark-") as td:
-            if args.recovery:
+            if args.recovery and real_cmd:
+                # A real model chooses the mechanism to build+run; recovery is earned by that
+                # choice (not a fixed pass). One scenario, not the deterministic ablation matrix.
+                from discovery_engine.benchmark.recovery_build import real_build_hook
+                from discovery_engine.benchmark.recovery_metrics import score_recovery
+                from discovery_engine.benchmark.recovery_runner import (
+                    RECOVERY_CONFIGS, run_recovery_benchmark)
+                from discovery_engine.benchmark.recovery_scenario import build_recovery_scenario
+                sc = build_recovery_scenario(_Factory(td).mktemp("rec_real"))
+                r = run_recovery_benchmark(sc, RECOVERY_CONFIGS["full"],
+                                           build_hook=real_build_hook(real_cmd))
+                matrix = {"full": score_recovery(r, sc.ground_truth)}
+            elif args.recovery:
                 matrix = run_recovery_matrix(tmp_path_factory=_Factory(td))
             else:
+                fill = None
+                if real_cmd:
+                    from discovery_engine.phases.generation_apply import subprocess_filler
+                    fill = subprocess_filler(real_cmd)
                 matrix = run_matrix(tmp_path_factory=_Factory(td), fill=fill)
         render = render_recovery_matrix if args.recovery else render_matrix
         if args.json:

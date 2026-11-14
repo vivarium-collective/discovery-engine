@@ -87,11 +87,14 @@ def test_cli_real_llm_without_command_errors(tmp_path, monkeypatch, capsys):
     assert "VIVA_FILLER_CMD" in capsys.readouterr().err
 
 
-def test_cli_real_llm_with_recovery_errors(tmp_path, monkeypatch, capsys):
+def test_cli_real_llm_recovery_without_command_errors(tmp_path, monkeypatch, capsys):
+    # --recovery --real-llm is now SUPPORTED (a model-authoring build hook), but still needs a
+    # command: with none configured it errors cleanly rather than silently using the oracle.
     from discovery_engine.discover import cli
+    monkeypatch.delenv("VIVA_FILLER_CMD", raising=False)
     monkeypatch.chdir(tmp_path)
-    assert cli.main(["benchmark", "--real-llm", "--recovery", "--filler-cmd", "x"]) == 2
-    assert "recovery" in capsys.readouterr().err.lower()
+    assert cli.main(["benchmark", "--real-llm", "--recovery", "--json"]) == 2
+    assert "VIVA_FILLER_CMD" in capsys.readouterr().err
 
 
 def test_cli_filler_cmd_implies_real_llm(tmp_path, monkeypatch, capsys):

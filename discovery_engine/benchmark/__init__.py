@@ -40,17 +40,19 @@ The acquisition-proposal path now closes the loop: accepting a proposal via
 ``discover.actions.accept_model_acquisition_proposal`` feeds its (identifier-shaped) mechanism into
 ``required_mechanisms``, which the capability-gap loop then builds and runs.
 
-The proposal track can run against a REAL model: ``discover benchmark --real-llm`` (or
-``run_matrix(fill=generation_apply.subprocess_filler())``) fills proposals via
-``$VIVA_FILLER_CMD`` instead of the perfect oracle. The result then reflects that model's
-actual behaviour and is NOT a fixed pass (it may not propose the concealed mechanism — the
-honest point); the deterministic oracle stays the default and the CI-tested path.
+Both tracks can run against a REAL model via ``$VIVA_FILLER_CMD``. Proposal track:
+``discover benchmark --real-llm`` (or ``run_matrix(fill=generation_apply.subprocess_filler())``)
+fills proposals via the model instead of the perfect oracle. Recovery track:
+``discover benchmark --recovery --real-llm`` (or ``run_recovery_benchmark(..., build_hook=
+recovery_build.real_build_hook())``) lets the model CHOOSE the mechanism to build, and the
+engine's behavioral run grades whether that choice recovers. Either way the result reflects
+that model and is NOT a fixed pass (it may not propose/choose the concealed mechanism — the
+honest point); the deterministic oracle/hook stays the default and the CI-tested path.
 
-Deferred follow-ups: a real-LLM path for the RECOVERY track (a model-authoring ``build_hook``,
-vs. the proposal track's filler which already supports ``--real-llm``); an automatic
-decider-driven accept for proposals (acceptance is a human/decider step today); and the
-remaining §17 matrix rows. ``overreach_critiqued`` keys on the *presence* of a critique, not
-its substance — a content-quality check on the critique is a further follow-up.
+Deferred follow-ups: an automatic decider-driven accept for proposals (acceptance is a
+human/decider step today); and the remaining §17 matrix rows. ``overreach_critiqued`` keys on
+the *presence* of a critique, not its substance — a content-quality check on the critique is a
+further follow-up.
 """
 from discovery_engine.benchmark.scenario import GroundTruth, Scenario, build_scenario
 
