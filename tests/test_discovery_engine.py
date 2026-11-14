@@ -98,6 +98,23 @@ def test_diagnose_planner_limited_on_a_large_same_priority_cluster():
     assert "planner_limited" in {f["flag"] for f in d["flags"]}
 
 
+def test_planner_limited_message_blames_value_model_not_id_order():
+    # The finding fires on a VALUE tie (not priority-tier size), and its text must not claim the
+    # false "the crank orders only by id — no value signal": next_action already ranks by value.
+    cyc = _cycle(open_calls=[{"kind": "divergence", "title": f"v{i}", "refs": [f"c{i}"]} for i in range(5)])
+    flags = {f["flag"]: f for f in de.diagnose(cyc, {})["flags"]}
+    assert "planner_limited" in flags
+    ev = flags["planner_limited"]["evidence"].lower()
+    assert "value score" in ev
+    assert "orders only by id — no value signal" not in ev
+
+
+def test_planner_limited_does_not_fire_below_the_tie_threshold():
+    # fewer than three tied opportunities -> the plan can rank them -> no planner_limited.
+    cyc = _cycle(open_calls=[{"kind": "divergence", "title": f"v{i}", "refs": [f"c{i}"]} for i in range(2)])
+    assert "planner_limited" not in {f["flag"] for f in de.diagnose(cyc, {})["flags"]}
+
+
 def test_diagnose_validation_limited_on_low_pass_rate():
     recs = [_record(type="empirical", scope="claim", target=f"claim:{i}", execution="failed")
             for i in range(4)]
