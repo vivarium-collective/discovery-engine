@@ -121,7 +121,8 @@ def run_cycle(inv_spec: dict, studies_by_slug: dict[str, dict], *,
     # and invariants() checks execution ⊥ scientific-judgment across them.
     ctx = ValidationContext(inv_spec=inv_spec, studies=studies_by_slug,
                             argument=argument, narrative=narrative, audit=gaps,
-                            viz_state=viz_state or {}, viz_catalog=viz_catalog or [])
+                            viz_state=viz_state or {}, viz_catalog=viz_catalog or [],
+                            evidence_state=evidence_state or {})
 
     bundle = {
         "knowledge": knowledge,

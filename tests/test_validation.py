@@ -383,3 +383,36 @@ def test_contract_face_grades_clean_broken_and_skips_undeclared():
     assert "unknown_port" in by["s-broken"]["criteria"]
     # structural: never asserts scientific truth
     assert V.epistemic_separation_violations(recs) == []
+
+
+# --- contract/audit consolidation: evidence-integrity over enriched ctx --------
+
+def test_evidence_integrity_validator_registered():
+    assert "empirical.claim.evidence_integrity" in [v["id"] for v in V.registry()]
+
+
+def test_evidence_integrity_maps_ledger_statuses():
+    ledger = {"ledger": [
+        {"study": "s1", "finding": "f-ok", "status": "verified", "reason": "matches run", "observed": 0.5},
+        {"study": "s1", "finding": "f-prov", "status": "provisional", "reason": "no resolvable run"},
+        {"study": "s2", "finding": "f-contra", "status": "contradicted", "reason": "violates pass_if"},
+        {"study": "s2", "finding": "f-unsup", "status": "unsupported", "reason": "prose-only"},
+    ]}
+    recs = V._evidence_integrity(V.ValidationContext(evidence_state=ledger))
+    by = {r["target"]: r for r in recs}
+    assert by["claim:s1/f-ok"]["result"]["execution_status"] == "passed"
+    assert by["claim:s1/f-prov"]["result"]["execution_status"] == "inconclusive"
+    assert by["claim:s2/f-contra"]["result"]["execution_status"] == "failed"
+    assert by["claim:s2/f-unsup"]["result"]["execution_status"] == "failed"
+    # integrity check never asserts scientific truth
+    assert all(r["result"]["scientific_judgment"] is None for r in recs)
+    assert V.epistemic_separation_violations(recs) == []
+    # resolvable findings are standing feedback; failures are actionable (frontier default)
+    assert by["claim:s1/f-ok"]["surfaces"] == "standing"
+    assert by["claim:s1/f-prov"]["surfaces"] == "standing"
+    assert "surfaces" not in by["claim:s2/f-contra"]  # -> frontier via run_validators
+
+
+def test_evidence_integrity_empty_state_is_noop():
+    assert V._evidence_integrity(V.ValidationContext()) == []
+    assert V._evidence_integrity(V.ValidationContext(evidence_state={"ledger": []})) == []

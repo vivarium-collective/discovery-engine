@@ -117,6 +117,7 @@ class ValidationContext:
     audit: list = field(default_factory=list)
     viz_state: dict = field(default_factory=dict)    # harvested viz_inventory (data)
     viz_catalog: list = field(default_factory=list)  # workbench catalog (data)
+    evidence_state: dict = field(default_factory=dict)  # Phase-A evidence ledger (derived, passed in)
 
 
 #: the default process-wide registry (adapters below register into it).
@@ -668,4 +669,47 @@ def _study_contract_face(ctx: ValidationContext) -> list[dict]:
             findings=findings, validator_id="structural.study.contract_face",
             recommendations=(["fix the declared contract.face (see findings)"]
                              if findings else [])))
+    return recs
+
+
+#: evidence-integrity status (Phase-A ledger) -> execution_status.
+_EVIDENCE_STATUS_EXEC = {
+    "verified": "passed", "provisional": "inconclusive",
+    "contradicted": "failed", "unsupported": "failed",
+}
+
+
+@validator(type="empirical", scope="claim", id="empirical.claim.evidence_integrity",
+           surfaces="frontier")
+def _evidence_integrity(ctx: ValidationContext) -> list[dict]:
+    """Each finding classified against its registered runs — the Phase-A evidence
+    ledger (``ctx.evidence_state``, derived once and passed in): VERIFIED (value
+    matches a graded run) / PROVISIONAL (no resolvable run) / CONTRADICTED (value
+    violates the test) / UNSUPPORTED (prose-only). An *integrity* check — does the
+    claim trace to a real, matching run — so it asserts no ``scientific_judgment``;
+    ``set-verdict`` owns the scientific verdict. A resolvable finding is standing
+    feedback; an unresolved/contradicted one is an actionable frontier defect."""
+    ledger = (getattr(ctx, "evidence_state", None) or {}).get("ledger") or []
+    recs: list[dict] = []
+    for row in ledger:
+        if not isinstance(row, dict):
+            continue
+        status = str(row.get("status") or "").lower()
+        exec_status = _EVIDENCE_STATUS_EXEC.get(status, "inconclusive")
+        fid = row.get("finding") or "<finding>"
+        study = row.get("study") or "<study>"
+        rec = validation_record(
+            type="empirical", scope="claim", target=f"claim:{study}/{fid}",
+            execution_status=exec_status, scientific_judgment=None,
+            criteria=[status] if status else [],
+            findings=[row.get("reason") or status],
+            recommendations=(["wire the finding's evidence to a registered run "
+                              "(`discover reconcile-evidence`)"] if exec_status == "failed" else []),
+            evidence=[{k: row[k] for k in ("measure", "observed", "measured_value", "evaluated_by")
+                       if k in row}],
+            validator_id="empirical.claim.evidence_integrity")
+        # a resolvable-but-unverified finding is informational, not an actionable defect
+        if exec_status != "failed":
+            rec["surfaces"] = "standing"
+        recs.append(rec)
     return recs
