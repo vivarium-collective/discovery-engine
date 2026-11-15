@@ -601,3 +601,71 @@ def _figure_freshness(ctx: ValidationContext) -> list[dict]:
         if (r["result"]["execution_status"] == "inconclusive"):
             r["surfaces"] = "standing"
     return out
+
+
+# ---------------------------------------------------------------------------
+# Process-side Finding -> validation_record bridge (contract/audit consolidation)
+# ---------------------------------------------------------------------------
+# The bigraph-schema contract-audit kernel (``bigraph_schema.contract_audit``) and
+# the leveled study audits speak a ``Finding`` vocabulary
+# (``severity``/``code``/``where``/``message``). This adapter folds a list of those
+# Findings into ONE ``validation_record``, so the process-side audit composes with
+# the validator layer instead of carrying a parallel result shape.
+
+_FINDING_SEVERITY_RANK = {"error": 3, "warning": 2, "info": 1}
+
+
+def _finding_field(f, key, default=""):
+    """Read a Finding field, duck-typed (a dataclass instance OR a dict)."""
+    if isinstance(f, dict):
+        return f.get(key, default)
+    return getattr(f, key, default)
+
+
+def record_from_findings(*, type: str, scope: str, target: str, findings: list,
+                         validator_id: str, recommendations: list | None = None,
+                         evidence: list | None = None) -> dict:
+    """Fold bigraph-schema-style ``Finding``s into one ``validation_record``.
+
+    ``execution_status`` is the worst severity present: any ``error`` -> ``failed``,
+    else any ``warning`` -> ``inconclusive``, else ``passed`` (empty list -> passed).
+    These are structural/interface checks, so ``scientific_judgment`` stays null;
+    the caller must pass an execution-only ``type`` (``structural``/``computational``/
+    ``visual``)."""
+    worst = max((_FINDING_SEVERITY_RANK.get(str(_finding_field(f, "severity", "info")), 1)
+                 for f in findings), default=0)
+    status = "failed" if worst >= 3 else ("inconclusive" if worst == 2 else "passed")
+    return validation_record(
+        type=type, scope=scope, target=target,
+        execution_status=status, scientific_judgment=None,
+        criteria=sorted({str(_finding_field(f, "code")) for f in findings
+                         if _finding_field(f, "code")}),
+        findings=[f"{_finding_field(f, 'where')}: {_finding_field(f, 'message')}".strip(": ")
+                  for f in findings],
+        recommendations=list(recommendations or []),
+        evidence=list(evidence or []),
+        validator_id=validator_id)
+
+
+@validator(type="structural", scope="study", id="structural.study.contract_face")
+def _study_contract_face(ctx: ValidationContext) -> list[dict]:
+    """A study's declared ``contract.face`` audited through the shared bigraph-schema
+    kernel (``study.contract.study_face_findings`` -> ``audit_face``): port
+    types/units/bounds parseable, predicates reference declared ports. One record
+    per study that declares a face (no face -> not applicable, no record). Interface
+    correctness only, so it asserts no ``scientific_judgment``."""
+    from discovery_engine.study.contract import study_face_findings
+    recs: list[dict] = []
+    for slug, spec in (getattr(ctx, "studies", None) or {}).items():
+        if not isinstance(spec, dict):
+            continue
+        face = (spec.get("contract") or {}).get("face")
+        if not isinstance(face, dict) or not face:
+            continue  # no declared face -> nothing to audit
+        findings = study_face_findings(spec)  # core=None: pure type-string checks
+        recs.append(record_from_findings(
+            type="structural", scope="study", target=slug,
+            findings=findings, validator_id="structural.study.contract_face",
+            recommendations=(["fix the declared contract.face (see findings)"]
+                             if findings else [])))
+    return recs

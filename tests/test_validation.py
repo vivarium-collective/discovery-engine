@@ -333,3 +333,53 @@ def test_investigation_narrative_completeness_flags_missing_opening_prose():
     assert len(recs) == 1
     joined = " ".join(recs[0]["findings"])
     assert "what_is_this" in joined and "verdict_detail" in joined
+
+
+# --- contract/audit consolidation: Finding -> record bridge + contract_face ----
+
+def test_record_from_findings_maps_worst_severity_and_collapses():
+    # error present -> failed; codes -> criteria; where+message -> findings strings
+    findings = [
+        {"severity": "warning", "code": "bad_units", "where": "inputs.x", "message": "cannot parse units"},
+        {"severity": "error", "code": "unknown_port", "where": "predicate:c1", "message": "not a declared input port"},
+    ]
+    r = V.record_from_findings(type="structural", scope="study", target="s1",
+                               findings=findings, validator_id="structural.study.contract_face")
+    assert r["result"]["execution_status"] == "failed"              # worst severity wins
+    assert r["result"]["scientific_judgment"] is None               # structural stays execution-only
+    assert r["criteria"] == ["bad_units", "unknown_port"]
+    assert "predicate:c1: not a declared input port" in r["findings"]
+
+
+def test_record_from_findings_empty_is_passed():
+    r = V.record_from_findings(type="structural", scope="study", target="s1",
+                               findings=[], validator_id="structural.study.contract_face")
+    assert r["result"]["execution_status"] == "passed"
+    assert r["findings"] == [] and r["criteria"] == []
+
+
+def test_record_from_findings_warning_only_is_inconclusive():
+    r = V.record_from_findings(type="structural", scope="study", target="s1",
+                               findings=[{"severity": "warning", "code": "w", "where": "p", "message": "m"}],
+                               validator_id="structural.study.contract_face")
+    assert r["result"]["execution_status"] == "inconclusive"
+
+
+def test_contract_face_validator_registered():
+    assert "structural.study.contract_face" in [v["id"] for v in V.registry()]
+
+
+def test_contract_face_grades_clean_broken_and_skips_undeclared():
+    clean = {"contract": {"face": {"inputs": {"temp": "float[K]"}, "outputs": {"rate": "float"}}}}
+    broken = {"contract": {"face": {"inputs": {"temp": "float[K]"}},
+                           "conditions": [{"name": "c1", "kind": "pre", "expr": "inputs.nope > 0"}]}}
+    undeclared = {"name": "s-none"}
+    ctx = V.ValidationContext(studies={"s-clean": clean, "s-broken": broken, "s-none": undeclared})
+    recs = V._study_contract_face(ctx)
+    by = {r["target"]: r for r in recs}
+    assert set(by) == {"s-clean", "s-broken"}                       # undeclared skipped (not applicable)
+    assert by["s-clean"]["result"]["execution_status"] == "passed"
+    assert by["s-broken"]["result"]["execution_status"] == "failed"
+    assert "unknown_port" in by["s-broken"]["criteria"]
+    # structural: never asserts scientific truth
+    assert V.epistemic_separation_violations(recs) == []
