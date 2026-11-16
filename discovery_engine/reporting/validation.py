@@ -117,6 +117,9 @@ class ValidationContext:
     audit: list = field(default_factory=list)
     viz_state: dict = field(default_factory=dict)    # harvested viz_inventory (data)
     viz_catalog: list = field(default_factory=list)  # workbench catalog (data)
+    evidence_state: dict = field(default_factory=dict)  # Phase-A evidence ledger (derived, passed in)
+    workspace: dict = field(default_factory=dict)  # workspace-derived facts (impure caller fills;
+    #   e.g. workspace["run_observables"] = {slug: set[str] | None}) — keeps validators pure
 
 
 #: the default process-wide registry (adapters below register into it).
@@ -601,3 +604,252 @@ def _figure_freshness(ctx: ValidationContext) -> list[dict]:
         if (r["result"]["execution_status"] == "inconclusive"):
             r["surfaces"] = "standing"
     return out
+
+
+# ---------------------------------------------------------------------------
+# Process-side Finding -> validation_record bridge (contract/audit consolidation)
+# ---------------------------------------------------------------------------
+# The bigraph-schema contract-audit kernel (``bigraph_schema.contract_audit``) and
+# the leveled study audits speak a ``Finding`` vocabulary
+# (``severity``/``code``/``where``/``message``). This adapter folds a list of those
+# Findings into ONE ``validation_record``, so the process-side audit composes with
+# the validator layer instead of carrying a parallel result shape.
+
+_FINDING_SEVERITY_RANK = {"error": 3, "warning": 2, "info": 1}
+
+
+def _finding_field(f, key, default=""):
+    """Read a Finding field, duck-typed (a dataclass instance OR a dict)."""
+    if isinstance(f, dict):
+        return f.get(key, default)
+    return getattr(f, key, default)
+
+
+def record_from_findings(*, type: str, scope: str, target: str, findings: list,
+                         validator_id: str, recommendations: list | None = None,
+                         evidence: list | None = None) -> dict:
+    """Fold bigraph-schema-style ``Finding``s into one ``validation_record``.
+
+    ``execution_status`` is the worst severity present: any ``error`` -> ``failed``,
+    else any ``warning`` -> ``inconclusive``, else ``passed`` (empty list -> passed).
+    These are structural/interface checks, so ``scientific_judgment`` stays null;
+    the caller must pass an execution-only ``type`` (``structural``/``computational``/
+    ``visual``)."""
+    worst = max((_FINDING_SEVERITY_RANK.get(str(_finding_field(f, "severity", "info")), 1)
+                 for f in findings), default=0)
+    status = "failed" if worst >= 3 else ("inconclusive" if worst == 2 else "passed")
+    return validation_record(
+        type=type, scope=scope, target=target,
+        execution_status=status, scientific_judgment=None,
+        criteria=sorted({str(_finding_field(f, "code")) for f in findings
+                         if _finding_field(f, "code")}),
+        findings=[f"{_finding_field(f, 'where')}: {_finding_field(f, 'message')}".strip(": ")
+                  for f in findings],
+        recommendations=list(recommendations or []),
+        evidence=list(evidence or []),
+        validator_id=validator_id)
+
+
+@validator(type="structural", scope="study", id="structural.study.contract_face")
+def _study_contract_face(ctx: ValidationContext) -> list[dict]:
+    """A study's declared ``contract.face`` audited through the shared bigraph-schema
+    kernel (``study.contract.study_face_findings`` -> ``audit_face``): port
+    types/units/bounds parseable, predicates reference declared ports. One record
+    per study that declares a face (no face -> not applicable, no record). Interface
+    correctness only, so it asserts no ``scientific_judgment``."""
+    from discovery_engine.study.contract import study_face_findings
+    recs: list[dict] = []
+    for slug, spec in (getattr(ctx, "studies", None) or {}).items():
+        if not isinstance(spec, dict):
+            continue
+        face = (spec.get("contract") or {}).get("face")
+        if not isinstance(face, dict) or not face:
+            continue  # no declared face -> nothing to audit
+        findings = study_face_findings(spec)  # core=None: pure type-string checks
+        recs.append(record_from_findings(
+            type="structural", scope="study", target=slug,
+            findings=findings, validator_id="structural.study.contract_face",
+            recommendations=(["fix the declared contract.face (see findings)"]
+                             if findings else [])))
+    return recs
+
+
+#: evidence-integrity status (Phase-A ledger) -> execution_status.
+_EVIDENCE_STATUS_EXEC = {
+    "verified": "passed", "provisional": "inconclusive",
+    "contradicted": "failed", "unsupported": "failed",
+}
+
+
+@validator(type="empirical", scope="claim", id="empirical.claim.evidence_integrity",
+           surfaces="frontier")
+def _evidence_integrity(ctx: ValidationContext) -> list[dict]:
+    """Each finding classified against its registered runs — the Phase-A evidence
+    ledger (``ctx.evidence_state``, derived once and passed in): VERIFIED (value
+    matches a graded run) / PROVISIONAL (no resolvable run) / CONTRADICTED (value
+    violates the test) / UNSUPPORTED (prose-only). An *integrity* check — does the
+    claim trace to a real, matching run — so it asserts no ``scientific_judgment``;
+    ``set-verdict`` owns the scientific verdict. A resolvable finding is standing
+    feedback; an unresolved/contradicted one is an actionable frontier defect."""
+    ledger = (getattr(ctx, "evidence_state", None) or {}).get("ledger") or []
+    recs: list[dict] = []
+    for row in ledger:
+        if not isinstance(row, dict):
+            continue
+        status = str(row.get("status") or "").lower()
+        exec_status = _EVIDENCE_STATUS_EXEC.get(status, "inconclusive")
+        fid = row.get("finding") or "<finding>"
+        study = row.get("study") or "<study>"
+        rec = validation_record(
+            type="empirical", scope="claim", target=f"claim:{study}/{fid}",
+            execution_status=exec_status, scientific_judgment=None,
+            criteria=[status] if status else [],
+            findings=[row.get("reason") or status],
+            recommendations=(["wire the finding's evidence to a registered run "
+                              "(`discover reconcile-evidence`)"] if exec_status == "failed" else []),
+            evidence=[{k: row[k] for k in ("measure", "observed", "measured_value", "evaluated_by")
+                       if k in row}],
+            validator_id="empirical.claim.evidence_integrity")
+        # a resolvable-but-unverified finding is informational, not an actionable defect
+        if exec_status != "failed":
+            rec["surfaces"] = "standing"
+        recs.append(rec)
+    return recs
+
+
+@validator(type="structural", scope="study", id="structural.study.observable_coverage")
+def _observable_coverage(ctx: ValidationContext) -> list[dict]:
+    """A study whose declared ``contract.face`` names ports its latest run does not
+    EMIT (``observable_lint.observable_gaps`` over the run's observables, supplied
+    pre-derived in ``ctx.workspace['run_observables']``). Interface coverage only —
+    structural, no ``scientific_judgment``. A study with no declared face, or no
+    readable run (observables ``None``), abstains (no record). Gaps are a warning
+    (standing feedback), not an actionable frontier defect."""
+    from discovery_engine.study.observable_lint import observable_gaps
+    run_obs = (getattr(ctx, "workspace", None) or {}).get("run_observables") or {}
+    recs: list[dict] = []
+    for slug, spec in (getattr(ctx, "studies", None) or {}).items():
+        if not isinstance(spec, dict):
+            continue
+        face = (spec.get("contract") or {}).get("face")
+        if not isinstance(face, dict) or not face:
+            continue  # no declared face -> not applicable
+        observables = run_obs.get(slug)
+        if observables is None:
+            continue  # no readable run -> abstain (matches observable_lint)
+        gaps = observable_gaps(face, observables)
+        rec = validation_record(
+            type="structural", scope="study", target=slug,
+            execution_status=("inconclusive" if gaps else "passed"),
+            scientific_judgment=None,
+            criteria=["contract-observable"] if gaps else [],
+            findings=list(gaps),
+            recommendations=(["emit the declared contract.face ports, or narrow the face"]
+                             if gaps else []),
+            validator_id="structural.study.observable_coverage")
+        if gaps:
+            rec["surfaces"] = "standing"
+        recs.append(rec)
+    return recs
+
+
+# ---------------------------------------------------------------------------
+# Wrap-as-validators: the report linter + L0-L5 audit, one record vocabulary
+# ---------------------------------------------------------------------------
+# These wrap the EXISTING check machinery (50 linter checks; the L0-L5 audit)
+# rather than rewriting it: the impure caller runs the checks once and places
+# their findings on ``ctx.workspace`` (``lint_findings`` / ``reproducibility``);
+# these validators adapt those findings into the one record vocabulary and
+# register the linter/L0-L5 in the coverage matrix. They ABSTAIN when the heavy
+# findings are absent (the default per-cycle slice carries only cheap facts), so
+# they add zero per-cycle cost — the report path opts into deriving them.
+
+_LINT_LEVEL_RANK = {"error": 3, "warning": 2, "info": 1}
+
+
+def records_from_lint_findings(findings: list) -> list[dict]:
+    """Group report-linter ``LintFinding``s (``level``/``study_slug``/``field_path``/
+    ``message``/``check``) into ``validation_record``s, one per (scope, target):
+    ``study_slug == '<workspace>'`` -> investigation scope, else study scope. Worst
+    level sets execution_status (error->failed, warning->inconclusive, else passed).
+    Structural, so no ``scientific_judgment``; an error is a frontier defect, a
+    warning/info is standing feedback."""
+    buckets: dict[tuple, list] = {}
+    for f in findings:
+        slug = _finding_field(f, "study_slug", "<workspace>")
+        if slug in ("<workspace>", "", None):
+            key = ("investigation", "investigation")
+        else:
+            key = ("study", slug)
+        buckets.setdefault(key, []).append(f)
+    recs: list[dict] = []
+    for (scope, target), fs in buckets.items():
+        worst = max((_LINT_LEVEL_RANK.get(str(_finding_field(f, "level", "info")), 1) for f in fs),
+                    default=0)
+        status = "failed" if worst >= 3 else ("inconclusive" if worst == 2 else "passed")
+        rec = validation_record(
+            type="structural", scope=scope, target=target,
+            execution_status=status, scientific_judgment=None,
+            criteria=sorted({str(_finding_field(f, "check")) for f in fs if _finding_field(f, "check")}),
+            findings=[f"{_finding_field(f, 'field_path')}: {_finding_field(f, 'message')}".strip(": ")
+                      for f in fs],
+            validator_id=f"structural.{scope}.report_lint")
+        if status != "failed":
+            rec["surfaces"] = "standing"
+        recs.append(rec)
+    return recs
+
+
+@validator(type="structural", scope="study", id="structural.study.report_lint")
+def _report_lint_study(ctx: ValidationContext) -> list[dict]:
+    """Study-scope report-linter findings (``ctx.workspace['lint_findings']``) as
+    records. Abstains when the heavy lint pass was not derived into the slice."""
+    findings = (getattr(ctx, "workspace", None) or {}).get("lint_findings")
+    if not findings:
+        return []
+    return [r for r in records_from_lint_findings(findings) if r["scope"] == "study"]
+
+
+@validator(type="structural", scope="investigation", id="structural.investigation.report_lint")
+def _report_lint_investigation(ctx: ValidationContext) -> list[dict]:
+    """Workspace/investigation-scope report-linter findings as records (abstains
+    when the lint pass was not derived)."""
+    findings = (getattr(ctx, "workspace", None) or {}).get("lint_findings")
+    if not findings:
+        return []
+    return [r for r in records_from_lint_findings(findings) if r["scope"] == "investigation"]
+
+
+def records_from_l0l5(report) -> list[dict]:
+    """Adapt an L0-L5 reproducibility ``AuditReport`` (``.findings`` of
+    bigraph-schema ``Finding``s carrying ``level`` L0..L5) into records, one per
+    study (grouped by the finding's ``where``). Reuses :func:`record_from_findings`
+    per study. Structural: reproducibility obligations, not scientific truth."""
+    findings = getattr(report, "findings", None)
+    if findings is None and isinstance(report, dict):
+        findings = report.get("findings")
+    findings = findings or []
+    by_study: dict[str, list] = {}
+    for f in findings:
+        where = str(_finding_field(f, "where", "") or "")
+        study = where.split(".", 1)[0].split(":", 1)[0].strip() or "<workspace>"
+        by_study.setdefault(study, []).append(f)
+    recs: list[dict] = []
+    for study, fs in by_study.items():
+        rec = record_from_findings(
+            type="structural", scope="study", target=study,
+            findings=fs, validator_id="structural.study.reproducibility")
+        if rec["result"]["execution_status"] != "failed":
+            rec["surfaces"] = "standing"
+        recs.append(rec)
+    return recs
+
+
+@validator(type="structural", scope="study", id="structural.study.reproducibility")
+def _reproducibility(ctx: ValidationContext) -> list[dict]:
+    """The L0-L5 reproducibility audit (``ctx.workspace['reproducibility']``) as
+    records (abstains when the heavy audit was not derived into the slice)."""
+    report = (getattr(ctx, "workspace", None) or {}).get("reproducibility")
+    if not report:
+        return []
+    return records_from_l0l5(report)

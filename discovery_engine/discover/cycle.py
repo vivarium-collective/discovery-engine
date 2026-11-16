@@ -97,7 +97,8 @@ def load_workspace_build_hook(ws_root: Path | str | None):
 
 def run_cycle(inv_spec: dict, studies_by_slug: dict[str, dict], *,
               evidence_state: dict | None = None, catalog: list | None = None,
-              viz_state: dict | None = None, viz_catalog: list | None = None) -> dict:
+              viz_state: dict | None = None, viz_catalog: list | None = None,
+              workspace: dict | None = None) -> dict:
     """Project one full discovery cycle over an investigation + its studies.
 
     Pure: no disk I/O. Each derived projection is merged over its authored block
@@ -121,7 +122,8 @@ def run_cycle(inv_spec: dict, studies_by_slug: dict[str, dict], *,
     # and invariants() checks execution ⊥ scientific-judgment across them.
     ctx = ValidationContext(inv_spec=inv_spec, studies=studies_by_slug,
                             argument=argument, narrative=narrative, audit=gaps,
-                            viz_state=viz_state or {}, viz_catalog=viz_catalog or [])
+                            viz_state=viz_state or {}, viz_catalog=viz_catalog or [],
+                            evidence_state=evidence_state or {}, workspace=workspace or {})
 
     bundle = {
         "knowledge": knowledge,
@@ -188,9 +190,39 @@ def _viz_scope_of(viz_catalog):
             ports[c["address"]] = c["inputs"]
     return lambda address: ports.get(address)
 
-def _cycle_with_evidence(ws_root, inv_slug, inv_spec, studies) -> dict:
+def _derive_workspace_view(ws_root, studies: dict, *, heavy: bool = False) -> dict:
+    """Workspace/filesystem-derived facts that pure validators (RFC-0007) read,
+    computed ONCE here by the impure caller so the projection stays pure.
+
+    Cheap, always: ``run_observables`` — each study's latest-run emitted observable
+    names (or ``None`` when no readable run). With ``heavy=True`` (report-time
+    only — NOT the hot cycle paths): also run the existing report linter and the
+    L0-L5 audit once, so the wrap-as-validators surface them in the unified record
+    vocabulary. Each heavy pass is best-effort; a failure never breaks the cycle."""
+    from discovery_engine.study.run_observables import study_run_observables
+    view: dict = {"run_observables": {slug: study_run_observables(spec, ws_root)
+                                      for slug, spec in studies.items() if isinstance(spec, dict)}}
+    if heavy:
+        try:
+            from discovery_engine.reporting.linter.engine import lint_workspace_report
+            view["lint_findings"] = lint_workspace_report(Path(ws_root))
+        except Exception:  # noqa: BLE001 — a broken heavy pass must not break the cycle
+            pass
+        try:
+            from discovery_engine.study.audit import audit_workspace
+            view["reproducibility"] = audit_workspace(ws_root)
+        except Exception:  # noqa: BLE001
+            pass
+    return view
+
+
+def _cycle_with_evidence(ws_root, inv_slug, inv_spec, studies, *, heavy: bool = False) -> dict:
     """run_cycle with the Phase-A evidence state computed FIRST, so contradicted
-    (evidence-problem) studies are known to the revision proposer and the frontier."""
+    (evidence-problem) studies are known to the revision proposer and the frontier.
+
+    ``heavy=True`` (report-time) also derives the report-linter + L0-L5 findings
+    into the workspace slice so the unified validation surface includes them; the
+    default (hot cycle paths) stays cheap."""
     from discovery_engine.phases import evidence_integrity as _ei
     ev = _ei.reconcile_evidence_state(
         inv_spec, studies, _load_runs_by_study(Path(ws_root), inv_slug, studies))
@@ -198,7 +230,8 @@ def _cycle_with_evidence(ws_root, inv_slug, inv_spec, studies) -> dict:
     viz = viz_inventory(ws_root, inv_slug, studies)  # the one impure viz harvest
     return run_cycle(inv_spec, studies, evidence_state=ev,
                      catalog=build_catalog(studies, ws_root),  # resolved: enables composite swaps
-                     viz_state=viz, viz_catalog=None)  # workbench catalog supplied by a later task
+                     viz_state=viz, viz_catalog=None,  # workbench catalog supplied by a later task
+                     workspace=_derive_workspace_view(ws_root, studies, heavy=heavy))
 
 def set_verdict(study_path: Path | str, verdict: str, rationale: str | None = None) -> dict:
     """Author a canonical verdict on a study (authored wins over the derived roll-up).

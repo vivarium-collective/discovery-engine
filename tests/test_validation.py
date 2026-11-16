@@ -333,3 +333,171 @@ def test_investigation_narrative_completeness_flags_missing_opening_prose():
     assert len(recs) == 1
     joined = " ".join(recs[0]["findings"])
     assert "what_is_this" in joined and "verdict_detail" in joined
+
+
+# --- contract/audit consolidation: Finding -> record bridge + contract_face ----
+
+def test_record_from_findings_maps_worst_severity_and_collapses():
+    # error present -> failed; codes -> criteria; where+message -> findings strings
+    findings = [
+        {"severity": "warning", "code": "bad_units", "where": "inputs.x", "message": "cannot parse units"},
+        {"severity": "error", "code": "unknown_port", "where": "predicate:c1", "message": "not a declared input port"},
+    ]
+    r = V.record_from_findings(type="structural", scope="study", target="s1",
+                               findings=findings, validator_id="structural.study.contract_face")
+    assert r["result"]["execution_status"] == "failed"              # worst severity wins
+    assert r["result"]["scientific_judgment"] is None               # structural stays execution-only
+    assert r["criteria"] == ["bad_units", "unknown_port"]
+    assert "predicate:c1: not a declared input port" in r["findings"]
+
+
+def test_record_from_findings_empty_is_passed():
+    r = V.record_from_findings(type="structural", scope="study", target="s1",
+                               findings=[], validator_id="structural.study.contract_face")
+    assert r["result"]["execution_status"] == "passed"
+    assert r["findings"] == [] and r["criteria"] == []
+
+
+def test_record_from_findings_warning_only_is_inconclusive():
+    r = V.record_from_findings(type="structural", scope="study", target="s1",
+                               findings=[{"severity": "warning", "code": "w", "where": "p", "message": "m"}],
+                               validator_id="structural.study.contract_face")
+    assert r["result"]["execution_status"] == "inconclusive"
+
+
+def test_contract_face_validator_registered():
+    assert "structural.study.contract_face" in [v["id"] for v in V.registry()]
+
+
+def test_contract_face_grades_clean_broken_and_skips_undeclared():
+    clean = {"contract": {"face": {"inputs": {"temp": "float[K]"}, "outputs": {"rate": "float"}}}}
+    broken = {"contract": {"face": {"inputs": {"temp": "float[K]"}},
+                           "conditions": [{"name": "c1", "kind": "pre", "expr": "inputs.nope > 0"}]}}
+    undeclared = {"name": "s-none"}
+    ctx = V.ValidationContext(studies={"s-clean": clean, "s-broken": broken, "s-none": undeclared})
+    recs = V._study_contract_face(ctx)
+    by = {r["target"]: r for r in recs}
+    assert set(by) == {"s-clean", "s-broken"}                       # undeclared skipped (not applicable)
+    assert by["s-clean"]["result"]["execution_status"] == "passed"
+    assert by["s-broken"]["result"]["execution_status"] == "failed"
+    assert "unknown_port" in by["s-broken"]["criteria"]
+    # structural: never asserts scientific truth
+    assert V.epistemic_separation_violations(recs) == []
+
+
+# --- contract/audit consolidation: evidence-integrity over enriched ctx --------
+
+def test_evidence_integrity_validator_registered():
+    assert "empirical.claim.evidence_integrity" in [v["id"] for v in V.registry()]
+
+
+def test_evidence_integrity_maps_ledger_statuses():
+    ledger = {"ledger": [
+        {"study": "s1", "finding": "f-ok", "status": "verified", "reason": "matches run", "observed": 0.5},
+        {"study": "s1", "finding": "f-prov", "status": "provisional", "reason": "no resolvable run"},
+        {"study": "s2", "finding": "f-contra", "status": "contradicted", "reason": "violates pass_if"},
+        {"study": "s2", "finding": "f-unsup", "status": "unsupported", "reason": "prose-only"},
+    ]}
+    recs = V._evidence_integrity(V.ValidationContext(evidence_state=ledger))
+    by = {r["target"]: r for r in recs}
+    assert by["claim:s1/f-ok"]["result"]["execution_status"] == "passed"
+    assert by["claim:s1/f-prov"]["result"]["execution_status"] == "inconclusive"
+    assert by["claim:s2/f-contra"]["result"]["execution_status"] == "failed"
+    assert by["claim:s2/f-unsup"]["result"]["execution_status"] == "failed"
+    # integrity check never asserts scientific truth
+    assert all(r["result"]["scientific_judgment"] is None for r in recs)
+    assert V.epistemic_separation_violations(recs) == []
+    # resolvable findings are standing feedback; failures are actionable (frontier default)
+    assert by["claim:s1/f-ok"]["surfaces"] == "standing"
+    assert by["claim:s1/f-prov"]["surfaces"] == "standing"
+    assert "surfaces" not in by["claim:s2/f-contra"]  # -> frontier via run_validators
+
+
+def test_evidence_integrity_empty_state_is_noop():
+    assert V._evidence_integrity(V.ValidationContext()) == []
+    assert V._evidence_integrity(V.ValidationContext(evidence_state={"ledger": []})) == []
+
+
+# --- contract/audit consolidation: observable coverage over the workspace slice -
+
+def test_observable_coverage_validator_registered():
+    assert "structural.study.observable_coverage" in [v["id"] for v in V.registry()]
+
+
+def test_observable_coverage_grades_gaps_complete_and_abstains():
+    studies = {
+        "s-complete": {"contract": {"face": {"inputs": {"temp": "float"}, "outputs": {"rate": "float"}}}},
+        "s-gap": {"contract": {"face": {"inputs": {"temp": "float"},
+                                        "outputs": {"rate": "float", "flux": "float"}}}},
+        "s-norun": {"contract": {"face": {"inputs": {"temp": "float"}}}},
+        "s-noface": {"name": "x"},
+    }
+    ws = {"run_observables": {"s-complete": {"temp", "rate"},
+                             "s-gap": {"temp", "rate"},  # 'flux' not emitted
+                             "s-norun": None}}            # no readable run -> abstain
+    recs = V._observable_coverage(V.ValidationContext(studies=studies, workspace=ws))
+    by = {r["target"]: r for r in recs}
+    assert set(by) == {"s-complete", "s-gap"}                       # norun + noface abstain
+    assert by["s-complete"]["result"]["execution_status"] == "passed"
+    assert by["s-gap"]["result"]["execution_status"] == "inconclusive"
+    assert by["s-gap"]["surfaces"] == "standing"                   # a coverage warning, not a defect
+    assert "flux" in " ".join(by["s-gap"]["findings"])
+    assert all(r["result"]["scientific_judgment"] is None for r in recs)
+    assert V.epistemic_separation_violations(recs) == []
+
+
+def test_observable_coverage_empty_workspace_is_noop():
+    studies = {"s1": {"contract": {"face": {"inputs": {"t": "float"}}}}}
+    assert V._observable_coverage(V.ValidationContext(studies=studies)) == []
+
+
+# --- contract/audit consolidation: wrap the report linter + L0-L5 as validators -
+
+def test_lint_findings_adapter_scopes_and_grades():
+    from discovery_engine.reporting.linter.context import LintFinding
+    lf = [
+        LintFinding(level="error", study_slug="s1", field_path="f", message="m1", override_key="k", check="c_err"),
+        LintFinding(level="warning", study_slug="s1", field_path="g", message="m2", override_key="k", check="c_warn"),
+        LintFinding(level="info", study_slug="<workspace>", field_path="n", message="m3", override_key="k", check="c_ws"),
+    ]
+    recs = V.records_from_lint_findings(lf)
+    by = {(r["scope"], r["target"]): r for r in recs}
+    assert by[("study", "s1")]["result"]["execution_status"] == "failed"       # worst = error
+    assert by[("study", "s1")]["criteria"] == ["c_err", "c_warn"]
+    assert "surfaces" not in by[("study", "s1")]                               # error -> frontier
+    assert by[("investigation", "investigation")]["result"]["execution_status"] == "passed"  # info only
+    assert by[("investigation", "investigation")]["surfaces"] == "standing"
+    assert all(r["result"]["scientific_judgment"] is None for r in recs)
+
+
+def test_report_lint_validators_filter_by_scope_and_abstain():
+    from discovery_engine.reporting.linter.context import LintFinding
+    lf = [LintFinding(level="error", study_slug="s1", field_path="f", message="m", override_key="k", check="c"),
+          LintFinding(level="warning", study_slug="<workspace>", field_path="n", message="m", override_key="k", check="c")]
+    ctx = V.ValidationContext(workspace={"lint_findings": lf})
+    assert [r["scope"] for r in V._report_lint_study(ctx)] == ["study"]
+    assert [r["scope"] for r in V._report_lint_investigation(ctx)] == ["investigation"]
+    # abstain when the heavy lint pass was not derived
+    assert V._report_lint_study(V.ValidationContext()) == []
+    assert V._report_lint_investigation(V.ValidationContext()) == []
+    assert "structural.study.report_lint" in [v["id"] for v in V.registry()]
+    assert "structural.investigation.report_lint" in [v["id"] for v in V.registry()]
+
+
+def test_l0l5_adapter_groups_by_study_and_abstains():
+    from bigraph_schema.contract_audit import Finding
+    findings = [Finding(severity="error", code="L2_no_run", where="s1.runs", message="no runs", level="L2"),
+                Finding(severity="warning", code="L4_seed", where="s2.robustness", message="single seed", level="L4")]
+
+    class _Rep:
+        findings = None
+    _Rep.findings = findings
+    recs = V.records_from_l0l5(_Rep())
+    by = {r["target"]: r for r in recs}
+    assert by["s1"]["result"]["execution_status"] == "failed"
+    assert by["s2"]["result"]["execution_status"] == "inconclusive"
+    assert all(r["result"]["scientific_judgment"] is None for r in recs)
+    ctx = V.ValidationContext(workspace={"reproducibility": _Rep()})
+    assert len(V._reproducibility(ctx)) == 2
+    assert V._reproducibility(V.ValidationContext()) == []                     # abstain
+    assert "structural.study.reproducibility" in [v["id"] for v in V.registry()]
