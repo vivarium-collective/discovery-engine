@@ -501,3 +501,35 @@ def test_l0l5_adapter_groups_by_study_and_abstains():
     assert len(V._reproducibility(ctx)) == 2
     assert V._reproducibility(V.ValidationContext()) == []                     # abstain
     assert "structural.study.reproducibility" in [v["id"] for v in V.registry()]
+
+
+# --- contract/audit consolidation: component-scope contract completeness -------
+
+def test_component_contract_completeness_registered_and_scoped():
+    reg = V.registry()
+    assert "structural.component.contract_completeness" in [v["id"] for v in reg]
+    assert "component" in V.VALIDATOR_SCOPES
+
+
+def test_component_contract_completeness_grades_and_abstains():
+    from bigraph_schema.contract_audit import Finding
+    audits = [
+        {"target": "local:Complete", "grade": 1.0, "findings": []},
+        {"target": "local:Under", "grade": 0.4,
+         "findings": [Finding(severity="warning", code="untyped_port", where="inputs.x", message="no type")]},
+        {"target": "local:Bad", "grade": 0.0,
+         "findings": [Finding(severity="error", code="bad_units", where="outputs.y", message="bad units")]},
+    ]
+    recs = V._component_contract_completeness(V.ValidationContext(workspace={"component_audits": audits}))
+    by = {r["target"]: r for r in recs}
+    assert by["local:Complete"]["result"]["execution_status"] == "passed"
+    assert by["local:Under"]["result"]["execution_status"] == "inconclusive"
+    assert by["local:Bad"]["result"]["execution_status"] == "failed"
+    assert by["local:Complete"]["surfaces"] == "standing"      # passed/under -> feedback
+    assert by["local:Under"]["surfaces"] == "standing"
+    assert "surfaces" not in by["local:Bad"]                   # malformed -> frontier
+    assert by["local:Under"]["evidence"] == [{"completeness": 0.4}]
+    assert all(r["result"]["scientific_judgment"] is None for r in recs)   # execution-only
+    assert V.epistemic_separation_violations(recs) == []
+    # abstains when no core-bearing caller derived the audits
+    assert V._component_contract_completeness(V.ValidationContext()) == []

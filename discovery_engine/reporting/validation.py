@@ -853,3 +853,34 @@ def _reproducibility(ctx: ValidationContext) -> list[dict]:
     if not report:
         return []
     return records_from_l0l5(report)
+
+
+@validator(type="structural", scope="component", id="structural.component.contract_completeness")
+def _component_contract_completeness(ctx: ValidationContext) -> list[dict]:
+    """A registered process/composite's declared contract audited through the
+    bigraph-schema kernel (``contract_audit.audit_contract`` -> completeness: typed
+    ports + predicate conditions). Reads the per-component audits a core-bearing
+    caller derived into ``ctx.workspace['component_audits']`` (each
+    ``{target, findings, grade?}``, ``findings`` being bigraph-schema ``Finding``s);
+    abstains when absent — the pure cycle carries no core, so a core-bearing path
+    (the workbench env-worker) feeds it. Interface completeness only, so no
+    ``scientific_judgment``; an under-specified contract is standing feedback, a
+    malformed one (an ``error`` finding) is an actionable defect."""
+    audits = (getattr(ctx, "workspace", None) or {}).get("component_audits")
+    if not audits:
+        return []
+    recs: list[dict] = []
+    for entry in audits:
+        if not isinstance(entry, dict):
+            continue
+        target = str(entry.get("target") or "<component>")
+        grade = entry.get("grade")
+        rec = record_from_findings(
+            type="structural", scope="component", target=target,
+            findings=entry.get("findings") or [],
+            validator_id="structural.component.contract_completeness",
+            evidence=([{"completeness": grade}] if grade is not None else None))
+        if rec["result"]["execution_status"] != "failed":
+            rec["surfaces"] = "standing"
+        recs.append(rec)
+    return recs
