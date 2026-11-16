@@ -751,3 +751,105 @@ def _observable_coverage(ctx: ValidationContext) -> list[dict]:
             rec["surfaces"] = "standing"
         recs.append(rec)
     return recs
+
+
+# ---------------------------------------------------------------------------
+# Wrap-as-validators: the report linter + L0-L5 audit, one record vocabulary
+# ---------------------------------------------------------------------------
+# These wrap the EXISTING check machinery (50 linter checks; the L0-L5 audit)
+# rather than rewriting it: the impure caller runs the checks once and places
+# their findings on ``ctx.workspace`` (``lint_findings`` / ``reproducibility``);
+# these validators adapt those findings into the one record vocabulary and
+# register the linter/L0-L5 in the coverage matrix. They ABSTAIN when the heavy
+# findings are absent (the default per-cycle slice carries only cheap facts), so
+# they add zero per-cycle cost — the report path opts into deriving them.
+
+_LINT_LEVEL_RANK = {"error": 3, "warning": 2, "info": 1}
+
+
+def records_from_lint_findings(findings: list) -> list[dict]:
+    """Group report-linter ``LintFinding``s (``level``/``study_slug``/``field_path``/
+    ``message``/``check``) into ``validation_record``s, one per (scope, target):
+    ``study_slug == '<workspace>'`` -> investigation scope, else study scope. Worst
+    level sets execution_status (error->failed, warning->inconclusive, else passed).
+    Structural, so no ``scientific_judgment``; an error is a frontier defect, a
+    warning/info is standing feedback."""
+    buckets: dict[tuple, list] = {}
+    for f in findings:
+        slug = _finding_field(f, "study_slug", "<workspace>")
+        if slug in ("<workspace>", "", None):
+            key = ("investigation", "investigation")
+        else:
+            key = ("study", slug)
+        buckets.setdefault(key, []).append(f)
+    recs: list[dict] = []
+    for (scope, target), fs in buckets.items():
+        worst = max((_LINT_LEVEL_RANK.get(str(_finding_field(f, "level", "info")), 1) for f in fs),
+                    default=0)
+        status = "failed" if worst >= 3 else ("inconclusive" if worst == 2 else "passed")
+        rec = validation_record(
+            type="structural", scope=scope, target=target,
+            execution_status=status, scientific_judgment=None,
+            criteria=sorted({str(_finding_field(f, "check")) for f in fs if _finding_field(f, "check")}),
+            findings=[f"{_finding_field(f, 'field_path')}: {_finding_field(f, 'message')}".strip(": ")
+                      for f in fs],
+            validator_id=f"structural.{scope}.report_lint")
+        if status != "failed":
+            rec["surfaces"] = "standing"
+        recs.append(rec)
+    return recs
+
+
+@validator(type="structural", scope="study", id="structural.study.report_lint")
+def _report_lint_study(ctx: ValidationContext) -> list[dict]:
+    """Study-scope report-linter findings (``ctx.workspace['lint_findings']``) as
+    records. Abstains when the heavy lint pass was not derived into the slice."""
+    findings = (getattr(ctx, "workspace", None) or {}).get("lint_findings")
+    if not findings:
+        return []
+    return [r for r in records_from_lint_findings(findings) if r["scope"] == "study"]
+
+
+@validator(type="structural", scope="investigation", id="structural.investigation.report_lint")
+def _report_lint_investigation(ctx: ValidationContext) -> list[dict]:
+    """Workspace/investigation-scope report-linter findings as records (abstains
+    when the lint pass was not derived)."""
+    findings = (getattr(ctx, "workspace", None) or {}).get("lint_findings")
+    if not findings:
+        return []
+    return [r for r in records_from_lint_findings(findings) if r["scope"] == "investigation"]
+
+
+def records_from_l0l5(report) -> list[dict]:
+    """Adapt an L0-L5 reproducibility ``AuditReport`` (``.findings`` of
+    bigraph-schema ``Finding``s carrying ``level`` L0..L5) into records, one per
+    study (grouped by the finding's ``where``). Reuses :func:`record_from_findings`
+    per study. Structural: reproducibility obligations, not scientific truth."""
+    findings = getattr(report, "findings", None)
+    if findings is None and isinstance(report, dict):
+        findings = report.get("findings")
+    findings = findings or []
+    by_study: dict[str, list] = {}
+    for f in findings:
+        where = str(_finding_field(f, "where", "") or "")
+        study = where.split(".", 1)[0].split(":", 1)[0].strip() or "<workspace>"
+        by_study.setdefault(study, []).append(f)
+    recs: list[dict] = []
+    for study, fs in by_study.items():
+        rec = record_from_findings(
+            type="structural", scope="study", target=study,
+            findings=fs, validator_id="structural.study.reproducibility")
+        if rec["result"]["execution_status"] != "failed":
+            rec["surfaces"] = "standing"
+        recs.append(rec)
+    return recs
+
+
+@validator(type="structural", scope="study", id="structural.study.reproducibility")
+def _reproducibility(ctx: ValidationContext) -> list[dict]:
+    """The L0-L5 reproducibility audit (``ctx.workspace['reproducibility']``) as
+    records (abstains when the heavy audit was not derived into the slice)."""
+    report = (getattr(ctx, "workspace", None) or {}).get("reproducibility")
+    if not report:
+        return []
+    return records_from_l0l5(report)

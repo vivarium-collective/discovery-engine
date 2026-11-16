@@ -449,3 +449,55 @@ def test_observable_coverage_grades_gaps_complete_and_abstains():
 def test_observable_coverage_empty_workspace_is_noop():
     studies = {"s1": {"contract": {"face": {"inputs": {"t": "float"}}}}}
     assert V._observable_coverage(V.ValidationContext(studies=studies)) == []
+
+
+# --- contract/audit consolidation: wrap the report linter + L0-L5 as validators -
+
+def test_lint_findings_adapter_scopes_and_grades():
+    from discovery_engine.reporting.linter.context import LintFinding
+    lf = [
+        LintFinding(level="error", study_slug="s1", field_path="f", message="m1", override_key="k", check="c_err"),
+        LintFinding(level="warning", study_slug="s1", field_path="g", message="m2", override_key="k", check="c_warn"),
+        LintFinding(level="info", study_slug="<workspace>", field_path="n", message="m3", override_key="k", check="c_ws"),
+    ]
+    recs = V.records_from_lint_findings(lf)
+    by = {(r["scope"], r["target"]): r for r in recs}
+    assert by[("study", "s1")]["result"]["execution_status"] == "failed"       # worst = error
+    assert by[("study", "s1")]["criteria"] == ["c_err", "c_warn"]
+    assert "surfaces" not in by[("study", "s1")]                               # error -> frontier
+    assert by[("investigation", "investigation")]["result"]["execution_status"] == "passed"  # info only
+    assert by[("investigation", "investigation")]["surfaces"] == "standing"
+    assert all(r["result"]["scientific_judgment"] is None for r in recs)
+
+
+def test_report_lint_validators_filter_by_scope_and_abstain():
+    from discovery_engine.reporting.linter.context import LintFinding
+    lf = [LintFinding(level="error", study_slug="s1", field_path="f", message="m", override_key="k", check="c"),
+          LintFinding(level="warning", study_slug="<workspace>", field_path="n", message="m", override_key="k", check="c")]
+    ctx = V.ValidationContext(workspace={"lint_findings": lf})
+    assert [r["scope"] for r in V._report_lint_study(ctx)] == ["study"]
+    assert [r["scope"] for r in V._report_lint_investigation(ctx)] == ["investigation"]
+    # abstain when the heavy lint pass was not derived
+    assert V._report_lint_study(V.ValidationContext()) == []
+    assert V._report_lint_investigation(V.ValidationContext()) == []
+    assert "structural.study.report_lint" in [v["id"] for v in V.registry()]
+    assert "structural.investigation.report_lint" in [v["id"] for v in V.registry()]
+
+
+def test_l0l5_adapter_groups_by_study_and_abstains():
+    from bigraph_schema.contract_audit import Finding
+    findings = [Finding(severity="error", code="L2_no_run", where="s1.runs", message="no runs", level="L2"),
+                Finding(severity="warning", code="L4_seed", where="s2.robustness", message="single seed", level="L4")]
+
+    class _Rep:
+        findings = None
+    _Rep.findings = findings
+    recs = V.records_from_l0l5(_Rep())
+    by = {r["target"]: r for r in recs}
+    assert by["s1"]["result"]["execution_status"] == "failed"
+    assert by["s2"]["result"]["execution_status"] == "inconclusive"
+    assert all(r["result"]["scientific_judgment"] is None for r in recs)
+    ctx = V.ValidationContext(workspace={"reproducibility": _Rep()})
+    assert len(V._reproducibility(ctx)) == 2
+    assert V._reproducibility(V.ValidationContext()) == []                     # abstain
+    assert "structural.study.reproducibility" in [v["id"] for v in V.registry()]
