@@ -118,6 +118,8 @@ class ValidationContext:
     viz_state: dict = field(default_factory=dict)    # harvested viz_inventory (data)
     viz_catalog: list = field(default_factory=list)  # workbench catalog (data)
     evidence_state: dict = field(default_factory=dict)  # Phase-A evidence ledger (derived, passed in)
+    workspace: dict = field(default_factory=dict)  # workspace-derived facts (impure caller fills;
+    #   e.g. workspace["run_observables"] = {slug: set[str] | None}) — keeps validators pure
 
 
 #: the default process-wide registry (adapters below register into it).
@@ -710,6 +712,42 @@ def _evidence_integrity(ctx: ValidationContext) -> list[dict]:
             validator_id="empirical.claim.evidence_integrity")
         # a resolvable-but-unverified finding is informational, not an actionable defect
         if exec_status != "failed":
+            rec["surfaces"] = "standing"
+        recs.append(rec)
+    return recs
+
+
+@validator(type="structural", scope="study", id="structural.study.observable_coverage")
+def _observable_coverage(ctx: ValidationContext) -> list[dict]:
+    """A study whose declared ``contract.face`` names ports its latest run does not
+    EMIT (``observable_lint.observable_gaps`` over the run's observables, supplied
+    pre-derived in ``ctx.workspace['run_observables']``). Interface coverage only —
+    structural, no ``scientific_judgment``. A study with no declared face, or no
+    readable run (observables ``None``), abstains (no record). Gaps are a warning
+    (standing feedback), not an actionable frontier defect."""
+    from discovery_engine.study.observable_lint import observable_gaps
+    run_obs = (getattr(ctx, "workspace", None) or {}).get("run_observables") or {}
+    recs: list[dict] = []
+    for slug, spec in (getattr(ctx, "studies", None) or {}).items():
+        if not isinstance(spec, dict):
+            continue
+        face = (spec.get("contract") or {}).get("face")
+        if not isinstance(face, dict) or not face:
+            continue  # no declared face -> not applicable
+        observables = run_obs.get(slug)
+        if observables is None:
+            continue  # no readable run -> abstain (matches observable_lint)
+        gaps = observable_gaps(face, observables)
+        rec = validation_record(
+            type="structural", scope="study", target=slug,
+            execution_status=("inconclusive" if gaps else "passed"),
+            scientific_judgment=None,
+            criteria=["contract-observable"] if gaps else [],
+            findings=list(gaps),
+            recommendations=(["emit the declared contract.face ports, or narrow the face"]
+                             if gaps else []),
+            validator_id="structural.study.observable_coverage")
+        if gaps:
             rec["surfaces"] = "standing"
         recs.append(rec)
     return recs

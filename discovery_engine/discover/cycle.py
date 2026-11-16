@@ -97,7 +97,8 @@ def load_workspace_build_hook(ws_root: Path | str | None):
 
 def run_cycle(inv_spec: dict, studies_by_slug: dict[str, dict], *,
               evidence_state: dict | None = None, catalog: list | None = None,
-              viz_state: dict | None = None, viz_catalog: list | None = None) -> dict:
+              viz_state: dict | None = None, viz_catalog: list | None = None,
+              workspace: dict | None = None) -> dict:
     """Project one full discovery cycle over an investigation + its studies.
 
     Pure: no disk I/O. Each derived projection is merged over its authored block
@@ -122,7 +123,7 @@ def run_cycle(inv_spec: dict, studies_by_slug: dict[str, dict], *,
     ctx = ValidationContext(inv_spec=inv_spec, studies=studies_by_slug,
                             argument=argument, narrative=narrative, audit=gaps,
                             viz_state=viz_state or {}, viz_catalog=viz_catalog or [],
-                            evidence_state=evidence_state or {})
+                            evidence_state=evidence_state or {}, workspace=workspace or {})
 
     bundle = {
         "knowledge": knowledge,
@@ -189,6 +190,19 @@ def _viz_scope_of(viz_catalog):
             ports[c["address"]] = c["inputs"]
     return lambda address: ports.get(address)
 
+def _derive_workspace_view(ws_root, studies: dict) -> dict:
+    """Workspace/filesystem-derived facts that pure validators (RFC-0007) read,
+    computed ONCE here by the impure caller so the projection stays pure.
+
+    Currently: ``run_observables`` — each study's latest-run emitted observable
+    names (or ``None`` when no readable run). Extended as more filesystem checks
+    migrate onto the validator layer (composite resolution, runs.db facts, …)."""
+    from discovery_engine.study.run_observables import study_run_observables
+    run_observables = {slug: study_run_observables(spec, ws_root)
+                       for slug, spec in studies.items() if isinstance(spec, dict)}
+    return {"run_observables": run_observables}
+
+
 def _cycle_with_evidence(ws_root, inv_slug, inv_spec, studies) -> dict:
     """run_cycle with the Phase-A evidence state computed FIRST, so contradicted
     (evidence-problem) studies are known to the revision proposer and the frontier."""
@@ -199,7 +213,8 @@ def _cycle_with_evidence(ws_root, inv_slug, inv_spec, studies) -> dict:
     viz = viz_inventory(ws_root, inv_slug, studies)  # the one impure viz harvest
     return run_cycle(inv_spec, studies, evidence_state=ev,
                      catalog=build_catalog(studies, ws_root),  # resolved: enables composite swaps
-                     viz_state=viz, viz_catalog=None)  # workbench catalog supplied by a later task
+                     viz_state=viz, viz_catalog=None,  # workbench catalog supplied by a later task
+                     workspace=_derive_workspace_view(ws_root, studies))
 
 def set_verdict(study_path: Path | str, verdict: str, rationale: str | None = None) -> dict:
     """Author a canonical verdict on a study (authored wins over the derived roll-up).

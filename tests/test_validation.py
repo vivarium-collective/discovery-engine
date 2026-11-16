@@ -416,3 +416,36 @@ def test_evidence_integrity_maps_ledger_statuses():
 def test_evidence_integrity_empty_state_is_noop():
     assert V._evidence_integrity(V.ValidationContext()) == []
     assert V._evidence_integrity(V.ValidationContext(evidence_state={"ledger": []})) == []
+
+
+# --- contract/audit consolidation: observable coverage over the workspace slice -
+
+def test_observable_coverage_validator_registered():
+    assert "structural.study.observable_coverage" in [v["id"] for v in V.registry()]
+
+
+def test_observable_coverage_grades_gaps_complete_and_abstains():
+    studies = {
+        "s-complete": {"contract": {"face": {"inputs": {"temp": "float"}, "outputs": {"rate": "float"}}}},
+        "s-gap": {"contract": {"face": {"inputs": {"temp": "float"},
+                                        "outputs": {"rate": "float", "flux": "float"}}}},
+        "s-norun": {"contract": {"face": {"inputs": {"temp": "float"}}}},
+        "s-noface": {"name": "x"},
+    }
+    ws = {"run_observables": {"s-complete": {"temp", "rate"},
+                             "s-gap": {"temp", "rate"},  # 'flux' not emitted
+                             "s-norun": None}}            # no readable run -> abstain
+    recs = V._observable_coverage(V.ValidationContext(studies=studies, workspace=ws))
+    by = {r["target"]: r for r in recs}
+    assert set(by) == {"s-complete", "s-gap"}                       # norun + noface abstain
+    assert by["s-complete"]["result"]["execution_status"] == "passed"
+    assert by["s-gap"]["result"]["execution_status"] == "inconclusive"
+    assert by["s-gap"]["surfaces"] == "standing"                   # a coverage warning, not a defect
+    assert "flux" in " ".join(by["s-gap"]["findings"])
+    assert all(r["result"]["scientific_judgment"] is None for r in recs)
+    assert V.epistemic_separation_violations(recs) == []
+
+
+def test_observable_coverage_empty_workspace_is_noop():
+    studies = {"s1": {"contract": {"face": {"inputs": {"t": "float"}}}}}
+    assert V._observable_coverage(V.ValidationContext(studies=studies)) == []
