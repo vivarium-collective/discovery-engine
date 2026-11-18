@@ -1137,7 +1137,7 @@ def main(argv: list[str] | None = None) -> int:
             for r in reqs:
                 sk = registry.get(r.kind)
                 rows.append({"request_id": r.id, "kind": r.kind, "target": r.target,
-                             "skill": sk.name if sk else None, "gate": r.gate})
+                             "skill": r.skill or (sk.name if sk else None), "gate": r.gate})
             if args.json:
                 print(_json.dumps(rows, indent=2, default=str))
             elif not rows:

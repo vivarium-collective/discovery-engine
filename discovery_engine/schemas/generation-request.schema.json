@@ -60,6 +60,10 @@
       "type": "string",
       "enum": ["auto", "review"],
       "description": "Resolved from the investigation's GateConfig at emit time."
+    },
+    "skill": {
+      "type": "string",
+      "description": "The skill slug a filler triggers to satisfy this request's kind (from _KIND_TO_SKILL, overridable per workspace). Empty when the kind has no mapped skill."
     }
   }
 }

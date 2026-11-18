@@ -38,6 +38,40 @@ KINDS = (
 )
 GATES = ("auto", "review")
 
+# The skill a filler triggers to satisfy each request kind ("maximally efficient
+# skill triggering", AI-drivable-cycle spec). Strings ONLY — the engine must not
+# import viva_superpowers (plugin / import-linter boundary), so these are skill
+# SLUGS a coordinator resolves against its installed /viva-* skills, not imports.
+# A workspace overrides per kind via ``inv_spec["discovery"]["skill_map"]``; an
+# unmapped kind stamps "" and the coordinator falls back. ``hypothesize`` /
+# ``critique`` name the engine's own authoring skills (discovery_engine/skills/*);
+# the rest route to the /viva-* skill that authors that artifact.
+_KIND_TO_SKILL = {
+    "propose_study": "viva-investigation",
+    "acquire_model": "viva-expert",
+    "author_tests": "viva-study",
+    "interpret_finding": "viva-biology-forward",
+    "resolve_decision": "viva-navigate",
+    "explain": "viva-biology-forward",
+    "visualize": "viva-viz",
+    "hypothesize": "hypothesize",
+    "critique": "critique",
+}
+
+
+def skill_for(kind: str, overrides: dict | None = None) -> str:
+    """The skill slug a filler triggers for a request ``kind``.
+
+    ``overrides`` (a workspace's ``inv_spec["discovery"]["skill_map"]``) wins over
+    the :data:`_KIND_TO_SKILL` default; an unmapped kind returns ``""`` so the
+    coordinator can fall back rather than trigger the wrong skill."""
+    if isinstance(overrides, dict):
+        v = overrides.get(kind)
+        if isinstance(v, str) and v.strip():
+            return v.strip()
+    return _KIND_TO_SKILL.get(kind, "")
+
+
 _SCHEMA_DIR = _schemas_dir()
 
 # Default gate per kind (spec §3): branch-points (new studies, model choices,
@@ -105,6 +139,7 @@ class GenerationRequest:
     value: dict = field(default_factory=dict)
     provenance: dict = field(default_factory=dict)
     gate: str = "review"
+    skill: str = ""
     id: str = ""
 
     def __post_init__(self) -> None:
