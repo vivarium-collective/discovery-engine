@@ -5,7 +5,7 @@ from ``discovery_engine.reporting.card_grade``. Lazy re-exports (PEP 562)."""
 import warnings as _warnings
 
 _NEW = "discovery_engine.reporting.card_grade"
-_NAMES = frozenset({"_slug_group", "grade_card", "render_verdict_html", "verdict_json"})
+_NAMES = frozenset({"dig", "_slug_group", "grade_card", "render_verdict_html", "verdict_json"})
 
 _warnings.warn(
     f"discovery_engine.card_grade moved to {_NEW} (reorg #45); the flat path is a "

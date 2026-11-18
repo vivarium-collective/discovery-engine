@@ -12,7 +12,7 @@ import warnings as _warnings
 
 _NEW = "discovery_engine.integration.post_sim"
 _NAMES = frozenset({
-    "ANALYSIS_SCALES", "Analysis", "AnalysisStep", "KINDS", "POST_SIM_REGISTRY",
+    "ANALYSIS_REGISTRY", "ANALYSIS_SCALES", "Analysis", "AnalysisStep", "KINDS", "POST_SIM_REGISTRY",
     "REPORT_CARD_REGISTRY", "VISUALIZATION_REGISTRY", "ReportCardStep",
     "VisualizationStep", "StudyContext", "iter_post_sim", "prune",
     "register_post_sim", "write_card",

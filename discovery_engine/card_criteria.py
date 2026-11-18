@@ -6,7 +6,7 @@ import warnings as _warnings
 
 _NEW = "discovery_engine.reporting.card_criteria"
 _NAMES = frozenset({
-    "_SEVERITY", "_band", "_fit_threshold_linear", "_r2", "_ungraded", "_welch", "grade_axis",
+    "VERDICTS", "_SEVERITY", "_band", "_fit_threshold_linear", "_r2", "_ungraded", "_welch", "grade_axis",
 })
 
 _warnings.warn(
