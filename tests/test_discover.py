@@ -127,6 +127,64 @@ def test_persist_cycle_renews_resolved_decisions_and_drops_dead_fields(tmp_path)
     assert [d["question"] for d in ex["decisions_resolved"]] == ["prior A?"]
 
 
+def test_persist_cycle_preserves_authored_literal_blocks_and_comments(tmp_path):
+    # Regression for issue #88: persist_cycle re-read via the plain load + safe_dump
+    # pair flattened authored `|` literal blocks and dropped `#` comments on every
+    # cycle. It must now round-trip authored content untouched while still writing
+    # the regenerable cycle_state.
+    inv_path = tmp_path / "investigation.yaml"
+    inv_path.write_text(
+        "# top comment — must survive a persist\n"
+        "question: Q?\n"
+        "studies:\n"
+        "  - a\n"
+        "biological_story: |\n"
+        "  Line one of the mechanism.\n"
+        "  Line two, indented prose.\n"
+        "  Line three.\n",
+        encoding="utf-8",
+    )
+    inv = {"question": "Q?", "studies": ["a"],
+           "biological_story": "Line one of the mechanism.\n"
+                               "Line two, indented prose.\nLine three.\n"}
+
+    out = discover.run_cycle(inv, {"a": _study("a", "PASS", claim="a holds")})
+    discover.persist_cycle(inv_path, inv, out)
+
+    text = inv_path.read_text(encoding="utf-8")
+    assert "# top comment — must survive a persist" in text   # comment survives
+    assert "biological_story: |" in text                       # literal block, not flattened
+    assert "  Line one of the mechanism." in text
+    assert "  Line three." in text
+    on_disk = load_yaml(inv_path)
+    assert "cycle_state" in on_disk                             # regenerable state still written
+    assert on_disk["biological_story"].splitlines()[0] == "Line one of the mechanism."
+
+
+def test_set_verdict_preserves_authored_comments_and_blocks(tmp_path):
+    # Same issue-#88 class on the study-file writer: setting a verdict must not
+    # mangle the study's authored `|` blocks or comments.
+    sp = tmp_path / "study.yaml"
+    sp.write_text(
+        "# authored study header\n"
+        "name: a\n"
+        "claim: a holds\n"
+        "biological_summary: |\n"
+        "  Mechanism paragraph one.\n"
+        "  Mechanism paragraph two.\n",
+        encoding="utf-8",
+    )
+    discover.set_verdict(sp, "qualified", rationale="scoped to vent regime")
+
+    text = sp.read_text(encoding="utf-8")
+    assert "# authored study header" in text
+    assert "biological_summary: |" in text
+    assert "  Mechanism paragraph two." in text
+    on_disk = load_yaml(sp)
+    assert on_disk["verdict"] == "qualified"
+    assert on_disk["verdict_rationale"] == "scoped to vent regime"
+
+
 # ---------------------------------------------------------------------------
 # load_cycle_inputs — read inv + member studies from disk
 # ---------------------------------------------------------------------------

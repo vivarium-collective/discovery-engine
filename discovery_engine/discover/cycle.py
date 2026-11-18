@@ -72,6 +72,35 @@ from discovery_engine.discover.actions import (
 )
 
 
+def _load_roundtrip(path: Path | str):
+    """Comment/literal-preserving load of an authored spec we will rewrite in place.
+
+    Round-trips via ruamel (``_common._ruamel``) so a caller can mutate only the
+    regenerable fields and write back with :func:`_save_roundtrip` WITHOUT flattening
+    authored ``|`` literal blocks or dropping ``#`` comments — the drift the plain
+    ``load_yaml_mapping`` + ``save_yaml_atomic`` pair caused on every persist (issue #88).
+    Raises ``ValueError`` if the top level is not a mapping (matches ``load_yaml_mapping``).
+    """
+    from ruamel.yaml.comments import CommentedMap
+    data = _ruamel().load(Path(path).read_text(encoding="utf-8"))
+    if data is None:
+        return CommentedMap()
+    if not isinstance(data, dict):
+        raise ValueError(f"{path}: top-level YAML is not a mapping")
+    return data
+
+
+def _save_roundtrip(path: Path | str, data) -> None:
+    """Dump ``data`` via ruamel round-trip (preserves comments + ``|`` literal blocks),
+    then atomically write it — the comment-safe replacement for ``save_yaml_atomic`` at
+    the in-place authored-file writers in this module (issue #88). ``data`` loaded via
+    :func:`_load_roundtrip` keeps its authored formatting; a plain dict (a brand-new file,
+    the ``not path.exists()`` branch) dumps in normal block style."""
+    buf = StringIO()
+    _ruamel().dump(data, buf)
+    atomic_write(Path(path), buf.getvalue())
+
+
 def load_workspace_build_hook(ws_root: Path | str | None):
     """Import ``<pkg>.build_hook`` and call ``register_build_hook(registry)``; the hook is
     ``registry['build_capability']`` (``fn(gap, ws_root) -> {status, process, detail, gap_id}``).
@@ -243,11 +272,11 @@ def set_verdict(study_path: Path | str, verdict: str, rationale: str | None = No
     if verdict not in VERDICT_VOCAB:
         raise ValueError(f"verdict must be one of {VERDICT_VOCAB}, got {verdict!r}")
     path = Path(study_path)
-    spec = load_yaml_mapping(path)
+    spec = _load_roundtrip(path)
     spec["verdict"] = verdict
     if rationale:
         spec["verdict_rationale"] = rationale
-    save_yaml_atomic(path, spec)
+    _save_roundtrip(path, spec)
     return canonical_verdict(spec)
 
 def build_cycle_state(result: dict, inv_spec: dict, *, model_versions: list | None = None,
@@ -353,7 +382,7 @@ def persist_cycle(inv_path: Path | str, inv_spec: dict, result: dict, *, studies
     """
     from discovery_engine.reporting.validation import _DEPRECATED_INV_FIELDS, _RETIRED_INV_CACHES
     path = Path(inv_path)
-    on_disk = load_yaml_mapping(path) if path.exists() else dict(inv_spec)
+    on_disk = _load_roundtrip(path) if path.exists() else dict(inv_spec)
     for dead in (*_RETIRED_INV_CACHES, *_DEPRECATED_INV_FIELDS):
         on_disk.pop(dead, None)  # retire bloat caches + deprecated fields (0 readers)
     # the prior evaluation snapshot, before build_cycle_state overwrites cycle_state —
@@ -438,7 +467,7 @@ def persist_cycle(inv_path: Path | str, inv_spec: dict, result: dict, *, studies
                     _ids.add(c["id"])
             on_disk["finding_candidates"] = _have
     _validate_extensions({"cycle_state": on_disk["cycle_state"]})
-    save_yaml_atomic(path, on_disk)
+    _save_roundtrip(path, on_disk)
     return on_disk["cycle_state"]
 
 def _evaluate_applied_proposals(on_disk: dict, studies: dict, fingerprint: str | None) -> list[str]:
@@ -949,14 +978,14 @@ def execute_action(ws_root: Path | str, inv_slug: str, *, autonomous: bool = Fal
                     # Register the child as a member so the NEXT crank includes it — promotion
                     # must put the study IN the cycle, not just on disk, or the loop can't chain.
                     # Append to whichever membership field the investigation declares.
-                    _inv_disk = load_yaml_mapping(inv_path)
+                    _inv_disk = _load_roundtrip(inv_path)
                     _key = "members" if isinstance(_inv_disk.get("members"), list) else "studies"
                     _members = list(_inv_disk.get(_key) or [])
                     _existing = {m.get("study") if isinstance(m, dict) else m for m in _members}
                     if res["new_slug"] not in _existing:
                         _members.append(res["new_slug"])
                         _inv_disk[_key] = _members
-                        save_yaml_atomic(inv_path, _inv_disk)
+                        _save_roundtrip(inv_path, _inv_disk)
                     rec["status"] = "executed"
                     rec["command"] = f"seed-study {prop['parent_study']} -> {res['new_slug']}"
                     rec["outcome"] = {"ok": True, "new_slug": res["new_slug"],
@@ -989,7 +1018,7 @@ def execute_action(ws_root: Path | str, inv_slug: str, *, autonomous: bool = Fal
                 try:
                     res = reconcile_and_reopen(fb, inv_spec, studies)
                     reopened = res["inv_spec"]
-                    _inv_disk = load_yaml_mapping(inv_path)
+                    _inv_disk = _load_roundtrip(inv_path)
                     _inv_disk["status"] = reopened.get("status")
                     if reopened.get("executive") is not None:
                         _inv_disk["executive"] = reopened["executive"]
@@ -999,7 +1028,7 @@ def execute_action(ws_root: Path | str, inv_slug: str, *, autonomous: bool = Fal
                     _applied.append({"feedback": top["source"],
                                      "at": _dt.datetime.now(_dt.timezone.utc).isoformat(timespec="seconds")})
                     _inv_disk["applied_feedback"] = _applied
-                    save_yaml_atomic(inv_path, _inv_disk)
+                    _save_roundtrip(inv_path, _inv_disk)
                     # write any studies the reopen seeded (mirrors ingest_feedback --write)
                     for _slug, _spec in (res.get("new_studies") or {}).items():
                         _sdir = studies_dir(Path(ws_root)) / _slug
@@ -1188,7 +1217,7 @@ def _append_executed(inv_path: Path | str, record: dict) -> None:
     """Append an execution record to the investigation's ``executed_actions`` log (an
     audit trail of what the bridge ran). Re-reads on disk, writes only this field."""
     path = Path(inv_path)
-    on_disk = load_yaml_mapping(path) if path.exists() else {}
+    on_disk = _load_roundtrip(path) if path.exists() else {}
     log = list(on_disk.get("executed_actions") or [])
     entry = {"action": record["action"], "source": record["source"],
              "command": record["command"], "status": record["status"],
@@ -1199,7 +1228,7 @@ def _append_executed(inv_path: Path | str, record: dict) -> None:
         entry["decision"] = record["decision"]
     log.append(entry)
     on_disk["executed_actions"] = log
-    save_yaml_atomic(path, on_disk)
+    _save_roundtrip(path, on_disk)
 
 def run_readiness(study_spec: dict, ws_root: Path | str | None = None) -> dict:
     """Is a study's run fully specified to yield an evaluable, visualized, contract-checked
@@ -1823,9 +1852,9 @@ def snapshot_validations(ws_root: Path | str, slug: str) -> dict:
     inv_path, inv_spec, studies = load_cycle_inputs(ws_root, slug)
     snap = snapshot_of(run_cycle(inv_spec, studies)["validations"])
     path = Path(inv_path)
-    on_disk = load_yaml_mapping(path) if path.exists() else dict(inv_spec)
+    on_disk = _load_roundtrip(path) if path.exists() else dict(inv_spec)
     on_disk["validation_snapshot"] = snap
-    save_yaml_atomic(path, on_disk)
+    _save_roundtrip(path, on_disk)
     return snap
 
 def load_cycle_inputs(ws_root: Path | str, slug: str) -> tuple[Path, dict, dict[str, dict]]:
