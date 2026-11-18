@@ -1,6 +1,6 @@
 # Proactive question generation (coverage-gap frontier + agent-authored hypotheses)
 
-**Status:** Phase 1 implemented (this PR); Phase 2 proposed.
+**Status:** Phase 1 + Phase 2 implemented.
 **Issue:** AI-drivable-cycle gap #2 — "surface fundamental questions not yet asked."
 
 ## Problem
@@ -61,14 +61,24 @@ cover; with none configured the detector emits nothing. This keeps the engine
 honest (it never invents a domain's science) and the gap detection deterministic
 and testable.
 
-### Layer 2 — agent-authored questions/hypotheses (Phase 2, proposed)
+### Layer 2 — agent-authored questions/hypotheses (Phase 2, implemented)
 
 The `hypothesize` generation kind already exists (produces `hypothesis_proposal/v1`,
-engine skill `discovery_engine/skills/hypothesize/SKILL.md`). Phase 2 routes a
-`coverage_gap` to an authoring agent that writes the actual **question + hypothesis
-about what SHOULD happen** (not just "propose a study"), grounded in the model +
-literature. The engine emits the gap and the request envelope; the agent authors
-the science.
+engine skill `discovery_engine/skills/hypothesize/SKILL.md`). Phase 2 **routes a
+`coverage_gap` to that kind** (`generation_emit._request_kind`: `coverage_gap →
+hypothesize`, alongside `anomaly`/`model_disagreement`) rather than to a bare
+`propose_study`. The agent authors the actual **forward hypothesis about what SHOULD
+happen** on the dimension (`provenance.trigger: coverage_gap`), grounded in the model
++ literature — a single falsifiable prediction is enough (unlike an anomaly, which
+needs ≥2 discriminating explanations). The hypothesis then drives a discriminating
+study via the existing `suggest`/`discriminating_hypotheses` path.
+
+The `hypothesize` SKILL.md documents the coverage-gap trigger. The hypothesis-proposal
+schema/`coerce` already accept a forward hypothesis (statement + mechanism + ≥1
+falsifiable prediction + provenance) — no schema change needed. The engine emits the
+gap and the request envelope; the agent authors the science. The four hand-authored
+`baseline-showcase` hypotheses (Scott–Hwa / adder / Donachie / overflow) are the
+reference output shape.
 
 Reference output shape (the four baseline hypotheses authored by hand on
 `baseline-showcase`): H1 Scott–Hwa growth laws, H2 Taheri-Araghi adder, H3
