@@ -10,16 +10,16 @@ import pytest
 # The exact surfaces v2ecoli imports from each old flat path (incl. private names).
 SURFACES = {
     ("discovery_engine.post_sim", "discovery_engine.integration.post_sim"): [
-        "ANALYSIS_SCALES", "Analysis", "AnalysisStep", "KINDS", "POST_SIM_REGISTRY",
+        "ANALYSIS_REGISTRY", "ANALYSIS_SCALES", "Analysis", "AnalysisStep", "KINDS", "POST_SIM_REGISTRY",
         "REPORT_CARD_REGISTRY", "VISUALIZATION_REGISTRY", "ReportCardStep",
         "VisualizationStep", "iter_post_sim", "register_post_sim", "StudyContext",
         "prune", "write_card",
     ],
     ("discovery_engine.card_criteria", "discovery_engine.reporting.card_criteria"): [
-        "_SEVERITY", "_band", "_fit_threshold_linear", "_r2", "_ungraded", "_welch", "grade_axis",
+        "VERDICTS", "_SEVERITY", "_band", "_fit_threshold_linear", "_r2", "_ungraded", "_welch", "grade_axis",
     ],
     ("discovery_engine.card_grade", "discovery_engine.reporting.card_grade"): [
-        "grade_card", "verdict_json", "render_verdict_html", "_slug_group",
+        "dig", "grade_card", "verdict_json", "render_verdict_html", "_slug_group",
     ],
 }
 
