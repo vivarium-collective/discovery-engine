@@ -41,6 +41,21 @@ def test_covered_by_a_derived_claim_statement():
     assert coverage_gap_items(cr, _inv(dims)) == []           # covered by the claim text
 
 
+def test_covered_by_an_authored_hypothesis_is_not_a_gap():
+    # a dimension ASKED as a hypothesis (no study claim yet) must not re-fire as unasked
+    dims = [{"name": "proteome allocation", "keywords": ["proteome allocation", "ribosome budget"]}]
+    inv = _inv(dims, question="How does colony cost scale with N?", hypotheses=[
+        {"statement": "proteome allocation shifts toward ribosomes under fast growth",
+         "mechanism": "the ribosome budget tracks growth rate"}])
+    assert coverage_gap_items({}, inv) == []
+
+
+def test_uncovered_dimension_still_fires_despite_unrelated_hypotheses():
+    dims = [{"name": "single-cell variability", "keywords": ["variability", "noise"]}]
+    inv = _inv(dims, hypotheses=[{"statement": "growth laws hold", "mechanism": "ribosome budget"}])
+    assert [t for t, _ in coverage_gap_items({}, inv)] == ["coverage:single-cell-variability"]
+
+
 def test_keywordless_dimension_matches_on_its_name():
     dims = [{"name": "chemotaxis"}]
     assert coverage_gap_items({}, _inv(dims, question="a study of chemotaxis gradients")) == []

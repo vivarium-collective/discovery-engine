@@ -22,7 +22,8 @@ import re
 
 def _corpus(cycle_result: dict, inv_spec: dict) -> str:
     """The lowercased text a dimension's keywords are matched against: the
-    investigation's authored framing plus the derived claim statements."""
+    investigation's authored framing, its authored hypotheses, and the derived
+    claim statements."""
     inv = inv_spec if isinstance(inv_spec, dict) else {}
     parts: list[str] = []
     for k in ("question", "hypothesis", "lead", "biological_story"):
@@ -38,6 +39,14 @@ def _corpus(cycle_result: dict, inv_spec: dict) -> str:
     for ag in (inv.get("at_a_glance") or []):
         if isinstance(ag, dict) and ag.get("role"):
             parts.append(str(ag["role"]))
+    # Authored hypotheses (the `hypotheses:` block) count as coverage: a dimension
+    # ASKED as a hypothesis — its statement + mechanism — has been asked even before a
+    # study derives the claim that names it, so it must not re-fire as an "unasked" gap.
+    for h in (inv.get("hypotheses") or []):
+        if isinstance(h, dict):
+            for key in ("statement", "mechanism"):
+                if h.get(key):
+                    parts.append(str(h[key]))
     claims = ((cycle_result or {}).get("argument") or {}).get("claims") or {}
     if isinstance(claims, dict):
         for c in claims.values():
