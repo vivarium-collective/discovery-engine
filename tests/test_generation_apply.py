@@ -61,6 +61,78 @@ def test_apply_interpret_finding_writes_prose_not_evidence(tmp_path):
     assert f["evidence"]["observed"] == 1.0          # numeric evidence untouched
 
 
+def test_apply_author_tests_appends_and_is_idempotent(tmp_path):
+    ws = _ws(tmp_path)
+    req = GenerationRequest(kind="author_tests", target="s1",
+                            produces="behavior_tests[]", provenance={"op": "test"})
+    art = {"study": "s1", "tests": [
+        {"name": "val_in_band", "measure": {"kind": "range_check", "path": "x"},
+         "pass_if": {"low": 0.1, "high": 0.3}},
+    ]}
+    out = apply_result(req, GenerationResult(request_id=req.id, artifact=dict(art)),
+                       ws_root=ws, inv_slug="demo")
+    assert out["status"] == "applied"
+    assert out["applied_to"] == ["behavior_tests[val_in_band]"]
+    s = yaml.safe_load((ws / "studies" / "s1" / "study.yaml").read_text())
+    names = [t["name"] for t in s["behavior_tests"]]
+    assert names == ["val_in_band"]
+
+    # idempotent: applying the same artifact again adds nothing, never duplicates
+    out2 = apply_result(req, GenerationResult(request_id=req.id, artifact=dict(art)),
+                        ws_root=ws, inv_slug="demo")
+    assert out2["status"] == "applied"
+    assert out2["applied_to"] == []
+    s2 = yaml.safe_load((ws / "studies" / "s1" / "study.yaml").read_text())
+    assert [t["name"] for t in s2["behavior_tests"]] == ["val_in_band"]
+
+
+def test_apply_author_tests_malformed_raises(tmp_path):
+    ws = _ws(tmp_path)
+    req = GenerationRequest(kind="author_tests", target="s1", produces="behavior_tests[]")
+    with pytest.raises(ValueError):                  # no named tests
+        apply_result(req, GenerationResult(request_id=req.id, artifact={"study": "s1", "tests": []}),
+                     ws_root=ws, inv_slug="demo")
+    with pytest.raises(ValueError):                  # no study
+        apply_result(req, GenerationResult(request_id=req.id, artifact={"tests": [{"name": "t"}]}),
+                     ws_root=ws, inv_slug="demo")
+
+
+def test_apply_explain_sets_finding_explanation_and_never_clobbers(tmp_path):
+    ws = _ws(tmp_path)
+    req = GenerationRequest(kind="explain", target="claim:s1",
+                            produces="explanation/v1", provenance={"op": "branch"})
+    res = GenerationResult(request_id=req.id, artifact={
+        "study": "s1", "finding": "f1",
+        "explanation": "The transition holds because the outlet rate stays in band.",
+    })
+    out = apply_result(req, res, ws_root=ws, inv_slug="demo")
+    assert out["status"] == "applied"
+    assert out["applied_to"] == ["findings[f1].explanation"]
+    s = yaml.safe_load((ws / "studies" / "s1" / "study.yaml").read_text())
+    assert s["findings"][0]["explanation"].startswith("The transition holds")
+    assert s["findings"][0]["evidence"]["observed"] == 1.0   # numeric evidence untouched
+
+    # derive-first: a non-empty existing explanation is NOT clobbered
+    res2 = GenerationResult(request_id=req.id, artifact={
+        "study": "s1", "finding": "f1", "explanation": "a different, overriding explanation"})
+    out2 = apply_result(req, res2, ws_root=ws, inv_slug="demo")
+    assert out2["applied_to"] == []
+    s2 = yaml.safe_load((ws / "studies" / "s1" / "study.yaml").read_text())
+    assert s2["findings"][0]["explanation"].startswith("The transition holds")
+
+
+def test_apply_explain_malformed_raises(tmp_path):
+    ws = _ws(tmp_path)
+    req = GenerationRequest(kind="explain", target="claim:s1", produces="explanation/v1")
+    with pytest.raises(ValueError):                  # missing study/finding
+        apply_result(req, GenerationResult(request_id=req.id, artifact={"explanation": "x"}),
+                     ws_root=ws, inv_slug="demo")
+    with pytest.raises(ValueError):                  # no prose
+        apply_result(req, GenerationResult(request_id=req.id,
+                                           artifact={"study": "s1", "finding": "f1"}),
+                     ws_root=ws, inv_slug="demo")
+
+
 def test_unwired_kind_queues_for_review(tmp_path):
     ws = _ws(tmp_path)
     req = GenerationRequest(kind="propose_study", target="s1", produces="study.yaml/v4")
