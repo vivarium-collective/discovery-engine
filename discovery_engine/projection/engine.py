@@ -62,6 +62,9 @@ _PRIORITY = {
     # Feedback loop (NON-blocking): staged human feedback that would reopen the
     # investigation — a first-class cycle move, not a side `ingest-feedback` CLI.
     "pending_feedback": 59,
+    # Proactive coverage gap (#2, exploratory / NON-blocking): a configured scientific
+    # dimension no study probes yet — a question the investigation has not asked.
+    "coverage_gap": 34,
 }
 # Recommended operation per item kind (the RFC-0005 op that resolves it).
 _OP = {
@@ -84,6 +87,7 @@ _OP = {
     "viz_misplaced": "relocate_viz", "viz_duplicated": "relocate_viz", "viz_untied": "relocate_viz",
     "capability_gap": "build_process", "model_acquisition": "accept_model_acquisition",
     "pending_feedback": "reopen",        # apply the staged feedback and re-enter the loop
+    "coverage_gap": "branch",            # propose a study to probe the uncovered dimension
 }
 # open_calls kinds map straight onto frontier kinds.
 _CALL_KIND = {"narrative_gap": "narrative_gap", "decision": "open_decision",
@@ -383,6 +387,14 @@ def frontier(cycle_result: dict, inv_spec: dict) -> list[dict]:
             continue
         if any(isinstance(a, dict) and a.get("type") == "reopen" for a in fb.get("actions") or []):
             add("pending_feedback", fid, "staged human feedback would reopen the investigation")
+
+    # 11. Proactive coverage gaps (#2): a configured scientific dimension no study
+    #     probes yet — a question the investigation has not asked. Deterministic gap
+    #     detection only; the question/hypothesis itself is agent-authored downstream
+    #     (Phase 2), never fabricated here.
+    from discovery_engine.projection.coverage import coverage_gap_items
+    for target, why in coverage_gap_items(cycle_result, inv_spec):
+        add("coverage_gap", target, why)
 
     items.sort(key=lambda x: (-x["priority"], str(x["kind"]), str(x["target"])))
     return items
