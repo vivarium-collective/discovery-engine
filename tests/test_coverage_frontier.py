@@ -47,17 +47,22 @@ def test_keywordless_dimension_matches_on_its_name():
     assert [t for t, _ in coverage_gap_items({}, _inv(dims, question="unrelated"))] == ["coverage:chemotaxis"]
 
 
-def test_coverage_gap_reaches_frontier_and_becomes_propose_study():
+def test_coverage_gap_reaches_frontier_and_routes_to_hypothesize():
     dims = [{"name": "proteome allocation", "keywords": ["proteome", "allocation"]}]
     inv = _inv(dims, question="How does colony cost scale with N?")
     f = frontier({}, inv)
     cov = [i for i in f if i["kind"] == "coverage_gap"]
     assert cov and cov[0]["target"] == "coverage:proteome-allocation"
     assert cov[0]["op"] == "branch"
-    # end-to-end: a coverage_gap opportunity routes to propose_study -> viva-investigation
+    # end-to-end (#2 Phase 2): a coverage_gap routes to the hypothesize kind — the agent
+    # authors the forward hypothesis about what SHOULD happen on the dimension — not a bare
+    # propose_study. The hypothesis then drives a discriminating study downstream.
     opp = {"id": "coverage_gap:x", "source": "coverage:proteome-allocation",
            "action_type": "branch", "kind": "coverage_gap", "value": {"score": 0.2},
-           "question": "probe proteome allocation"}
+           "question": "What should proteome allocation do as the colony grows?"}
     r = generation_requests([opp])[0]
-    assert r.kind == "propose_study"
-    assert r.skill == "viva-investigation"
+    assert r.kind == "hypothesize"
+    assert r.produces == "hypothesis_proposal/v1"
+    assert r.skill == "hypothesize"
+    assert r.context.get("kind") == "coverage_gap"    # trigger carried for the SKILL.md
+    assert r.rationale == "What should proteome allocation do as the colony grows?"

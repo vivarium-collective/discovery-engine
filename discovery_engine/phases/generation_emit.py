@@ -56,7 +56,12 @@ def _request_kind(opp: dict) -> str | None:
     # opportunity question); richer trigger enrichment is the coordinator's job.
     # A raw surprise (anomaly / models disagreeing) is first a hypothesis to
     # generate, not yet a model to acquire; revision_proposed stays acquire_model.
-    if opp.get("kind") in ("anomaly", "model_disagreement"):
+    # A proactive `coverage_gap` (a fundamental dimension no study probes, #2) is
+    # also authored as a hypothesis — the agent writes the forward prediction about
+    # what SHOULD happen on that dimension (trigger: coverage_gap), rather than the
+    # engine proposing a bare study. The hypothesis then drives a discriminating
+    # study via the existing suggest/discriminating path.
+    if opp.get("kind") in ("anomaly", "model_disagreement", "coverage_gap"):
         return "hypothesize"
     if opp.get("kind") == "verdict_overreach":
         return "critique"

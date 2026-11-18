@@ -20,11 +20,23 @@ value (`study#observable = observed`) that satisfies none of the live hypotheses
 bands. Each listed trigger is a gap to answer with a proposal. If nothing is listed, the
 live hypotheses already account for the evidence — do not invent a hypothesis.
 
+The trigger can also be a **coverage gap** (`provenance.trigger: coverage_gap`): a
+fundamental dimension the investigation declared it should cover
+(`discovery.coverage_dimensions`) but no study probes yet. Here there is no measured
+surprise — you author a **forward** hypothesis: what *should* happen on that dimension,
+grounded in the model and the literature (e.g. a growth-law scaling, adder size-control, or
+proteome-allocation-limit prediction), with a falsifiable prediction a future study can test.
+This is the proactive half of "surface fundamental questions not yet asked"; the engine
+emits the gap, you author the science (never a template — a filler hypothesis is worse than
+none).
+
 ## What to produce
 
-For a trigger, author **two or more** `HypothesisProposal`s that make *different*,
-*discriminating* predictions on the same observable (so a later experiment can tell them
-apart). Each proposal is a YAML/JSON file with:
+For an **anomaly** trigger, author **two or more** competing `HypothesisProposal`s that make
+*different*, *discriminating* predictions on the same observable (so a later experiment can
+tell them apart). For a **coverage-gap** trigger, a single forward hypothesis is enough
+(competing alternatives are welcome where they genuinely exist). Each proposal is a
+YAML/JSON file with:
 
 - `statement` — one sentence: the claim.
 - `mechanism` — the proposed **cause**, not a restatement of the statement. Why would this
