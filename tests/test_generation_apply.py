@@ -300,3 +300,51 @@ def test_apply_acquire_model_malformed_raises(tmp_path):
     with pytest.raises(ValueError):
         apply_result(req, GenerationResult(request_id=req.id, artifact={"mechanism": "x"}),
                      ws_root=ws, inv_slug="demo")
+
+
+# --- the unified dispatch contract ------------------------------------------
+# Every apply-applicable kind resolves to exactly one uniform handler — the
+# native table OR the registry adapter, never both, never neither — and the two
+# CLI-verb kinds (propose_study/visualize) plus any unknown kind resolve to no
+# handler (queued, never silently applied). This pins the single-seam invariant:
+# wiring a new kind means adding a handler, not another branch.
+
+def test_handler_resolves_for_every_applicable_kind():
+    from discovery_engine.agents.skill_registry import default_registry
+    from discovery_engine.phases.generation import KINDS
+    from discovery_engine.phases.generation_apply import (
+        _NATIVE_HANDLERS,
+        _apply_registry_skill,
+        _handler_for,
+    )
+
+    native = set(_NATIVE_HANDLERS)
+    registry = set(default_registry().kinds())
+    assert native.isdisjoint(registry)                      # one seam per kind, never both
+
+    for kind in native:
+        assert _handler_for(kind) is _NATIVE_HANDLERS[kind]
+    for kind in registry:
+        assert _handler_for(kind) is _apply_registry_skill
+
+    # the CLI-verb kinds author via a /viva-* flow, not through apply_result
+    cli_verb = set(KINDS) - native - registry
+    assert cli_verb == {"propose_study", "visualize"}
+    for kind in cli_verb | {"no_such_kind"}:
+        assert _handler_for(kind) is None
+
+
+def test_applied_to_is_a_list_for_every_wired_kind(tmp_path):
+    # the uniform handler contract: a successful apply always returns a list of
+    # applied_to strings, whichever seam served it.
+    ws = _ws(tmp_path)
+    cases = [
+        GenerationRequest(kind="resolve_decision", target="Which prior?", produces="decision/v1"),
+        GenerationRequest(kind="hypothesize", target="anomaly", produces="hypothesis/v1"),
+    ]
+    arts = [{"rationale": "use the Beulig prior"}, dict(_HYP)]
+    for req, art in zip(cases, arts):
+        out = apply_result(req, GenerationResult(request_id=req.id, artifact=art),
+                           ws_root=ws, inv_slug="demo")
+        assert out["status"] == "applied"
+        assert isinstance(out["applied_to"], list) and out["applied_to"]
