@@ -60,6 +60,70 @@ def test_observed_violating_its_pass_if_is_contradicted():
     assert r["status"] == E.CONTRADICTED
 
 
+# ---------------------------------------------------------------------------
+# Adopted remote-run recognition (issue #90)
+# ---------------------------------------------------------------------------
+
+def _adopted_stamp(**over):
+    stamp = {"method": "adopted-remote-run", "origin_host": "mini.local",
+             "source_artifact": "studies/s/results/cs-03.json",
+             "source_sha256": "abc123def4567890", "measured_at": "2026-11-16T10:00:00Z",
+             "adopted_at": "2026-11-17T12:00:00Z", "series_reconstructable": True}
+    stamp.update(over)
+    return stamp
+
+
+def test_validate_adopted_run_stamp_valid():
+    assert E.validate_adopted_run_stamp(_adopted_stamp())["valid"] is True
+
+
+def test_validate_adopted_run_stamp_refuses_bare_scalar():
+    # series_reconstructable False == a bare scalar literal — the guard must reject it.
+    r = E.validate_adopted_run_stamp(_adopted_stamp(series_reconstructable=False))
+    assert r["valid"] is False
+    assert any("series_reconstructable" in m for m in r["missing"])
+
+
+def test_validate_adopted_run_stamp_requires_provenance_fields():
+    r = E.validate_adopted_run_stamp(_adopted_stamp(source_sha256=""))
+    assert r["valid"] is False
+    assert "source_sha256" in r["missing"]
+
+
+def test_adopted_remote_run_is_provisional_attributed():
+    # Finding cites a run row carrying a valid adopted stamp; that run is NOT in
+    # registered_run_ids (no local runs.db). It must be PROVISIONAL *attributed*,
+    # not an unlabeled "no run" PROVISIONAL and not VERIFIED.
+    f = _finding("fa", observed=0.72, from_test="gate", run_ids=["remote1"])
+    row = {"status": "complete", "provenance": _adopted_stamp()}
+    study = _study("s", [f], runs=[{"name": "remote1", **row}])
+    r = E.classify_finding_evidence(f, study, registered_run_ids=set(),
+                                    run_rows={"remote1": row})
+    assert r["status"] == E.PROVISIONAL
+    assert r["adopted"] is True
+    assert r["evidence_source"] == "adopted-remote-run"
+    assert "mini.local" in r["reason"]
+
+
+def test_adopted_stamp_bare_literal_is_not_credited():
+    f = _finding("fb", observed=0.72, from_test="gate", run_ids=["remote1"])
+    row = {"status": "complete", "provenance": _adopted_stamp(series_reconstructable=False)}
+    r = E.classify_finding_evidence(f, _study("s", [f], runs=[{"name": "remote1", **row}]),
+                                    registered_run_ids=set(), run_rows={"remote1": row})
+    assert r["status"] == E.PROVISIONAL
+    assert r["adopted"] is False
+    assert any("series_reconstructable" in m for m in r["adopted_invalid"])
+
+
+def test_finding_level_adopted_run_stamp_recognized():
+    # Stamp attached directly to finding.provenance.adopted_run (no run_ids needed).
+    f = _finding("fc", observed=0.3746, from_test="gate")
+    f["provenance"]["adopted_run"] = _adopted_stamp()
+    r = E.classify_finding_evidence(f, _study("s", [f]), registered_run_ids=set(), run_rows={})
+    assert r["status"] == E.PROVISIONAL
+    assert r["adopted"] is True
+
+
 def _finding_src(fid, observed, source_type, from_test=None, run_ids=None, uncertainty=None):
     f = _finding(fid, observed=observed, from_test=from_test, run_ids=run_ids)
     f["evidence"]["source_type"] = source_type

@@ -16,7 +16,11 @@ Classes (the Cycle N+1 Phase A vocabulary):
 - ``verified``     numeric evidence with a resolvable run/provenance chain
                    (``evidence.from_test`` + ``provenance.run_ids`` that resolve to a
                    registered run) — the engine's existing L2 supporting-provenance rule.
-- ``provisional``  a numeric result with no resolvable registered run.
+- ``provisional``  a numeric result with no resolvable registered run. An
+                   ``adopted-remote-run`` stamp (a committed remote measurement with
+                   no local runs.db, issue #90) is PROVISIONAL *attributed* —
+                   ``adopted: True`` + ``evidence_source`` — never promoted to
+                   verified / run-of-record; the guard refuses a bare scalar literal.
 - ``contradicted`` a numeric result that violates the behavior-test it claims to pass.
 - ``unsupported``  a finding with no numeric observed value (prose only).
 
@@ -170,6 +174,78 @@ def registered_run_contract(finding: dict, registered_run_ids: set[str],
                       "computed_outcome": has_outcome}}
 
 
+# ---------------------------------------------------------------------------
+# Adopted remote-run recognition (issue #90).
+#
+# A remote measurement — produced on another host, committed as an artifact (e.g.
+# results/*.json), with NO local runs.db — cannot resolve to a registered run, so
+# it lands in the generic PROVISIONAL bucket indistinguishable from an unbacked
+# number. An ``adopted-remote-run`` provenance stamp makes the attribution explicit
+# WITHOUT promoting it to a run-of-record, and a guard refuses a bare scalar literal
+# (adopt only a reconstructable series / committed raw inputs). The stamp lives on
+# the cited run row's ``provenance`` (``method: adopted-remote-run``) or directly on
+# the finding's ``provenance.adopted_run``.
+# ---------------------------------------------------------------------------
+
+ADOPTED_RUN_METHOD = "adopted-remote-run"
+
+#: The honesty contract an adopted-remote-run stamp must satisfy to be credited.
+ADOPTED_RUN_CONTRACT = (
+    f"method == '{ADOPTED_RUN_METHOD}'",
+    "origin_host — the host that produced the measurement",
+    "source_artifact — the committed artifact the values were read from",
+    "source_sha256 — content hash of that artifact (so the adoption is checkable)",
+    "measured_at — when the remote host measured (distinct from adopted_at)",
+    "adopted_at — when the measurement entered this record",
+    "series_reconstructable: true — refuses a bare scalar literal; adopt only a "
+    "reconstructable series (or committed raw inputs a re-derivation can read)",
+)
+
+_ADOPTED_STR_FIELDS = ("origin_host", "source_artifact", "source_sha256",
+                       "measured_at", "adopted_at")
+
+
+def validate_adopted_run_stamp(stamp: dict) -> dict:
+    """Validate an ``adopted-remote-run`` provenance stamp (issue #90).
+
+    Honored only when it carries the full honesty contract (see
+    :data:`ADOPTED_RUN_CONTRACT`) AND refuses a bare scalar literal —
+    ``series_reconstructable`` must be ``True``. Returns ``{valid, missing}``;
+    ``missing`` names each unmet part so an invalid stamp's overclaim is visible
+    rather than silently granting adoption credit."""
+    if not isinstance(stamp, dict):
+        return {"valid": False, "missing": ["stamp is not a mapping"]}
+    missing: list[str] = []
+    if str(stamp.get("method") or "").strip() != ADOPTED_RUN_METHOD:
+        missing.append(f"method == '{ADOPTED_RUN_METHOD}'")
+    for field in _ADOPTED_STR_FIELDS:
+        v = stamp.get(field)
+        if not (isinstance(v, str) and v.strip()):
+            missing.append(field)
+    if stamp.get("series_reconstructable") is not True:
+        missing.append("series_reconstructable: true (refuses a bare scalar literal)")
+    return {"valid": not missing, "missing": missing}
+
+
+def _adopted_run_stamp(finding: dict, run_rows: dict[str, dict],
+                       run_ids: list[str]) -> dict | None:
+    """The adopted-remote-run stamp for a finding, or ``None``.
+
+    Checks the finding's own ``provenance.adopted_run`` first, then the cited run
+    row(s)' ``provenance`` for ``method: adopted-remote-run`` (the stamp lives on
+    ``runs[].provenance`` by convention). Returns the raw stamp (unvalidated)."""
+    prov = finding.get("provenance") if isinstance(finding.get("provenance"), dict) else {}
+    direct = prov.get("adopted_run")
+    if isinstance(direct, dict):
+        return direct
+    for rid in run_ids:
+        row = run_rows.get(rid)
+        rp = row.get("provenance") if isinstance(row, dict) else None
+        if isinstance(rp, dict) and str(rp.get("method") or "").strip() == ADOPTED_RUN_METHOD:
+            return rp
+    return None
+
+
 def classify_finding_evidence(finding: dict, study_spec: dict,
                               registered_run_ids: set[str],
                               run_rows: dict[str, dict] | None = None) -> dict:
@@ -249,6 +325,25 @@ def classify_finding_evidence(finding: dict, study_spec: dict,
         return {**base, "status": VERIFIED,
                 "reason": f"observed {observed} matches computed {measured} for "
                           f"'{from_test}' in run {run} (graded by code)"}
+    # An adopted remote-run measurement (committed artifact, no local runs.db) is
+    # PROVISIONAL *attributed* — explicitly NOT promoted to a run-of-record — when its
+    # stamp is valid; an invalid / bare-literal stamp is flagged, not credited (#90).
+    stamp = _adopted_run_stamp(finding, run_rows, run_ids)
+    if stamp is not None:
+        check = validate_adopted_run_stamp(stamp)
+        if check["valid"]:
+            sha = str(stamp.get("source_sha256") or "")
+            return {**base, "status": PROVISIONAL, "adopted": True,
+                    "evidence_source": ADOPTED_RUN_METHOD,
+                    "reason": f"adopted remote-run measurement from {stamp.get('origin_host')} "
+                              f"(artifact {stamp.get('source_artifact')} sha256={sha[:12]}…, "
+                              f"measured_at={stamp.get('measured_at')}) — provisional, not a "
+                              f"local run-of-record"}
+        return {**base, "status": PROVISIONAL, "adopted": False,
+                "adopted_invalid": check["missing"],
+                "reason": "adopted-remote-run stamp present but INVALID, not credited "
+                          "(missing: " + ", ".join(check["missing"]) + ")"}
+
     missing = []
     if not from_test:
         missing.append("evidence.from_test")
