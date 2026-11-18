@@ -141,68 +141,112 @@ _SKILL_BLOCKS = {"hypothesize": "hypothesis_proposals", "critique": "critique_re
                  "acquire_model": "model_acquisition_proposals"}
 
 
+def _filler_id(result: GenerationResult) -> str:
+    f = result.filler or {}
+    return f.get("id") or f.get("kind") or "filler"
+
+
+def _require_study_dir(art: dict, kind: str, *, ws_root, inv_slug: str) -> Path:
+    """Resolve the artifact's ``study`` to its dir, or raise — the shared preamble
+    of every study-writing handler."""
+    study = art.get("study")
+    if not study:
+        raise ValueError(f"{kind} artifact needs {{study}}")
+    sdir = _study_dir(ws_root, inv_slug, str(study))
+    if sdir is None:
+        raise ValueError(f"no study.yaml for {study!r}")
+    return sdir
+
+
+# --- per-kind handlers -------------------------------------------------------
+# Every handler has the SAME signature — ``(art, *, ws_root, inv_slug, request,
+# result) -> {status, applied_to, ...}`` — and raises ``ValueError`` on a
+# malformed artifact. ``apply_result`` is a thin dispatcher over the table below;
+# wiring a new kind is one entry, not another ``if`` branch.
+
+def _apply_resolve_decision(art, *, ws_root, inv_slug, request, result):
+    from discovery_engine.discover import record_resolution
+    rationale = (art.get("rationale") or result.rationale or "").strip()
+    if not rationale:
+        raise ValueError("resolve_decision artifact needs a rationale")
+    rec = record_resolution(_inv_path(ws_root, inv_slug), "open_decision",
+                            request.target, rationale, by=_filler_id(result))
+    return {"status": "applied", "applied_to": [f"{inv_slug}/resolutions"], "detail": rec}
+
+
+def _apply_interpret_finding(art, *, ws_root, inv_slug, request, result):
+    finding_id = art.get("finding") or art.get("finding_id")
+    if not finding_id:
+        raise ValueError("interpret_finding artifact needs {study, finding}")
+    sdir = _require_study_dir(art, "interpret_finding", ws_root=ws_root, inv_slug=inv_slug)
+    return {"status": "applied",
+            "applied_to": _apply_finding_interpretation(sdir, str(finding_id), art)}
+
+
+def _apply_author_tests_kind(art, *, ws_root, inv_slug, request, result):
+    sdir = _require_study_dir(art, "author_tests", ws_root=ws_root, inv_slug=inv_slug)
+    return {"status": "applied", "applied_to": _apply_author_tests(sdir, art)}
+
+
+def _apply_explain_kind(art, *, ws_root, inv_slug, request, result):
+    finding_id = art.get("finding") or art.get("finding_id")
+    if not finding_id:
+        raise ValueError("explain artifact needs {study, finding}")
+    sdir = _require_study_dir(art, "explain", ws_root=ws_root, inv_slug=inv_slug)
+    return {"status": "applied",
+            "applied_to": _apply_explanation(sdir, str(finding_id), art)}
+
+
+def _apply_registry_skill(art, *, ws_root, inv_slug, request, result):
+    """Handler for the SkillRegistry-backed kinds (hypothesize / critique /
+    acquire_model): coerce the artifact through the kind's honesty gate, then
+    record it into its investigation.yaml proposal block."""
+    from discovery_engine.agents.skill_registry import default_registry  # lazy: avoid cycles
+    sk = default_registry().get(request.kind)
+    block = _SKILL_BLOCKS.get(sk.kind, f"{sk.kind}_proposals")
+    coerced = sk.coerce(art)              # ValueError propagates on a malformed artifact
+    rec = sk.record(_inv_path(ws_root, inv_slug), coerced)
+    return {"status": "applied", "applied_to": [f"{inv_slug}/{block}"], "detail": rec}
+
+
+# The native (study- and decision-writing) handlers, keyed by request kind. The
+# registry-backed kinds are resolved lazily in ``_handler_for`` so this module
+# never imports the skill writers at import time (cycle-safe).
+_NATIVE_HANDLERS = {
+    "resolve_decision": _apply_resolve_decision,
+    "interpret_finding": _apply_interpret_finding,
+    "author_tests": _apply_author_tests_kind,
+    "explain": _apply_explain_kind,
+}
+
+
+def _handler_for(kind: str):
+    """The single apply handler for ``kind`` — a native one, else the registry
+    adapter when the SkillRegistry knows the kind, else ``None`` (not wired)."""
+    native = _NATIVE_HANDLERS.get(kind)
+    if native is not None:
+        return native
+    from discovery_engine.agents.skill_registry import default_registry  # lazy: avoid cycles
+    if default_registry().get(kind) is not None:
+        return _apply_registry_skill
+    return None
+
+
 def apply_result(request: GenerationRequest, result: GenerationResult, *,
                  ws_root, inv_slug: str) -> dict:
     """Route ``(request, result)`` to the canonical write op for ``request.kind``.
 
+    One dispatch over :data:`_NATIVE_HANDLERS` + the SkillRegistry (via
+    :func:`_handler_for`): every applicable kind resolves to one uniform handler.
     Returns ``{status, applied_to, ...}`` — ``status`` is ``applied`` when a wired
     op ran, else ``queued_for_review``. Raises ``ValueError`` on a malformed
     artifact for a wired kind. Pure routing over existing writers; no generation."""
-    kind = request.kind
-    art = result.artifact or {}
-    filler_id = (result.filler or {}).get("id") or (result.filler or {}).get("kind") or "filler"
-
-    if kind == "resolve_decision":
-        from discovery_engine.discover import record_resolution
-        rationale = (art.get("rationale") or result.rationale or "").strip()
-        if not rationale:
-            raise ValueError("resolve_decision artifact needs a rationale")
-        rec = record_resolution(_inv_path(ws_root, inv_slug), "open_decision",
-                                request.target, rationale, by=filler_id)
-        return {"status": "applied", "applied_to": [f"{inv_slug}/resolutions"], "detail": rec}
-
-    if kind == "interpret_finding":
-        study = art.get("study")
-        finding_id = art.get("finding") or art.get("finding_id")
-        if not study or not finding_id:
-            raise ValueError("interpret_finding artifact needs {study, finding}")
-        sdir = _study_dir(ws_root, inv_slug, str(study))
-        if sdir is None:
-            raise ValueError(f"no study.yaml for {study!r}")
-        applied = _apply_finding_interpretation(sdir, str(finding_id), art)
-        return {"status": "applied", "applied_to": applied}
-
-    if kind == "author_tests":
-        study = art.get("study")
-        if not study:
-            raise ValueError("author_tests artifact needs {study}")
-        sdir = _study_dir(ws_root, inv_slug, str(study))
-        if sdir is None:
-            raise ValueError(f"no study.yaml for {study!r}")
-        applied = _apply_author_tests(sdir, art)
-        return {"status": "applied", "applied_to": applied}
-
-    if kind == "explain":
-        study = art.get("study")
-        finding_id = art.get("finding") or art.get("finding_id")
-        if not study or not finding_id:
-            raise ValueError("explain artifact needs {study, finding}")
-        sdir = _study_dir(ws_root, inv_slug, str(study))
-        if sdir is None:
-            raise ValueError(f"no study.yaml for {study!r}")
-        applied = _apply_explanation(sdir, str(finding_id), art)
-        return {"status": "applied", "applied_to": applied}
-
-    from discovery_engine.agents.skill_registry import default_registry  # lazy: avoid cycles
-    sk = default_registry().get(kind)
-    if sk is not None:
-        block = _SKILL_BLOCKS.get(sk.kind, f"{sk.kind}_proposals")
-        coerced = sk.coerce(art)          # ValueError propagates on a malformed artifact
-        rec = sk.record(_inv_path(ws_root, inv_slug), coerced)
-        return {"status": "applied", "applied_to": [f"{inv_slug}/{block}"], "detail": rec}
-
-    return {"status": "queued_for_review", "applied_to": [],
-            "reason": f"apply not wired for kind {kind!r} yet"}
+    handler = _handler_for(request.kind)
+    if handler is None:
+        return {"status": "queued_for_review", "applied_to": [],
+                "reason": f"apply not wired for kind {request.kind!r} yet"}
+    return handler(result.artifact or {}, ws_root=ws_root, inv_slug=inv_slug,
+                   request=request, result=result)
 
 
 def run_requests(requests, *, fill, ws_root, inv_slug: str) -> list[dict]:
