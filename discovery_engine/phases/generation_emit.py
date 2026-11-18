@@ -10,7 +10,7 @@ the engine stays pure; filling happens across the seam.
 """
 from __future__ import annotations
 
-from discovery_engine.phases.generation import GateConfig, GenerationRequest
+from discovery_engine.phases.generation import GateConfig, GenerationRequest, skill_for
 
 # Frontier op (opportunity["action_type"]) -> request kind. Ops deliberately
 # absent are NOT generative acts: ``revalidate`` (stale validation) is a
@@ -75,6 +75,10 @@ def generation_requests(opportunities, *, gates: GateConfig | None = None,
     opportunities' own ranking (already sorted by -score, -priority, id).
     """
     gates = gates or GateConfig()
+    # Per-workspace skill-map override (inv_spec["discovery"]["skill_map"]); falls
+    # back to the _KIND_TO_SKILL default per kind when absent.
+    skill_overrides = ((inv_spec or {}).get("discovery") or {}).get("skill_map") \
+        if isinstance(inv_spec, dict) else None
     out: list[GenerationRequest] = []
     for opp in opportunities or []:
         if not isinstance(opp, dict):
@@ -96,6 +100,7 @@ def generation_requests(opportunities, *, gates: GateConfig | None = None,
             provenance={"source": "opportunities", "op": opp.get("action_type") or "",
                         "opportunity_id": opp.get("id") or ""},
             gate=gates.resolve(rkind),
+            skill=skill_for(rkind, skill_overrides),
         ))
     return out
 
@@ -110,7 +115,8 @@ def summarize_requests(requests) -> str:
         score = ""
         if isinstance(r.value, dict) and r.value.get("score") is not None:
             score = f"  value={r.value['score']}"
-        lines.append(f"  [{r.gate:6}] {r.kind:17} {r.target}{score}")
+        sk = f" ->{r.skill}" if getattr(r, "skill", "") else ""
+        lines.append(f"  [{r.gate:6}] {r.kind:17}{sk:22} {r.target}{score}")
         if r.rationale:
             lines.append(f"            {r.rationale[:100]}")
     return "\n".join(lines)

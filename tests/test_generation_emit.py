@@ -1,5 +1,5 @@
 """Phase 1 emission projection: opportunities -> GenerationRequests."""
-from discovery_engine.phases.generation import GateConfig
+from discovery_engine.phases.generation import GateConfig, skill_for
 from discovery_engine.phases.generation_emit import generation_requests
 
 
@@ -97,3 +97,32 @@ def test_competing_predictions_carried_into_hypothesize_context():
     reqs = generation_requests([opp])
     assert reqs[0].kind == "hypothesize"
     assert reqs[0].context["competing_predictions"] == preds
+
+
+# --- #1: each request is stamped with the /viva-* skill a filler triggers -------
+
+def test_each_request_is_stamped_with_its_filler_skill():
+    # the op -> kind -> skill chain reaches the request envelope, so a filler
+    # knows what to trigger instead of seeing skill=(none).
+    assert generation_requests([_opp("build_viz")])[0].skill == "viva-viz"
+    assert generation_requests([_opp("test")])[0].skill == "viva-study"
+    assert generation_requests([_opp("steer")])[0].skill == "viva-navigate"
+    assert generation_requests([_opp("branch")])[0].skill == "viva-investigation"
+    assert generation_requests([_opp("synthesize")])[0].skill == "viva-biology-forward"
+    rp = {"id": "rp:1", "source": "rp1", "action_type": "revise_model",
+          "kind": "revision_proposed", "value": {"score": 0.5}}
+    assert generation_requests([rp])[0].skill == "viva-expert"   # acquire_model
+
+
+def test_skill_map_is_overridable_per_workspace():
+    inv = {"discovery": {"skill_map": {"visualize": "my-custom-viz"}}}
+    assert generation_requests([_opp("build_viz")], inv_spec=inv)[0].skill == "my-custom-viz"
+    # a kind the workspace did not remap still uses the default
+    assert generation_requests([_opp("test")], inv_spec=inv)[0].skill == "viva-study"
+
+
+def test_skill_for_default_override_and_unmapped():
+    assert skill_for("visualize") == "viva-viz"
+    assert skill_for("visualize", {"visualize": "x"}) == "x"
+    assert skill_for("no_such_kind") == ""
+    assert skill_for("visualize", {"visualize": "  "}) == "viva-viz"   # blank override ignored
