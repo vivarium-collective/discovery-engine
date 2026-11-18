@@ -9,9 +9,9 @@ happens in the filler across the seam; this module only routes and writes, so th
 engine stays pure and LLM-free. Phase 3 of the AI-drivable discovery cycle spec
 (human fillers + apply routing).
 
-Wired kinds: ``resolve_decision``, ``interpret_finding``. Others return
-``queued_for_review`` (no apply op yet) rather than raising, so a runner can drain
-the wired work and leave the rest for review.
+Wired kinds: ``resolve_decision``, ``interpret_finding``, ``author_tests``,
+``explain``. Others return ``queued_for_review`` (no apply op yet) rather than
+raising, so a runner can drain the wired work and leave the rest for review.
 """
 from __future__ import annotations
 
@@ -65,6 +65,77 @@ def _apply_finding_interpretation(sdir: Path, finding_id: str, art: dict) -> lis
     return applied
 
 
+def _apply_author_tests(sdir: Path, art: dict) -> list[str]:
+    """Append the authored behavior test(s) onto the study's ``behavior_tests``
+    list, comment-preserving + atomic. Fill-absent BY TEST NAME: an authored test
+    whose name already exists is skipped (never duplicated, never clobbered), so a
+    second apply of the same artifact adds nothing (idempotent). Returns the list of
+    newly-appended test names; an artifact that names no tests raises ``ValueError``."""
+    from ruamel.yaml import YAML
+
+    from discovery_engine.study import io as study_io
+    tests = art.get("tests") or art.get("behavior_tests") or []
+    if isinstance(tests, dict):          # a single authored test, un-listed
+        tests = [tests]
+    authored = [t for t in tests
+                if isinstance(t, dict) and isinstance(t.get("name"), str) and t["name"].strip()]
+    if not authored:
+        raise ValueError("author_tests artifact set no named behavior_tests")
+    sp = sdir / "study.yaml"
+    y = YAML()
+    y.preserve_quotes = True
+    y.width = 4096
+    doc = y.load(sp.read_text(encoding="utf-8"))
+    if not isinstance(doc.get("behavior_tests"), list):
+        doc["behavior_tests"] = []
+    existing = doc["behavior_tests"]
+    have = {t.get("name") for t in existing if isinstance(t, dict)}
+    applied: list[str] = []
+    for t in authored:
+        name = t["name"]
+        if name in have:
+            continue                     # fill-absent: never duplicate / clobber
+        existing.append(t)
+        have.add(name)
+        applied.append(f"behavior_tests[{name}]")
+    if not applied:
+        return []                        # idempotent: everything already present, no write
+    buf = StringIO()
+    y.dump(doc, buf)
+    study_io.atomic_write(sp, buf.getvalue())
+    return applied
+
+
+def _apply_explanation(sdir: Path, finding_id: str, art: dict) -> list[str]:
+    """Write the authored explanation prose onto the named finding's
+    ``explanation``, comment-preserving + atomic. Derive-first: an empty/missing
+    explanation is filled; a non-empty existing one is NOT clobbered (returns an
+    empty list, no write). An artifact carrying no prose raises ``ValueError``."""
+    from ruamel.yaml import YAML
+
+    from discovery_engine.study import io as study_io
+    prose = art.get("explanation") or art.get("prose")
+    if not isinstance(prose, str) or not prose.strip():
+        raise ValueError("explain artifact set no explanation prose")
+    sp = sdir / "study.yaml"
+    y = YAML()
+    y.preserve_quotes = True
+    y.width = 4096
+    doc = y.load(sp.read_text(encoding="utf-8"))
+    target = next((f for f in (doc.get("findings") or [])
+                   if isinstance(f, dict) and (f.get("id") or f.get("name")) == finding_id), None)
+    if target is None:
+        raise ValueError(f"no finding {finding_id!r} in {sp}")
+    existing = target.get("explanation")
+    if isinstance(existing, str) and existing.strip():
+        return []                        # derive-first: never clobber an authored explanation
+    target["explanation"] = prose
+    buf = StringIO()
+    y.dump(doc, buf)
+    study_io.atomic_write(sp, buf.getvalue())
+    return [f"findings[{finding_id}].explanation"]
+
+
 # investigation.yaml block each registry skill's recorder writes to.
 _SKILL_BLOCKS = {"hypothesize": "hypothesis_proposals", "critique": "critique_reports",
                  "acquire_model": "model_acquisition_proposals"}
@@ -99,6 +170,27 @@ def apply_result(request: GenerationRequest, result: GenerationResult, *,
         if sdir is None:
             raise ValueError(f"no study.yaml for {study!r}")
         applied = _apply_finding_interpretation(sdir, str(finding_id), art)
+        return {"status": "applied", "applied_to": applied}
+
+    if kind == "author_tests":
+        study = art.get("study")
+        if not study:
+            raise ValueError("author_tests artifact needs {study}")
+        sdir = _study_dir(ws_root, inv_slug, str(study))
+        if sdir is None:
+            raise ValueError(f"no study.yaml for {study!r}")
+        applied = _apply_author_tests(sdir, art)
+        return {"status": "applied", "applied_to": applied}
+
+    if kind == "explain":
+        study = art.get("study")
+        finding_id = art.get("finding") or art.get("finding_id")
+        if not study or not finding_id:
+            raise ValueError("explain artifact needs {study, finding}")
+        sdir = _study_dir(ws_root, inv_slug, str(study))
+        if sdir is None:
+            raise ValueError(f"no study.yaml for {study!r}")
+        applied = _apply_explanation(sdir, str(finding_id), art)
         return {"status": "applied", "applied_to": applied}
 
     from discovery_engine.agents.skill_registry import default_registry  # lazy: avoid cycles
