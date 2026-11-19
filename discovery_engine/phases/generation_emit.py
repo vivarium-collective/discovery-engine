@@ -68,22 +68,36 @@ def _request_kind(opp: dict) -> str | None:
     return _OP_TO_KIND.get(op)
 
 
+def _discrepancies_by_target(discrepancies) -> dict:
+    """Index discrepancies by the ``study:observable`` key the anomaly / model_disagreement
+    frontier items use as their target, so a hypothesize request can carry the typed surprise."""
+    out: dict = {}
+    for d in discrepancies or []:
+        if isinstance(d, dict) and d.get("study") and d.get("observable"):
+            out[f"{d['study']}:{d['observable']}"] = d
+    return out
+
+
 def generation_requests(opportunities, *, gates: GateConfig | None = None,
-                        inv_spec: dict | None = None) -> list[GenerationRequest]:
+                        inv_spec: dict | None = None,
+                        discrepancies: list | None = None) -> list[GenerationRequest]:
     """Project the frontier ``opportunities`` into typed :class:`GenerationRequest`s.
 
     Pure. ``opportunities`` is the list from ``discovery_engine.opportunities``.
     Each maps by its frontier op to one request kind; ops that are deterministic
     re-runs (``revalidate``) or unknown emit nothing. ``gates`` (default
     :class:`GateConfig`) stamps each request's gate. ``inv_spec`` is accepted for
-    forward context enrichment (unused in Phase 1). Order follows the
-    opportunities' own ranking (already sorted by -score, -priority, id).
+    forward context enrichment. ``discrepancies`` (the cycle's typed anomaly /
+    model-disagreement triggers) enrich each ``hypothesize`` request's context with
+    the exact measured surprise it must explain, so a generated alternative is tied
+    to evidence, not a prompt. Order follows the opportunities' own ranking.
     """
     gates = gates or GateConfig()
     # Per-workspace skill-map override (inv_spec["discovery"]["skill_map"]); falls
     # back to the _KIND_TO_SKILL default per kind when absent.
     skill_overrides = ((inv_spec or {}).get("discovery") or {}).get("skill_map") \
         if isinstance(inv_spec, dict) else None
+    disc_by_target = _discrepancies_by_target(discrepancies)
     out: list[GenerationRequest] = []
     for opp in opportunities or []:
         if not isinstance(opp, dict):
@@ -95,6 +109,10 @@ def generation_requests(opportunities, *, gates: GateConfig | None = None,
         if not target:
             continue
         context = {k: opp[k] for k in _CONTEXT_KEYS if opp.get(k) is not None}
+        if rkind == "hypothesize":
+            disc = disc_by_target.get(str(target))
+            if disc is not None:
+                context["discrepancy"] = disc
         out.append(GenerationRequest(
             kind=rkind,
             target=str(target),
