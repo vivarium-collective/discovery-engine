@@ -449,6 +449,22 @@ def main(argv: list[str] | None = None) -> int:
     p_requests.add_argument("--free-run", action="store_true",
                             help="with --fill: treat every request as auto (the free_run gate preset)")
 
+    p_investigate = sub.add_parser("investigate",
+                                   help="bounded autonomous run: loop frontier -> emit -> fill ($VIVA_FILLER_CMD) -> apply over the existing verbs, under a budget, logging each decision; halts on closure / budget / no informative move")
+    p_investigate.add_argument("investigation", help="investigation slug")
+    p_investigate.add_argument("--autonomous", action="store_true",
+                               help="run in autonomous mode (otherwise human-in-the-loop)")
+    p_investigate.add_argument("--free-run", action="store_true",
+                               help="treat every request as auto (the free_run gate preset)")
+    p_investigate.add_argument("--generation-calls", type=int, default=None, dest="generation_calls",
+                               help="cap on generation (LLM) calls for the run")
+    p_investigate.add_argument("--simulation-runs", type=int, default=None, dest="simulation_runs",
+                               help="cap on simulation runs for the run")
+    p_investigate.add_argument("--model-builds", type=int, default=None, dest="model_builds",
+                               help="cap on model builds for the run")
+    p_investigate.add_argument("--max-iterations", type=int, default=8, dest="max_iterations",
+                               help="hard cap on loop iterations (default 8)")
+
     p_prop = sub.add_parser("propose",
                             help="DiscoveryAgent coordinator: route opportunities to scientific skills (dry-run by default; --fill runs the filler, records captures, applies auto-gated proposals under policy). Unlike 'requests --fill', --fill DOES run the filler on review-gated requests (to capture them for audit) but never auto-applies them")
     p_prop.add_argument("investigation", help="investigation slug")
@@ -1109,6 +1125,25 @@ def main(argv: list[str] | None = None) -> int:
             print(_json.dumps([r.to_dict() for r in reqs], indent=2, default=str))
         else:
             print(summarize_requests(reqs))
+        return 0
+
+    if args.cmd == "investigate":
+        import json as _json
+
+        from discovery_engine.discover._policy import AUTONOMOUS, AutonomyPolicy
+        from discovery_engine.discover.budget import Budget
+        from discovery_engine.discover.investigate import investigate as _investigate
+        from discovery_engine.phases.generation import GateConfig
+        from discovery_engine.phases.generation_apply import subprocess_filler
+        budget = Budget(generation_calls=args.generation_calls,
+                        simulation_runs=args.simulation_runs,
+                        model_builds=args.model_builds)
+        gates = GateConfig.preset("free_run") if getattr(args, "free_run", False) else None
+        pol = AutonomyPolicy(mode=AUTONOMOUS) if getattr(args, "autonomous", False) else None
+        summary = _investigate(ws, args.investigation, fill=subprocess_filler(),
+                               budget=budget, policy=pol, gates=gates,
+                               max_iterations=args.max_iterations)
+        print(_json.dumps(summary, indent=2, default=str))
         return 0
 
     if args.cmd == "propose":
