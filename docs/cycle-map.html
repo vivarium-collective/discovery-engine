@@ -159,6 +159,17 @@ header.top{padding-block:18px 10px;position:relative}
   padding:1px 7px;border-radius:5px;margin:0 4px 4px 0;border:1px solid}
 .artref.wr{color:var(--warn);border-color:var(--warn);background:color-mix(in srgb,var(--warn) 9%,transparent)}
 .artref.rd{color:var(--muted);border-color:var(--muted);background:color-mix(in srgb,var(--muted) 8%,transparent)}
+.iofield{display:flex;flex-direction:column;gap:9px;margin-top:2px}
+.iogrp{border-left:2px solid var(--hair);padding-left:10px}
+.ioart{font-family:var(--mono);font-weight:700;font-size:.72rem;color:var(--ink);margin-bottom:4px}
+.iorow{display:flex;flex-wrap:wrap;gap:4px;align-items:baseline;margin-bottom:4px}
+.iok{font-size:.58rem;font-weight:700;letter-spacing:.06em;text-transform:uppercase;padding:1px 6px;border-radius:4px;flex:0 0 auto}
+.iok.rd{color:var(--muted);background:color-mix(in srgb,var(--muted) 13%,transparent)}
+.iok.wr{color:var(--warn);background:color-mix(in srgb,var(--warn) 15%,transparent)}
+.ff{font-family:var(--mono);font-size:.68rem;padding:1px 5px;border-radius:4px;border:1px solid var(--hair);background:var(--bg);word-break:break-word}
+.ff.rd{color:var(--muted)}
+.ff.wr{color:var(--warn);border-color:color-mix(in srgb,var(--warn) 35%,var(--hair))}
+.ffnote{font-size:.72rem;color:var(--faint);font-style:italic}
 table.mini{width:100%;border-collapse:collapse;font-size:.72rem;margin:4px 0 8px}
 table.mini th{text-align:left;color:var(--faint);font-size:.62rem;letter-spacing:.06em;
   text-transform:uppercase;padding:3px 6px 3px 0;border-bottom:1px solid var(--hair);font-weight:700}
@@ -430,6 +441,47 @@ const FRONTIER = [
 
 const byId = Object.fromEntries(NODES.map(n=>[n.id,n]));
 const esc = s => s.replace(/[&<>]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;"}[c]));
+
+/* exact investigation.yaml / study.yaml / runs.db fields each stage reads (r) & writes (w),
+   verified against discovery-engine 0.6.0 HEAD 50dbfad. keys: inv=investigation.yaml, study=study.yaml, runs=runs.db */
+const IO = {
+ inputs:{r:{inv:["studies[] / members[]"],study:["— the whole study.yaml is loaded","investigation (back-ref, fallback)"],runs:["run_id, completed_at (via runs.db)"]},w:{}},
+ core:{r:{inv:["knowledge, argument (authored blocks)","question, audience","plan_gates[]","executive.decisions_needed[]","hypotheses[].predictions[]","model_versions[]","validation_snapshot"],study:["verdict / conclusion_verdict","findings[].{id,status,statement}","behavior_tests[] / tests[]","runs[].outcomes / computed_outcomes","claim, title, question","parent_studies[].relation","baseline[] / variants[]"]},w:{}},
+ reconcile:{r:{inv:["studies (member filter)"],study:["findings[].evidence.{observed,measured_value}","findings[].provenance.run_ids[]","behavior_tests[].pass_if","runs[].{status, computed_outcomes}"]},w:{}},
+ plan:{r:{inv:["hypotheses[].predictions[] (discriminable)"],study:["— arrives via the cycle bundle + evidence_state"]},w:{}},
+ design:{r:{inv:["hypotheses[].predictions[].{observable,expected,when}"],study:["baseline[].params (only with --materialize)"]},w:{inv:["experiment_designs[] (materialize)","studies[] (materialize)"],study:["new child study.yaml: variants[], hypotheses[], design, model_change (materialize)"]}},
+ build:{r:{inv:["model_versions[] (prior rows)"],study:["baseline[]/variants[].{composite,params}","observables[], model_observable","seeded_from / refined_from / model_change.ref","fidelity, builds"]},w:{inv:["model_versions[].{id,composite,params,parent_ids,origin,bound_to,resolves}"]}},
+ grade:{r:{study:["behavior_tests[].{measure,pass_if}","runs[].{name,store}"],runs:["runs.db + the run store (measured series)"]},w:{study:["runs[].computed_outcomes.{result,measured_value,evaluated_by,_grader}"]}},
+ evaluate:{r:{inv:["hypotheses[].predictions[]","cycle_state.evaluation_snapshot (prev)"],study:["findings[].evidence.observed","behavior_tests[]","runs[].computed_outcomes","discovery_implications.alternate_hypotheses[]"]},w:{inv:["— persisted by persist_cycle: cycle_state.evaluation_snapshot","— persisted by persist_cycle: finding_candidates[]"]}},
+ gate:{r:{inv:["resolutions[]","acceptance_criteria[].{study,behavior}","pending_feedback[]","revision_proposals[]","critique_reports[].target","model_acquisition_proposals[]","capability_gaps[]","viz_proposals[]","applied_feedback[]","cycle_flags.viz_untied"],study:["— verdicts/behaviors arrive via the cycle bundle"]},w:{}},
+ emit:{r:{inv:["discovery.skill_map (per-workspace override)"],study:["— opportunities come from the cycle bundle"]},w:{}},
+ fill:{r:{inv:["— a GenerationRequest JSON on stdin (no YAML)"]},w:{inv:["— a GenerationResult JSON on stdout (no YAML)"]}},
+ apply:{r:{study:["findings[].{id,name} (match)","behavior_tests[].name (dedup)"]},w:{study:["findings[].{statement,explanation,status}  ← interpret_finding","findings[].explanation  ← explain","behavior_tests[] (append)  ← author_tests"],inv:["resolutions[]  ← resolve_decision","hypothesis_proposals[] (status: proposed)  ← hypothesize","critique_reports[] (status: proposed)  ← critique","model_acquisition_proposals[] (status: proposed)  ← acquire_model"]}},
+ propose:{r:{inv:["studies[]","executive.decisions_needed[].question"],study:["followup_proposals[].{id,title,motivation,status}","findings[].{status,next_action,statement}","seeded_from.{proposal_id,finding}"]},w:{}},
+ select:{r:{inv:["— suggestion dicts: awaiting_expert, status, id (no YAML)"]},w:{}},
+ seed:{r:{study:["parent baseline[].{composite,params}","parent observables[], behavior_tests[]","parent findings[].{id,statement,next_action,evidence}"]},w:{study:["new child study.yaml: baseline[], behavior_tests[], purpose, seeded_from","parent findings[].seeded_study","parent followup_proposals[].{status,seeded_study}"]}},
+ refine:{r:{study:["robustness.{n_replicates,seeds,parameter_sweep}","baseline[].params, variants[].name"]},w:{study:["robustness.{n_replicates,seeds}","variants[] (append sweep arms)","baseline[0].{composite,note}","refined_from.{study,changes}"]}},
+ execute:{r:{inv:["execute_plan + run_readiness"]},w:{inv:["studies[] / members[]  (promote-seed)","model_versions[] + revision_proposals[].status  (apply-revision)","status, executive, lifecycle_history, applied_feedback[]  (reopen)","resolutions[]  (steer)","executed_actions[]  (every action)"],study:["runs[].{computed_outcomes,model_version}","verdict, verdict_rationale  (set-verdict)"],runs:["runs.db — runs_meta rows (register_run)"]}},
+ discovery:{r:{inv:["finding_candidates[].{id,status}","cycle_state.evaluation_snapshot"],study:["findings[].{status,evidence.observed}","runs[].computed_outcomes"]},w:{inv:["discoveries[].{scope,novelty,counterevidence,evidence_refs,fingerprint,…}","finding_candidates[].{status,assessment,discovery_id}","review_decisions[]"]}},
+ reopen:{r:{inv:["pending_feedback[]","status, executive.verdict_status","hypotheses[], required_mechanisms[]","studies[], acceptance_criteria[]"]},w:{inv:["status, executive.verdict_status","lifecycle_history[]","applied_feedback[]","studies[], acceptance_criteria[], hypotheses[]"],study:["new studies' study.yaml (ingest-feedback)"]}},
+};
+function ioHTML(id){
+  const io=IO[id]; if(!io)return "";
+  const label={inv:"investigation.yaml",study:"study.yaml",runs:"runs.db"};
+  let any=false, h=`<h3>Information flow — by field</h3><div class="iofield">`;
+  ["inv","study","runs"].forEach(a=>{
+    const rd=(io.r&&io.r[a])||[], wr=(io.w&&io.w[a])||[];
+    if(!rd.length&&!wr.length)return; any=true;
+    h+=`<div class="iogrp"><div class="ioart">${label[a]}</div>`;
+    const chips=(arr,kind)=>arr.map(f=>f.trim().startsWith("—")
+       ? `<span class="ffnote">${esc(f.replace(/^—\s*/,""))}</span>`
+       : `<code class="ff ${kind}">${esc(f)}</code>`).join("");
+    if(rd.length)h+=`<div class="iorow"><span class="iok rd">reads</span>${chips(rd,"rd")}</div>`;
+    if(wr.length)h+=`<div class="iorow"><span class="iok wr">writes</span>${chips(wr,"wr")}</div>`;
+    h+=`</div>`;
+  });
+  return any?h+`</div>`:"";
+}
 const stage=document.getElementById("stage"), svg=document.getElementById("svg"), hub=document.getElementById("hub");
 
 /* ---- substrate (engine core) ---- */
@@ -574,6 +626,7 @@ function select(id,fromClick){
     n.writes.forEach(a=>h+=`<span class="artref wr">writes ${esc(ARTIFACTS[a].label)}</span>`);
     h+=`</div>`;
   }
+  h+=ioHTML(n.id);
   if(n.extra==="kinds"){
     h+=`<h3>The nine generation kinds</h3><table class="mini"><thead><tr><th>kind</th><th>produces</th><th>apply</th></tr></thead><tbody>`;
     KINDS.forEach(k=>{const tag=k[3]==="q"?'tagq':k[3]==="r"?'tagr':'tagn';

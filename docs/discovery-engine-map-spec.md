@@ -86,6 +86,29 @@ ArtifactId = "investigation" | "study" | "runs" | "modelversions"
 > in its panel: interpret_finding, explain, author_tests, resolve_decision (native);
 > hypothesize, critique, acquire_model (registry); propose_study, visualize (queued).
 
+### 2.3 Field-level I/O (the `IO` map)
+
+Each node also carries the **exact `investigation.yaml` / `study.yaml` / `runs.db` fields**
+it reads and writes, verified against 0.6.0 HEAD `50dbfad`. The HTML embeds this as a
+separate `const IO = { <node-id>: { r:{inv:[],study:[],runs:[]}, w:{…} } }` map and
+renders it in the detail panel under **"Information flow — by field"**; the PDF carries
+the same data as its §4 field-flow table. Keep the two in sync — both regenerate from the
+field-level inventory passes, not by hand-editing.
+
+Conventions that matter for fidelity:
+- `interpret_finding` writes `findings[].statement/explanation/status` — **not `summary`**.
+- `model_versions[]` write subfields: `id, composite, params, parent_ids, origin, bound_to`.
+- The gate reads only `investigation.yaml` caches (`resolutions[]`, `pending_feedback[]`,
+  the proposal blocks, `cycle_flags`, …) — no `study.yaml` directly; study verdicts arrive
+  via the in-memory cycle bundle.
+- Phase functions (Evaluate, candidates, diagnosis) are pure — their results are
+  **persisted by `persist_cycle`**, which writes `cycle_state.evaluation_snapshot` and
+  `finding_candidates[]`; the reviewed promotion (`review-findings`) is the only writer of
+  `discoveries[]`.
+- `build_seeded_study` / `refine_study` are pure spec builders; the disk writes live in
+  `write_child_study` (new child + parent `findings[].seeded_study` stamp) and
+  `execute_action` (member registration into `studies[]`).
+
 ---
 
 ## 3. The model (edges) — information flow

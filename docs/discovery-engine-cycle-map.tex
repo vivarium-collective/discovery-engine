@@ -247,6 +247,62 @@ the \emph{computed} outcome, not the authored one: a test that \emph{computes} f
 read ``met'' through a gate.
 
 % ===========================================================================
+\section{Field-level information flow --- what each stage reads and writes}
+
+The substrate above names the artifact classes; this table names the \emph{specific
+fields} each stage touches, verified against the 0.6.0 source. Reads/writes are split by
+artifact: \textbf{inv} = \code{investigation.yaml}, \textbf{st} = \code{study.yaml},
+\textbf{db} = \code{runs.db}. A dash is ``nothing direct --- it arrives through the
+in-memory cycle bundle.'' Every write is atomic and comment-preserving; a derive-first
+writer never clobbers a non-empty authored value.
+
+\begin{center}\footnotesize
+\begin{tabularx}{\textwidth}{@{}>{\raggedright\arraybackslash}p{0.13\textwidth} Y Y@{}}
+\toprule
+\textbf{stage} & \textbf{reads} & \textbf{writes}\\
+\midrule
+Inputs & \textit{inv:} \code{studies[]}/\code{members[]}; \textit{st:} whole file + \code{investigation}; \textit{db:} \code{run\_id}, \code{completed\_at} & ---\\
+\addlinespace[2pt]
+Core & \textit{inv:} \code{knowledge}, \code{argument}, \code{question}, \code{plan\_gates[]}, \code{hypotheses[].predictions[]}, \code{model\_versions[]}; \textit{st:} \code{verdict}, \code{findings[]}, \code{behavior\_tests[]}, \code{runs[].outcomes}, \code{parent\_studies[].relation}, \code{baseline[]}/\code{variants[]} & ---\\
+\addlinespace[2pt]
+A Reconcile & \textit{st:} \code{findings[].evidence.observed}, \code{findings[].provenance.run\_ids[]}, \code{behavior\_tests[].pass\_if}, \code{runs[].computed\_outcomes} & ---\\
+\addlinespace[2pt]
+B Plan & \textit{inv:} \code{hypotheses[].predictions[]} (else via the bundle) & ---\\
+\addlinespace[2pt]
+C Design & \textit{inv:} \code{hypotheses[].predictions[]}; \textit{st:} \code{baseline[].params} & \textit{(materialize)} \textit{inv:} \code{experiment\_designs[]}, \code{studies[]}; \textit{st:} new child \code{variants[]}, \code{hypotheses[]}, \code{design}\\
+\addlinespace[2pt]
+D Build & \textit{inv:} \code{model\_versions[]} (prior); \textit{st:} \code{baseline[]}/\code{variants[].composite}, \code{.params}, \code{observables[]}, \code{seeded\_from}/\code{refined\_from} & \textit{inv:} \code{model\_versions[]} (id, composite, params, parent\_ids, origin, bound\_to)\\
+\addlinespace[2pt]
+Grading & \textit{st:} \code{behavior\_tests[].measure}, \code{.pass\_if}, \code{runs[]}; \textit{db:} the run store series & \textit{st:} \code{runs[].computed\_outcomes} (result, measured\_value, evaluated\_by, \_grader)\\
+\addlinespace[2pt]
+F Evaluate & \textit{inv:} \code{hypotheses[].predictions[]}, \code{cycle\_state.evaluation\_snapshot} (prev); \textit{st:} \code{findings[].evidence.observed}, \code{runs[].computed\_outcomes}, \code{discovery\_implications.alternate\_hypotheses[]} & \textit{via persist\_cycle, inv:} \code{cycle\_state.evaluation\_snapshot}, \code{finding\_candidates[]}\\
+\addlinespace[2pt]
+Gate & \textit{inv:} \code{resolutions[]}, \code{acceptance\_criteria[]}, \code{pending\_feedback[]}, \code{revision\_proposals[]}, \code{critique\_reports[]}, \code{model\_acquisition\_proposals[]}, \code{capability\_gaps[]}, \code{viz\_proposals[]}, \code{applied\_feedback[]}, \code{cycle\_flags} & ---\\
+\addlinespace[2pt]
+emit & \textit{inv:} \code{discovery.skill\_map}; opportunities via the bundle & ---\\
+\addlinespace[2pt]
+fill & a \code{GenerationRequest} on stdin (no YAML) & a \code{GenerationResult} on stdout (no YAML)\\
+\addlinespace[2pt]
+apply & \textit{st:} \code{findings[].id}, \code{behavior\_tests[].name} & \textit{st:} \code{findings[].statement}/\code{explanation}/\code{status} (interpret), \code{behavior\_tests[]} (author\_tests); \textit{inv:} \code{resolutions[]} (resolve), \code{hypothesis\_proposals[]} / \code{critique\_reports[]} / \code{model\_acquisition\_proposals[]} (registry, status proposed)\\
+\addlinespace[2pt]
+propose & \textit{inv:} \code{studies[]}, \code{executive.decisions\_needed[]}; \textit{st:} \code{followup\_proposals[]}, \code{findings[].next\_action}, \code{seeded\_from} & ---\\
+\addlinespace[2pt]
+select & suggestion dicts (\code{awaiting\_expert}, \code{status}) & ---\\
+\addlinespace[2pt]
+seed & \textit{st (parent):} \code{baseline[].composite}/\code{params}, \code{observables[]}, \code{behavior\_tests[]}, \code{findings[]} & \textit{st:} new child (\code{baseline[]}, \code{behavior\_tests[]}, \code{purpose}, \code{seeded\_from}); parent \code{findings[].seeded\_study}, \code{followup\_proposals[].status}\\
+\addlinespace[2pt]
+refine & \textit{st:} \code{robustness.*}, \code{baseline[].params}, \code{variants[]} & \textit{st:} \code{robustness.n\_replicates}/\code{seeds}, \code{variants[]} (sweep arms), \code{baseline[0].composite}, \code{refined\_from}\\
+\addlinespace[2pt]
+E Execute & \code{execute\_plan} + \code{run\_readiness} & \textit{inv:} \code{studies[]}/\code{members[]}, \code{model\_versions[]}, \code{revision\_proposals[].status}, \code{status}, \code{executive}, \code{lifecycle\_history}, \code{applied\_feedback[]}, \code{resolutions[]}, \code{executed\_actions[]}; \textit{st:} \code{runs[]}, \code{verdict}; \textit{db:} \code{runs\_meta} rows\\
+\addlinespace[2pt]
+Discovery & \textit{inv:} \code{finding\_candidates[]}, \code{cycle\_state.evaluation\_snapshot}; \textit{st:} \code{findings[].evidence.observed}, \code{runs[].computed\_outcomes} & \textit{inv:} \code{discoveries[]} (scope, novelty, counterevidence, evidence\_refs), \code{finding\_candidates[].status}, \code{review\_decisions[]}\\
+\addlinespace[2pt]
+Reopen & \textit{inv:} \code{pending\_feedback[]}, \code{status}, \code{executive}, \code{hypotheses[]}, \code{acceptance\_criteria[]} & \textit{inv:} \code{status}, \code{executive.verdict\_status}, \code{lifecycle\_history[]}, \code{applied\_feedback[]}, \code{studies[]}, \code{acceptance\_criteria[]}, \code{hypotheses[]}; \textit{st:} new studies\\
+\bottomrule
+\end{tabularx}
+\end{center}
+
+% ===========================================================================
 \section{The stages}
 
 Each stage: \textbf{what happens $\rightarrow$ consumes $\rightarrow$ produces $\rightarrow$
