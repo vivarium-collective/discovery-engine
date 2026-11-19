@@ -125,16 +125,29 @@ def record_decision(inv_path: Path | str, decision: dict) -> dict:
     atomically. ``decision`` is a :func:`discovery_engine.discover._policy.decision_record`
     mapping (``{policy_version, actor, input_hashes, target, consequence, rationale,
     result}``); this stamps an ``at`` timestamp and persists it. The audit trail of *why*
-    each gated action was allowed to run, append-only. Returns the stored record."""
+    each gated action was allowed to run, append-only. Returns the stored record.
+
+    Comment-preserving: loads + dumps via ruamel round-trip so appending the log
+    entry does not strip an authored investigation's comments / block scalars / key
+    order. ``investigate`` calls this once per decision even in projection mode, so a
+    plain re-dump here silently mangled hand-authored investigation.yaml files.
+    """
     import datetime as _dt
+    import io as _io
     path = Path(inv_path)
-    spec = load_yaml_mapping(path)
+    y = _ruamel()
+    with path.open(encoding="utf-8") as fh:
+        spec = y.load(fh) or {}
     rec = dict(decision)
     rec.setdefault("at", _dt.datetime.now(_dt.timezone.utc).isoformat(timespec="seconds"))
-    log = list(spec.get("decision_log") or [])
+    log = spec.get("decision_log")
+    if not isinstance(log, list):
+        log = []
+        spec["decision_log"] = log
     log.append(rec)
-    spec["decision_log"] = log
-    save_yaml_atomic(path, spec)
+    buf = _io.StringIO()
+    y.dump(spec, buf)
+    atomic_write(path, buf.getvalue())
     return rec
 
 
