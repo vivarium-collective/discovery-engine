@@ -47,7 +47,9 @@ code,.mono{font-family:var(--mono);font-size:.92em}
 
 header.top{padding-block:10px 6px;position:relative}
 .linkbtn{background:none;border:0;color:var(--accent);cursor:pointer;font:inherit;font-size:.8rem;padding:0;text-decoration:underline;text-underline-offset:2px}
-.help{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:13px 16px;margin-top:9px;box-shadow:var(--shadow);display:grid;grid-template-columns:repeat(auto-fit,minmax(255px,1fr));gap:11px 22px}
+.help{position:absolute;top:100%;left:0;right:0;z-index:30;margin-top:4px;background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:14px 40px 14px 18px;box-shadow:0 10px 34px rgba(15,23,42,.22);display:grid;grid-template-columns:repeat(auto-fit,minmax(255px,1fr));gap:12px 22px;max-height:72vh;overflow:auto}
+.helpx{position:absolute;top:8px;right:12px;border:0;background:transparent;color:var(--muted);font-size:1.4rem;line-height:1;cursor:pointer;padding:2px 6px;z-index:1}
+.helpx:hover{color:var(--ink)}
 .help .grp{min-width:0}
 .help h4{margin:0 0 5px;font-size:.64rem;letter-spacing:.09em;text-transform:uppercase;color:var(--faint)}
 .help p{margin:0;font-size:.8rem;color:var(--muted);line-height:1.5}
@@ -252,7 +254,7 @@ footer{color:var(--faint);font-size:.72rem;text-align:center;padding:4px 0 26px;
       </div>
       <button class="iconbtn" id="clear">Clear</button>
     </div>
-    <div class="help" id="help" hidden>
+    <div class="help" id="help" hidden><button class="helpx" id="helpx" aria-label="Close help">&times;</button>
       <div class="grp">
         <h4>What this is</h4>
         <p>A clickable map of the <b>discovery-engine</b> cycle. The loop runs clockwise around the <b>engine core</b> — the four files it reads &amp; writes. <b>Click any stage</b> to see its functions (with file paths), the skills that drive it, what it consumes/produces, and the exact YAML fields it touches.</p>
@@ -815,7 +817,12 @@ document.getElementById("fit").addEventListener("click",()=>{userZoom=null;apply
 document.getElementById("zoomin").addEventListener("click",()=>{userZoom=Math.min(1.3,(userZoom==null?Z:userZoom)+0.1);applyFit();});
 document.getElementById("zoomout").addEventListener("click",()=>{userZoom=Math.max(0.4,(userZoom==null?Z:userZoom)-0.1);applyFit();});
 const helpbtn=document.getElementById("helpbtn"), helpEl=document.getElementById("help");
-helpbtn.addEventListener("click",()=>{const open=helpEl.hidden;helpEl.hidden=!open;helpbtn.setAttribute("aria-expanded",String(open));helpbtn.textContent=open?"Hide ⌃":"How to read this ⌄";requestAnimationFrame(applyFit);});
+function setHelp(open){helpEl.hidden=!open;helpbtn.setAttribute("aria-expanded",String(open));helpbtn.textContent=open?"Hide ⌃":"How to read this ⌄";}
+helpbtn.addEventListener("click",e=>{e.stopPropagation();setHelp(helpEl.hidden);});
+document.getElementById("helpx").addEventListener("click",()=>setHelp(false));
+helpEl.addEventListener("click",e=>e.stopPropagation());
+document.addEventListener("click",()=>{if(!helpEl.hidden)setHelp(false);});
+document.addEventListener("keydown",e=>{if(e.key==="Escape"&&!helpEl.hidden)setHelp(false);});
 
 let rt;addEventListener("resize",()=>{clearTimeout(rt);rt=setTimeout(layout,120);});
 window.addEventListener("load",()=>{layout();const h=location.hash.slice(1);if(h&&byId[h])select(h,false);});
