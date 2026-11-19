@@ -1,0 +1,42 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://vivarium-collective.org/schemas/discrepancy.schema.json",
+  "title": "Discrepancy",
+  "description": "A typed, sourced trigger for a generated hypothesis: a measured value that satisfies no live hypothesis band (anomaly), model arms that disagree on one observable (model_disagreement), or a declared coverage dimension no study probes (coverage_gap). Derived from the cycle bundle's signals; it carries the measured surprise a `hypothesize` act must explain, so a generated alternative is tied to evidence, not a prompt. It asserts no mechanism. Strict at the top level: unknown fields are errors.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["id", "study", "observable", "kind", "source_evidence_ref"],
+  "properties": {
+    "id": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Content-addressed `dc:<sha1[:12]>` on (study, observable, kind), so the same surprise re-derives the same id."
+    },
+    "study": {"type": "string", "minLength": 1},
+    "observable": {"type": "string", "minLength": 1},
+    "kind": {
+      "type": "string",
+      "enum": ["anomaly", "model_disagreement", "coverage_gap"]
+    },
+    "source_evidence_ref": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Immutable reference to the measured evidence that raised this (e.g. `study#observable`, a run id, or a finding id). A discrepancy always names where its surprise came from."
+    },
+    "observed": {
+      "description": "The measured value that satisfied none of the live hypothesis bands (anomaly kind)."
+    },
+    "live_bands": {
+      "type": "array",
+      "items": {"type": "object"},
+      "description": "The live hypotheses' predicted bands for the observable, if carried."
+    },
+    "arms": {
+      "type": "object",
+      "description": "arm -> value, for a model_disagreement (never averaged)."
+    },
+    "spread": {"type": "number"},
+    "note": {"type": "string"},
+    "proposed_question": {"type": "string"}
+  }
+}

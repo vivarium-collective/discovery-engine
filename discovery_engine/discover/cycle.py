@@ -185,6 +185,10 @@ def run_cycle(inv_spec: dict, studies_by_slug: dict[str, dict], *,
         "verdict_overreach": [t for t in critique_triggers(list(studies_by_slug.values()))
                               if t.get("study") not in bad],
     }
+    # Typed, sourced triggers for generated hypotheses (anomalies + live model disagreements),
+    # derived from the signals above so a `hypothesize` act names the surprise it must explain.
+    from discovery_engine.phases.discrepancy import discrepancies_from_cycle
+    bundle["discrepancies"] = discrepancies_from_cycle(bundle)
     bundle["revision_proposals"] = propose_model_revisions(
         inv_spec, studies_by_slug, evaluation, evidence_state, mvs,
         catalog if catalog is not None else build_catalog(studies_by_slug))
