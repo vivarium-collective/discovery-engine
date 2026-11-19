@@ -1,0 +1,38 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://vivarium-collective.org/schemas/benchmark-manifest.schema.json",
+  "title": "BenchmarkManifest",
+  "description": "A declarative discovery benchmark: one scientific question, its reference/candidate model fixture, the evidence + held-out split, the skills and adapters the agent may use, the cost budget, the artifacts a passing run must produce, the metrics, and the legitimate stop conditions. A benchmark is data, not code — the harness loads this and runs the engine against it. Strict at the top level: unknown fields are errors.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["id", "question", "fixture", "budget"],
+  "properties": {
+    "id": {"type": "string", "minLength": 1},
+    "question": {"type": "string", "minLength": 1},
+    "fixture": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "reference_model": {"type": "string"},
+        "candidate_model": {"type": "string"},
+        "evidence": {"type": "string"},
+        "holdout": {"type": "string"},
+        "oracle_visibility": {"type": "string"}
+      }
+    },
+    "allowed_skills": {"type": "array", "items": {"type": "string"}},
+    "allowed_adapters": {"type": "array", "items": {"type": "string"}},
+    "budget": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "simulation_runs": {"type": ["integer", "null"]},
+        "model_builds": {"type": ["integer", "null"]},
+        "generation_calls": {"type": ["integer", "null"]}
+      }
+    },
+    "required_artifacts": {"type": "array", "items": {"type": "string"}},
+    "metrics": {"type": "array", "items": {"type": "string"}},
+    "stop_conditions": {"type": "array", "items": {"type": "string"}}
+  }
+}

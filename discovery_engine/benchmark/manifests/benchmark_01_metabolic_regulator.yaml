@@ -1,0 +1,48 @@
+# Benchmark 1 — hidden metabolic regulator.
+# Can the engine infer a missing feedback regulator in a metabolic network from the
+# perturbation response, when baseline growth is deliberately close between the models?
+# (The metabolic-regulator scenario + oracle are wired in a later increment; this manifest
+# is the declarative spec the harness loads.)
+id: benchmark_01_metabolic_regulator
+question: >-
+  Can the engine infer a missing metabolic feedback regulator from the perturbation
+  response, when baseline growth is nearly identical between the reference and candidate?
+
+fixture:
+  reference_model: oracle/metabolic_regulator_reference   # hidden; evaluator-only
+  candidate_model: models/regulator_missing               # given to the agent
+  evidence: data/train_measurements.csv
+  holdout: data/holdout_measurements.csv                  # unseen nutrient/dose combinations
+  oracle_visibility: evaluator_only
+
+# The plan's six-skill taxonomy (intent). Only the skills the engine actually registers
+# (hypothesize / critique / acquire_model) take effect today; the rest are forward targets.
+allowed_skills: [research, hypothesize, design, analyze, critique, synthesize]
+allowed_adapters: [model_registry, simulator, dataset]
+
+budget:
+  simulation_runs: 30
+  model_builds: 3
+  generation_calls: 24
+
+required_artifacts:
+  - competing_hypotheses       # >=2 mechanistic alternatives
+  - preregistered_design       # a committed decision rule before the run
+  - immutable_model_versions   # content-addressed, parent-linked
+  - run_evidence               # computed outcomes from real runs
+  - predictive_validation      # held-out predicted-vs-observed
+  - reviewed_finding           # a promoted Discovery, not a bare gate pass
+
+metrics:
+  - mechanism_accuracy
+  - heldout_error
+  - info_per_run
+  - calibration
+  - composition_invariants
+  - provenance_integrity
+
+stop_conditions:
+  - budget_exhausted
+  - confirmed_discrimination
+  - irreducible_ambiguity
+  - human_review_required
