@@ -279,7 +279,7 @@ def apply_result(request: GenerationRequest, result: GenerationResult, *,
     return out
 
 
-def run_requests(requests, *, fill, ws_root, inv_slug: str) -> list[dict]:
+def run_requests(requests, *, fill, ws_root, inv_slug: str, budget=None) -> list[dict]:
     """Dispatch typed GenerationRequests to a filler and apply the auto-gated ones.
 
     ``fill`` is the injected filler seam — ``fill(request) -> GenerationResult | None``
@@ -291,14 +291,23 @@ def run_requests(requests, *, fill, ws_root, inv_slug: str) -> list[dict]:
     :func:`apply_result`. A filler that raises, returns nothing, or yields an
     artifact the apply op rejects becomes an ``error``/``queued_for_review``
     outcome — never a silent apply — and never blocks the rest (the runner drains
-    the auto work and leaves the rest). Returns one outcome dict per request:
-    ``{request_id, kind, gate, outcome: applied|queued_for_review|error, ...}``."""
+    the auto work and leaves the rest). An optional :class:`~discovery_engine.discover.budget.Budget`
+    charges one ``generation_calls`` per auto request; when it is exhausted the drain records a
+    typed ``stop`` (``budget_exhausted``) and halts, so a bounded run never fills past its budget.
+    Returns one outcome dict per request:
+    ``{request_id, kind, gate, outcome: applied|queued_for_review|error|stop, ...}``."""
     outcomes: list[dict] = []
     for req in requests:
         base = {"request_id": req.id, "kind": req.kind, "gate": req.gate}
         if req.gate != "auto":
             outcomes.append({**base, "outcome": "queued_for_review"})
             continue
+        if budget is not None and not budget.charge("generation_calls"):
+            # Bounded run: out of generation budget -> a typed stop, and halt the drain.
+            from discovery_engine.discover._policy import BUDGET_EXHAUSTED, stop as _stop
+            outcomes.append({**base, **_stop(BUDGET_EXHAUSTED,
+                                             detail="generation_calls budget exhausted")})
+            break
         try:
             result = fill(req)
         except Exception as e:  # noqa: BLE001 — a filler must never crash the drain

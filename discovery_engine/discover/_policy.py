@@ -93,3 +93,26 @@ def decision_record(policy: AutonomyPolicy, *, actor: str, consequence: str, tar
     return {"policy_version": policy.policy_version, "actor": actor,
             "input_hashes": list(input_hashes or []), "target": target,
             "consequence": consequence, "rationale": rationale, "result": result}
+
+
+# --- bounded-run stop reasons ------------------------------------------------
+# The plan's explicit NO-EXPERIMENT outcomes: a bounded run may legitimately halt
+# (not fail) when it is out of budget, under-evidenced, has no discriminating move
+# left, or needs real-world data. A `stop` is a first-class decision, not an error.
+BUDGET_EXHAUSTED = "budget_exhausted"
+INSUFFICIENT_EVIDENCE = "insufficient_evidence"
+NO_INFORMATIVE_EXPERIMENT = "no_informative_experiment"
+SEEK_HUMAN_DATA = "seek_human_data"
+STOP_REASONS = (BUDGET_EXHAUSTED, INSUFFICIENT_EVIDENCE,
+                NO_INFORMATIVE_EXPERIMENT, SEEK_HUMAN_DATA)
+
+
+def stop(reason: str, *, detail: str = "", target=None) -> dict:
+    """A typed stop decision — a legitimate halt, never a failure. Raises ``ValueError``
+    on an unknown reason so a bounded run can only stop for a named cause."""
+    if reason not in STOP_REASONS:
+        raise ValueError(f"stop reason must be one of {STOP_REASONS}, got {reason!r}")
+    d = {"outcome": "stop", "reason": reason, "detail": detail}
+    if target is not None:
+        d["target"] = target
+    return d
