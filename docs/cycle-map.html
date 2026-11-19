@@ -66,7 +66,14 @@ header.top{padding-block:18px 10px;position:relative}
 .iconbtn[aria-pressed="true"]{background:var(--accent);border-color:var(--accent);color:#fff}
 
 /* stage / ring */
-.stage{position:relative;margin:14px 0 26px}
+#stagewrap{position:relative;margin:14px 0 26px;overflow:hidden}
+.stage{position:relative;transform-origin:top center;transition:transform .12s ease}
+.stage.stacked{transform:none!important}
+.zoomctl{display:inline-flex;align-items:center;gap:6px}
+.zoomctl .zlbl{font-size:.64rem;letter-spacing:.09em;text-transform:uppercase;color:var(--faint);font-weight:700}
+.zoomctl input[type=range]{width:104px;accent-color:var(--accent);cursor:pointer}
+.zbtn{border:1px solid var(--line);background:var(--surface);color:var(--muted);border-radius:7px;width:26px;height:26px;cursor:pointer;font-size:1rem;line-height:1;padding:0}
+.zbtn:hover{border-color:var(--accent);color:var(--ink)}
 #svg{position:absolute;inset:0;width:100%;height:100%;pointer-events:none;z-index:1;overflow:visible}
 
 /* engine core (substrate hub) */
@@ -208,6 +215,12 @@ footer{color:var(--faint);font-size:.72rem;text-align:center;padding:4px 0 26px;
       <div class="search"><span style="color:var(--faint);font-size:.8rem">⌕</span><input id="q" placeholder="Search stages, functions, skills…" aria-label="Search" autocomplete="off"></div>
       <button class="iconbtn" id="play" aria-pressed="false">▶ Play the cycle</button>
       <button class="iconbtn" id="theme" title="Toggle theme">◐ Theme</button>
+      <div class="zoomctl"><span class="zlbl">Zoom</span>
+        <button class="zbtn" id="zoomout" aria-label="Zoom out">−</button>
+        <input type="range" id="zoom" min="0.4" max="1.3" step="0.05" value="1" aria-label="Zoom level">
+        <button class="zbtn" id="zoomin" aria-label="Zoom in">+</button>
+        <button class="iconbtn" id="fit" aria-pressed="true" title="Fit to screen">Fit</button>
+      </div>
     </div>
     <div class="toolbar">
       <div class="filtergrp"><span class="lbl">Provenance</span>
@@ -233,7 +246,7 @@ footer{color:var(--faint);font-size:.72rem;text-align:center;padding:4px 0 26px;
     </div>
   </header>
 
-  <div class="stage" id="stage">
+  <div id="stagewrap"><div class="stage" id="stage">
     <svg id="svg" aria-hidden="true">
       <defs>
         <marker id="ah" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7.5" markerHeight="7.5" orient="auto-start-reverse">
@@ -250,7 +263,7 @@ footer{color:var(--faint);font-size:.72rem;text-align:center;padding:4px 0 26px;
       <div class="hubgrid" id="subrow"></div>
       <div class="hcap">the loop closes · authored ← derived</div>
     </div>
-  </div>
+  </div></div>
 
   <div class="legend">
     <span class="lk"><span class="edgekey"></span> flow (clockwise)</span>
@@ -483,6 +496,9 @@ function ioHTML(id){
   return any?h+`</div>`:"";
 }
 const stage=document.getElementById("stage"), svg=document.getElementById("svg"), hub=document.getElementById("hub");
+const stagewrap=document.getElementById("stagewrap");
+const legendEl=document.querySelector(".legend"), footerEl=document.querySelector("footer");
+let Z=1, userZoom=null, naturalH=0;   // Z = applied scale; rectOf divides by it to stay in natural coords
 
 /* ---- substrate (engine core) ---- */
 const subrow=document.getElementById("subrow");
@@ -514,18 +530,33 @@ CYCLE.forEach(id=>{
 /* ---- racetrack layout ---- */
 let stacked=false;
 function rectOf(el){const r=el.getBoundingClientRect(),s=stage.getBoundingClientRect();
-  return{x:r.left-s.left,y:r.top-s.top,w:r.width,h:r.height,cx:r.left-s.left+r.width/2,cy:r.top-s.top+r.height/2};}
+  const x=(r.left-s.left)/Z, y=(r.top-s.top)/Z, w=r.width/Z, h=r.height/Z;
+  return{x,y,w,h,cx:x+w/2,cy:y+h/2};}
+function applyFit(){
+  if(stacked){stage.style.transform="";stagewrap.style.height="";Z=1;return;}
+  const reserve=(legendEl?legendEl.offsetHeight:0)+(footerEl?footerEl.offsetHeight:0)+44;
+  const top=stagewrap.getBoundingClientRect().top;
+  const availH=Math.max(300, window.innerHeight - top - reserve);
+  const fit=Math.min(1, naturalH ? availH/naturalH : 1);
+  const z=(userZoom==null)?fit:userZoom;
+  Z=z;
+  stage.style.transform="scale("+z+")";
+  stagewrap.style.height=(naturalH*z)+"px";
+  const zi=document.getElementById("zoom"); if(zi) zi.value=z.toFixed(2);
+  const fb=document.getElementById("fit"); if(fb) fb.setAttribute("aria-pressed",String(userZoom==null));
+}
 function place(id,x,y){const el=document.getElementById("n-"+id);el.style.left=x+"px";el.style.top=y+"px";}
 function layout(){
   const W=stage.clientWidth;
   stacked = W < 760;
   stage.classList.toggle("stacked",stacked);
-  if(stacked){stage.style.height="";svg.removeAttribute("viewBox");drawBase();return;}
+  if(stacked){stage.style.height="";svg.removeAttribute("viewBox");drawBase();applyFit();return;}
   const cardW=176, gutter=20;
   const xL=cardW/2+gutter, xR=W-cardW/2-gutter;
   const topY=58, rowGap=132;
   const bottomY=topY+5*rowGap;          // 5 vertical slots → room for 4 left-column nodes
   const H=bottomY+58;
+  naturalH=H;
   stage.style.height=H+"px";
   // top row (6) left→right
   const top=CYCLE.slice(0,6);
@@ -547,6 +578,7 @@ function layout(){
   drawBase();
   if(lastSel){const n=byId[lastSel];clearDynamic();clearArtPulse();drawIO(n);}
   if(writesArt)applyFilters();
+  applyFit();
 }
 
 /* ---- edges: perimeter segments between consecutive cycle nodes ---- */
@@ -740,6 +772,13 @@ document.getElementById("theme").addEventListener("click",()=>{
 });
 
 /* ---- lifecycle ---- */
+/* zoom / fit controls */
+const zoomEl=document.getElementById("zoom");
+zoomEl.addEventListener("input",()=>{userZoom=parseFloat(zoomEl.value);applyFit();});
+document.getElementById("fit").addEventListener("click",()=>{userZoom=null;applyFit();});
+document.getElementById("zoomin").addEventListener("click",()=>{userZoom=Math.min(1.3,(userZoom==null?Z:userZoom)+0.1);applyFit();});
+document.getElementById("zoomout").addEventListener("click",()=>{userZoom=Math.max(0.4,(userZoom==null?Z:userZoom)-0.1);applyFit();});
+
 let rt;addEventListener("resize",()=>{clearTimeout(rt);rt=setTimeout(layout,120);});
 window.addEventListener("load",()=>{layout();const h=location.hash.slice(1);if(h&&byId[h])select(h,false);});
 addEventListener("hashchange",()=>{const h=location.hash.slice(1);if(h&&byId[h])select(h,false);});
