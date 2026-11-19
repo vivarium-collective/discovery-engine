@@ -1,7 +1,14 @@
 # discovery-engine
 
 <p align="center">
-  <img src="docs/discovery-engine-cycle.png" alt="The Discovery Engine discovery cycle" width="640">
+  <a href="https://vivarium-collective.github.io/discovery-engine/cycle-map.html">
+    <img src="docs/discovery-engine-cycle.png" alt="The Discovery Engine discovery cycle" width="640">
+  </a>
+</p>
+<p align="center">
+  <b>▶ <a href="https://vivarium-collective.github.io/discovery-engine/cycle-map.html">Explore the interactive cycle map</a></b>
+  &nbsp;·&nbsp; <a href="docs/discovery-engine-cycle-map.pdf">PDF</a>
+  &nbsp;·&nbsp; <a href="docs/discovery-engine-map-spec.md">map spec</a>
 </p>
 
 The **investigation/study framework + the derive-first discovery cycle** for the
@@ -158,6 +165,11 @@ Every subcommand is self-describing via `discover <verb> -h`.
 
 ## Architecture & roadmap
 
+- **[Interactive cycle map](https://vivarium-collective.github.io/discovery-engine/cycle-map.html)**
+  — a clickable map of the whole cycle: every stage's functions, the skills that
+  drive it, its inputs/outputs, and what it writes to investigations, studies and
+  models. Also as a [PDF](docs/discovery-engine-cycle-map.pdf) and a
+  [map specification](docs/discovery-engine-map-spec.md).
 - **[`docs/architecture.md`](docs/architecture.md)** — the full discovery-cycle
   reference: the two layers, the Phase A–F + N+2 model, the typed contracts
   (Hypothesis, Prediction, Evidence, ExperimentDesign, ModelVersion,
