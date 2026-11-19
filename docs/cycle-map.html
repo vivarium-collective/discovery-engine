@@ -47,9 +47,14 @@ code,.mono{font-family:var(--mono);font-size:.92em}
 
 header.top{padding-block:10px 6px;position:relative}
 .linkbtn{background:none;border:0;color:var(--accent);cursor:pointer;font:inherit;font-size:.8rem;padding:0;text-decoration:underline;text-underline-offset:2px}
-.help{position:absolute;top:100%;left:0;right:0;z-index:30;margin-top:4px;background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:14px 40px 14px 18px;box-shadow:0 10px 34px rgba(15,23,42,.22);display:grid;grid-template-columns:repeat(auto-fit,minmax(255px,1fr));gap:12px 22px;max-height:72vh;overflow:auto}
-.helpx{position:absolute;top:8px;right:12px;border:0;background:transparent;color:var(--muted);font-size:1.4rem;line-height:1;cursor:pointer;padding:2px 6px;z-index:1}
-.helpx:hover{color:var(--ink)}
+[hidden]{display:none!important}
+.filtergrp>button.lbl{cursor:pointer;background:none;border:0;border-bottom:1px dotted var(--faint);padding:0 0 1px;font-family:inherit}
+.filtergrp>button.lbl:hover{color:var(--ink);border-bottom-color:var(--accent)}
+.pop{position:absolute;z-index:40;width:min(320px,88vw);background:var(--surface);border:1px solid var(--line);border-radius:9px;padding:11px 28px 12px 13px;box-shadow:0 8px 26px rgba(15,23,42,.2);font-size:.8rem;color:var(--muted);line-height:1.5}
+.pop h5{margin:0 0 5px;font-size:.78rem;color:var(--ink);font-weight:800}
+.pop b{color:var(--ink)}
+.pop .px{position:absolute;top:5px;right:7px;border:0;background:none;color:var(--faint);font-size:1.15rem;cursor:pointer;line-height:1;padding:2px 4px}
+.pop .px:hover{color:var(--ink)}
 .help .grp{min-width:0}
 .help h4{margin:0 0 5px;font-size:.64rem;letter-spacing:.09em;text-transform:uppercase;color:var(--faint)}
 .help p{margin:0;font-size:.8rem;color:var(--muted);line-height:1.5}
@@ -220,7 +225,7 @@ footer{color:var(--faint);font-size:.72rem;text-align:center;padding:4px 0 26px;
 <div class="wrap">
   <header class="top">
     <h1>The Discovery Engine</h1>
-    <p class="sub">A clickable map of the derive-first cycle — click any stage for its functions, skills &amp; I/O. <span class="mono" style="color:var(--muted)">discovery-engine 0.6.0</span> &nbsp;·&nbsp; <button class="linkbtn" id="helpbtn" aria-expanded="false">How to read this ⌄</button></p>
+    <p class="sub">A clickable map of the derive-first cycle — click any stage for its functions, skills &amp; I/O. <span class="mono" style="color:var(--muted)">discovery-engine 0.6.0</span> &nbsp;·&nbsp; <button class="linkbtn" data-pop="intro">How to read this ⌄</button></p>
     <div class="toolbar">
       <div class="search"><span style="color:var(--faint);font-size:.8rem">⌕</span><input id="q" placeholder="Search stages, functions, skills…" aria-label="Search" autocomplete="off"></div>
       <button class="iconbtn" id="play" aria-pressed="false">▶ Play the cycle</button>
@@ -233,54 +238,26 @@ footer{color:var(--faint);font-size:.72rem;text-align:center;padding:4px 0 26px;
       </div>
     </div>
     <div class="toolbar">
-      <div class="filtergrp"><span class="lbl" title="Who authored a stage: H human, AI agent, D derived by the engine, CFG config/schema">Provenance</span>
+      <div class="filtergrp"><button type="button" class="lbl" data-pop="prov">Provenance</button>
         <button class="pill" data-prov="H">H human</button>
         <button class="pill" data-prov="AI">AI agent</button>
         <button class="pill" data-prov="D">D derived</button>
         <button class="pill" data-prov="CFG">CFG</button>
       </div>
-      <div class="filtergrp"><span class="lbl" title="real = computes over data; conditional = real only when fields are authored">Grade</span>
+      <div class="filtergrp"><button type="button" class="lbl" data-pop="grade">Grade</button>
         <button class="pill" data-grade="real">real</button>
         <button class="pill" data-grade="conditional">conditional</button>
       </div>
-      <div class="filtergrp"><span class="lbl" title="mutating stages write to disk; the rest are pure (dicts in, dicts out)">Touches disk</span>
+      <div class="filtergrp"><button type="button" class="lbl" data-pop="purity">Touches disk</button>
         <button class="pill" data-purity="mutating">mutating</button>
       </div>
-      <div class="filtergrp"><span class="lbl" title="Click a core file to highlight every stage that writes it">Writes</span>
+      <div class="filtergrp"><button type="button" class="lbl" data-pop="writes">Writes</button>
         <button class="pill art" data-writes="investigation">investigation.yaml</button>
         <button class="pill art" data-writes="study">study.yaml</button>
         <button class="pill art" data-writes="runs">runs.db</button>
         <button class="pill art" data-writes="modelversions">model_versions</button>
       </div>
       <button class="iconbtn" id="clear">Clear</button>
-    </div>
-    <div class="help" id="help" hidden><button class="helpx" id="helpx" aria-label="Close help">&times;</button>
-      <div class="grp">
-        <h4>What this is</h4>
-        <p>A clickable map of the <b>discovery-engine</b> cycle. The loop runs clockwise around the <b>engine core</b> — the four files it reads &amp; writes. <b>Click any stage</b> to see its functions (with file paths), the skills that drive it, what it consumes/produces, and the exact YAML fields it touches.</p>
-      </div>
-      <div class="grp">
-        <h4>The filters</h4>
-        <dl>
-          <dt>Provenance</dt><dd>who authored a stage's content — <b>H</b> human · <b>AI</b> agent (a /viva-* skill or the LLM filler) · <b>D</b> derived by the engine · <b>CFG</b> config/schema/flag. Click to dim everything else.</dd>
-          <dt>Grade</dt><dd><b>real</b> = computes genuinely over data · <b>conditional</b> = real only when the right fields are authored.</dd>
-          <dt>Touches disk</dt><dd><b>mutating</b> stages write to disk; every other stage is <b>pure</b> (dicts in, dicts out).</dd>
-          <dt>Writes</dt><dd>click a core file to highlight every stage that <b>writes</b> it and draw the write-edges.</dd>
-        </dl>
-      </div>
-      <div class="grp">
-        <h4>Reading the diagram</h4>
-        <dl>
-          <dt>● / ◆</dt><dd>a <b>pure</b> stage (●) vs a <b>mutating</b> one (◆).</dd>
-          <dt>dot colour</dt><dd>green = real · amber = conditional.</dd>
-          <dt>edges</dt><dd>solid = clockwise flow; on a selected stage, dashed = reads the core, bold amber = writes it.</dd>
-          <dt>zones</dt><dd>card colour marks the band: core · phase · seam · growth · execute · discovery.</dd>
-        </dl>
-      </div>
-      <div class="grp">
-        <h4>Driving it</h4>
-        <p>A bounded run (<code>discover investigate</code>) drives this loop under a budget, with a typed <b>Discrepancy</b>, a held-out <b>EvidenceRecord</b>, and a weighted rubric + hard gates. Use <b>Play the cycle</b> to walk the stages, <b>Zoom / Fit</b> to size the map, and <b>Theme</b> for light/dark.</p>
-      </div>
     </div>
   </header>
 
@@ -816,13 +793,34 @@ zoomEl.addEventListener("input",()=>{userZoom=parseFloat(zoomEl.value);applyFit(
 document.getElementById("fit").addEventListener("click",()=>{userZoom=null;applyFit();});
 document.getElementById("zoomin").addEventListener("click",()=>{userZoom=Math.min(1.3,(userZoom==null?Z:userZoom)+0.1);applyFit();});
 document.getElementById("zoomout").addEventListener("click",()=>{userZoom=Math.max(0.4,(userZoom==null?Z:userZoom)-0.1);applyFit();});
-const helpbtn=document.getElementById("helpbtn"), helpEl=document.getElementById("help");
-function setHelp(open){helpEl.hidden=!open;helpbtn.setAttribute("aria-expanded",String(open));helpbtn.textContent=open?"Hide ⌃":"How to read this ⌄";}
-helpbtn.addEventListener("click",e=>{e.stopPropagation();setHelp(helpEl.hidden);});
-document.getElementById("helpx").addEventListener("click",()=>setHelp(false));
-helpEl.addEventListener("click",e=>e.stopPropagation());
-document.addEventListener("click",()=>{if(!helpEl.hidden)setHelp(false);});
-document.addEventListener("keydown",e=>{if(e.key==="Escape"&&!helpEl.hidden)setHelp(false);});
+/* small contextual popovers: click a label (Provenance / Grade / …) for a brief explainer */
+const POPS={
+ intro:["The map","A clickable map of the <b>discovery-engine</b> cycle — the loop runs clockwise around the <b>engine core</b> (the four files it reads &amp; writes). <b>Click any stage</b> for its functions, skills, I/O and the exact YAML fields it touches. Use <b>Play</b>, <b>Zoom / Fit</b> and <b>Theme</b> above."],
+ prov:["Provenance","Who authored a stage's content: <b>H</b> human · <b>AI</b> agent (a /viva-* skill or the LLM filler) · <b>D</b> derived by the engine · <b>CFG</b> config/schema. Click a pill to dim everything else."],
+ grade:["Grade","<b>real</b> = computes genuinely over data. <b>conditional</b> = real only when the right fields are authored."],
+ purity:["Touches disk","<b>mutating</b> stages (◆) write to disk. Every other stage is <b>pure</b> (●) — dicts in, dicts out."],
+ writes:["Writes","Click a core file (investigation.yaml / study.yaml / runs.db / model_versions) to highlight every stage that <b>writes</b> it and draw the write-edges."],
+};
+const popHost=document.querySelector("header.top");
+const pop=document.createElement("div"); pop.className="pop"; pop.hidden=true; popHost.appendChild(pop);
+let popKey=null;
+function hidePop(){pop.hidden=true;popKey=null;}
+function showPop(anchor,key){
+  const d=POPS[key]; if(!d)return;
+  pop.innerHTML='<button class="px" aria-label="Close">&times;</button><h5>'+d[0]+'</h5>'+d[1];
+  pop.hidden=false; popKey=key;
+  const hr=popHost.getBoundingClientRect(), lr=anchor.getBoundingClientRect();
+  let left=lr.left-hr.left; const maxLeft=hr.width-pop.offsetWidth-8; if(left>maxLeft)left=Math.max(8,maxLeft);
+  pop.style.left=left+"px"; pop.style.top=(lr.bottom-hr.top+6)+"px";
+  pop.querySelector(".px").addEventListener("click",ev=>{ev.stopPropagation();hidePop();});
+}
+document.querySelectorAll("[data-pop]").forEach(b=>b.addEventListener("click",e=>{
+  e.stopPropagation(); const k=b.getAttribute("data-pop");
+  if(popKey===k)hidePop(); else showPop(b,k);
+}));
+pop.addEventListener("click",e=>e.stopPropagation());
+document.addEventListener("click",()=>{if(!pop.hidden)hidePop();});
+document.addEventListener("keydown",e=>{if(e.key==="Escape"&&!pop.hidden)hidePop();});
 
 let rt;addEventListener("resize",()=>{clearTimeout(rt);rt=setTimeout(layout,120);});
 window.addEventListener("load",()=>{layout();const h=location.hash.slice(1);if(h&&byId[h])select(h,false);});
