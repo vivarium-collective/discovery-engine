@@ -232,6 +232,23 @@ def _handler_for(kind: str):
     return None
 
 
+# Kinds whose apply op writes a study.yaml — guarded for evidence-authority leaks.
+_STUDY_WRITING_KINDS = ("interpret_finding", "explain", "author_tests")
+
+
+def _target_study(ws_root, inv_slug: str, art: dict):
+    """The ``(sdir, study_dict)`` a study-writing kind targets, or ``None`` — used to
+    snapshot the target study's measured fields before/after an apply (authority guard)."""
+    study = art.get("study")
+    if not study:
+        return None
+    sdir = _study_dir(ws_root, inv_slug, str(study))
+    if sdir is None:
+        return None
+    from discovery_engine.study import io as study_io
+    return sdir, (study_io.load_yaml(sdir / "study.yaml") or {})
+
+
 def apply_result(request: GenerationRequest, result: GenerationResult, *,
                  ws_root, inv_slug: str) -> dict:
     """Route ``(request, result)`` to the canonical write op for ``request.kind``.
@@ -240,13 +257,26 @@ def apply_result(request: GenerationRequest, result: GenerationResult, *,
     :func:`_handler_for`): every applicable kind resolves to one uniform handler.
     Returns ``{status, applied_to, ...}`` — ``status`` is ``applied`` when a wired
     op ran, else ``queued_for_review``. Raises ``ValueError`` on a malformed
-    artifact for a wired kind. Pure routing over existing writers; no generation."""
+    artifact for a wired kind. Pure routing over existing writers; no generation.
+
+    A study-writing kind is wrapped by the evidence-authority guard: the target study's
+    measured/derived fields are snapshotted before the write and re-checked after, so an
+    applied artifact can never overwrite a finding's ``observed`` or a run's
+    ``computed_outcomes`` (a leak raises ``ValueError`` → recorded as an apply error)."""
     handler = _handler_for(request.kind)
     if handler is None:
         return {"status": "queued_for_review", "applied_to": [],
                 "reason": f"apply not wired for kind {request.kind!r} yet"}
-    return handler(result.artifact or {}, ws_root=ws_root, inv_slug=inv_slug,
-                   request=request, result=result)
+    art = result.artifact or {}
+    guard = _target_study(ws_root, inv_slug, art) if request.kind in _STUDY_WRITING_KINDS else None
+    out = handler(art, ws_root=ws_root, inv_slug=inv_slug, request=request, result=result)
+    if guard is not None:
+        from discovery_engine.phases.evidence_authority import assert_no_authority_leak
+        from discovery_engine.study import io as study_io
+        sdir, before = guard
+        after = study_io.load_yaml(sdir / "study.yaml") or {}
+        assert_no_authority_leak(before, after)
+    return out
 
 
 def run_requests(requests, *, fill, ws_root, inv_slug: str) -> list[dict]:
