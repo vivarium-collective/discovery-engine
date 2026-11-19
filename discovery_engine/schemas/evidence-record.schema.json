@@ -1,0 +1,44 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://vivarium-collective.org/schemas/evidence-record.schema.json",
+  "title": "EvidenceRecord",
+  "description": "A quantitative predicted-vs-observed comparison for one test on one run: the model/hypothesis prediction (with uncertainty) against the measured value, the signed residual, and whether the observation sits within the predicted uncertainty. Stamped with its immutable source (run, model version, grader). `holdout: true` marks an out-of-sample condition the engine did not fit on. Derived; never authored; never scored as the measurement itself. Strict at the top level.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["observable", "predicted", "observed", "holdout", "source"],
+  "properties": {
+    "observable": {"type": "string", "minLength": 1},
+    "predicted": {
+      "type": "object",
+      "required": ["value"],
+      "properties": {
+        "value": {"type": ["number", "null"]},
+        "uncertainty": {"type": ["number", "null"]},
+        "band": {"type": "object", "description": "the acceptance/prediction band the value summarizes"}
+      }
+    },
+    "observed": {
+      "type": "object",
+      "required": ["value"],
+      "properties": {
+        "value": {"type": ["number", "null"]},
+        "uncertainty": {"type": ["number", "null"]}
+      }
+    },
+    "residual": {"type": ["number", "null"], "description": "observed.value - predicted.value, or null when either is non-numeric"},
+    "within_uncertainty": {"type": ["boolean", "null"], "description": "|residual| <= predicted.uncertainty, or null when uncertainty is unknown"},
+    "conditions": {"description": "the run/intervention conditions this record was taken under"},
+    "holdout": {"type": "boolean"},
+    "source": {
+      "type": "object",
+      "description": "the immutable provenance of the measurement",
+      "properties": {
+        "run_id": {},
+        "model_version": {},
+        "grader": {},
+        "method": {},
+        "units": {}
+      }
+    }
+  }
+}
