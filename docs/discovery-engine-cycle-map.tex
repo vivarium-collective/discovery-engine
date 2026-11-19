@@ -58,7 +58,7 @@ the stages, the functions, the skills, and the flow into investigations, studies
 \vspace{2.4cm}
 {\large discovery-engine \textbf{0.6.0} \; (\code{main})\par}
 \vspace{0.4em}
-{\color{muted} 2026-11-18\par}
+{\color{muted} 2026-11-19\par}
 \vspace{2cm}
 {\color{muted}\small
 \begin{tabular}{@{}r@{\;\;}l@{}}
@@ -115,7 +115,7 @@ op --- a policy-gated cycle move, not a side channel.
 \paragraph{Self-contained, and evidence versioned.} Two later increments harden this. The engine
 became \textbf{self-contained} (0.4.1--0.5.0): the report render, the report lint, the
 study-maintenance verbs, and the whole linkage index moved out of the workbench and the skills into
-engine-native \code{discover} commands that run \emph{headless}, with no server (39 verbs today;
+engine-native \code{discover} commands that run \emph{headless}, with no server (40 verbs today;
 \S\ref{sec:cli}). And the evaluation snapshot became \textbf{versioned} (0.6.0): it carries a
 \code{schema\_version}, its \code{grader}/\code{resolver} versions, and an \code{inputs\_hash} over
 the measured ledger. A candidate diffed against a snapshot written by a \emph{different
@@ -224,8 +224,10 @@ The cycle operates on a \textbf{workspace} directory whose layout is resolved fr
 epistemic \code{relation} tags on edges. \textbf{Cycle-written caches:} \code{resolutions[]},
 \code{discoveries[]}, \code{hypothesis\_proposals[]}, \code{critique\_reports[]},
 \code{model\_acquisition\_proposals[]}, \code{model\_versions[]}, \code{applied\_feedback[]},
-\code{pending\_feedback[]}, \code{lifecycle\_history}, \code{cycle\_state} (with
-\code{evaluation\_snapshot}), viz/proposal caches.
+\code{pending\_feedback[]}, \code{lifecycle\_history}, \code{decision\_log[]}, \code{cycle\_state} (with
+\code{evaluation\_snapshot}), viz/proposal caches. The projection also derives (not persisted)
+\code{discrepancies} --- the typed, sourced anomaly / model-disagreement triggers a
+\code{hypothesize} act must explain (\S\ref{sec:eval}).
 \item \code{study.yaml} --- one per member. \textbf{Authored:} \code{claim}, \code{title},
 \code{question}, \code{hypothesis}, \code{behavior\_tests} (with \code{pass\_if} bands +
 \code{measure}), \code{findings[]} prose, \code{baseline}/variant arms, \code{observables},
@@ -279,11 +281,11 @@ F Evaluate & \textit{inv:} \code{hypotheses[].predictions[]}, \code{cycle\_state
 \addlinespace[2pt]
 Gate & \textit{inv:} \code{resolutions[]}, \code{acceptance\_criteria[]}, \code{pending\_feedback[]}, \code{revision\_proposals[]}, \code{critique\_reports[]}, \code{model\_acquisition\_proposals[]}, \code{capability\_gaps[]}, \code{viz\_proposals[]}, \code{applied\_feedback[]}, \code{cycle\_flags} & ---\\
 \addlinespace[2pt]
-emit & \textit{inv:} \code{discovery.skill\_map}; opportunities via the bundle & ---\\
+emit & \textit{inv:} \code{discovery.skill\_map}; \code{discrepancies} (into each hypothesize context); opportunities via the bundle & ---\\
 \addlinespace[2pt]
 fill & a \code{GenerationRequest} on stdin (no YAML) & a \code{GenerationResult} on stdout (no YAML)\\
 \addlinespace[2pt]
-apply & \textit{st:} \code{findings[].id}, \code{behavior\_tests[].name} & \textit{st:} \code{findings[].statement}/\code{explanation}/\code{status} (interpret), \code{behavior\_tests[]} (author\_tests); \textit{inv:} \code{resolutions[]} (resolve), \code{hypothesis\_proposals[]} / \code{critique\_reports[]} / \code{model\_acquisition\_proposals[]} (registry, status proposed)\\
+apply & \textit{st:} \code{findings[].id}, \code{behavior\_tests[].name} & \textit{st:} \code{findings[].statement}/\code{explanation}/\code{status} (interpret), \code{behavior\_tests[]} (author\_tests); \textit{inv:} \code{resolutions[]} (resolve), \code{hypothesis\_proposals[]} / \code{critique\_reports[]} / \code{model\_acquisition\_proposals[]} (registry, status proposed). Guarded: an applied artifact can never change a measured/derived field (\code{evidence\_authority})\\
 \addlinespace[2pt]
 propose & \textit{inv:} \code{studies[]}, \code{executive.decisions\_needed[]}; \textit{st:} \code{followup\_proposals[]}, \code{findings[].next\_action}, \code{seeded\_from} & ---\\
 \addlinespace[2pt]
@@ -293,7 +295,7 @@ seed & \textit{st (parent):} \code{baseline[].composite}/\code{params}, \code{ob
 \addlinespace[2pt]
 refine & \textit{st:} \code{robustness.*}, \code{baseline[].params}, \code{variants[]} & \textit{st:} \code{robustness.n\_replicates}/\code{seeds}, \code{variants[]} (sweep arms), \code{baseline[0].composite}, \code{refined\_from}\\
 \addlinespace[2pt]
-E Execute & \code{execute\_plan} + \code{run\_readiness} & \textit{inv:} \code{studies[]}/\code{members[]}, \code{model\_versions[]}, \code{revision\_proposals[].status}, \code{status}, \code{executive}, \code{lifecycle\_history}, \code{applied\_feedback[]}, \code{resolutions[]}, \code{executed\_actions[]}; \textit{st:} \code{runs[]}, \code{verdict}; \textit{db:} \code{runs\_meta} rows\\
+E Execute & \code{execute\_plan} + \code{run\_readiness} & \textit{inv:} \code{studies[]}/\code{members[]}, \code{model\_versions[]}, \code{revision\_proposals[].status}, \code{status}, \code{executive}, \code{lifecycle\_history}, \code{applied\_feedback[]}, \code{resolutions[]}, \code{executed\_actions[]}, \code{decision\_log[]}; \textit{st:} \code{runs[]}, \code{verdict}; \textit{db:} \code{runs\_meta} rows\\
 \addlinespace[2pt]
 Discovery & \textit{inv:} \code{finding\_candidates[]}, \code{cycle\_state.evaluation\_snapshot}; \textit{st:} \code{findings[].evidence.observed}, \code{runs[].computed\_outcomes} & \textit{inv:} \code{discoveries[]} (scope, novelty, counterevidence, evidence\_refs), \code{finding\_candidates[].status}, \code{review\_decisions[]}\\
 \addlinespace[2pt]
@@ -486,6 +488,16 @@ as \code{status: proposed/open}. The engine \textbf{never promotes a proposal to
 auto-gated requests through the filler; \code{discover propose} routes via the
 \code{DiscoveryAgent} coordinator. \real.
 
+\paragraph{The surprise it must explain (Discrepancy).} A \code{hypothesize} request no longer
+carries a bare target: emission attaches the typed \textbf{Discrepancy} (\code{dc:\dots} ---
+study, observable, the measured \code{observed}, and an immutable \code{source\_evidence\_ref})
+derived from the cycle's anomaly / model-disagreement signals, so a generated alternative is tied
+to evidence, not a prompt. Two guards keep the seam honest, enforced mechanically rather than by
+review: the \textbf{evidence-authority} check wraps every study write so an applied artifact can
+never overwrite a finding's \code{observed} or a run's \code{computed\_outcomes} (interpretation is
+never evidence); and an honest no-answer \emph{abstains} --- a filler that returns nothing
+\code{queues}, a malformed artifact is an \code{error}, and neither fabricates.
+
 % ===========================================================================
 \section{The skills --- who drives each stage}\label{sec:skills}
 
@@ -634,7 +646,7 @@ do not gate.
 \section{The headless surface --- the \code{discover} CLI}\label{sec:cli}
 
 The 0.4.1--0.5.0 increment moved the whole cycle behind one headless CLI
-(\code{python -m discovery\_engine.discover}, 39 verbs). The skills and the workbench both reach
+(\code{python -m discovery\_engine.discover}, 40 verbs). The skills and the workbench both reach
 the same logic; nothing requires a server. Grouped:
 
 \begin{center}\small
@@ -646,6 +658,7 @@ Project / status & \code{cycle}, \code{status}, \code{crank}, \code{opportunitie
 Phases A--F & \code{reconcile-evidence}, \code{plan}, \code{design}, \code{build-model}, \code{hypotheses}, \code{evaluate}, \code{delta}\\
 Generation seam & \code{requests} (\code{-{}-fill}), \code{propose} (\code{-{}-fill}/\code{-{}-autonomous})\\
 Growth / execute & \code{suggest}, \code{seed-study}, \code{refine-study}, \code{advance}, \code{execute}\\
+Bounded run & \code{investigate} (loop emit $\rightarrow$ fill $\rightarrow$ apply under a budget, logging each decision; \S\ref{sec:eval})\\
 Author / discharge & \code{set-verdict}, \code{relate}, \code{connect}, \code{resolve}, \code{revise}, \code{gap}, \code{viz}, \code{hypothesize}, \code{critique}\\
 Discovery & \code{review-findings} (\code{-{}-promote}/\code{-{}-hold})\\
 Reopen & \code{ingest-feedback}\\
@@ -654,6 +667,50 @@ Study maintenance & \code{populate-observations}, \code{readout-migrate}, \code{
 \bottomrule
 \end{tabularx}
 \end{center}
+
+% ===========================================================================
+\section{The evaluation substrate --- benchmarks \& bounded runs}\label{sec:eval}
+
+Layered over the cycle is the machinery that turns ``the engine got better'' into ``it moved a
+number on a held-out oracle, under a fixed budget.'' All of it is pure and additive; the cycle
+stages are untouched.
+
+\begin{itemize}
+\item \textbf{Typed Discrepancy} (\code{phases/discrepancy.py}). The engine's untyped anomaly /
+model-disagreement signals become one sourced object --- \code{\{id, study, observable, observed,
+kind, source\_evidence\_ref\}} --- derived into \code{cycle\_result.discrepancies} and attached to
+each \code{hypothesize} request's context, so a generated alternative names the measured surprise
+it must explain.
+\item \textbf{Held-out EvidenceRecord} (\code{study/evaluator/evidence\_record.py},
+\code{benchmark/holdout.py}). A quantitative \emph{predicted-vs-observed} record ---
+\code{\{predicted\{value,uncertainty\}, observed, residual, within\_uncertainty, source\}} ---
+derived from \code{computed\_outcomes} + the test's band. \code{evaluate\_holdout} scores a model
+against the oracle on conditions it never fit on: the ``out-of-sample'' gate made real.
+\item \textbf{Bounded autonomy} (\code{discover/budget.py}, \code{\_policy.py},
+\code{actions.record\_decision}). A \code{Budget} caps \code{simulation\_runs} /
+\code{model\_builds} / \code{generation\_calls}; a typed \emph{stop} (\code{budget\_exhausted},
+\code{no\_informative\_experiment}, \code{insufficient\_evidence}, \code{seek\_human\_data}) is a
+legitimate halt, not a failure; and every gated action appends to \code{investigation.yaml::
+decision\_log[]} (\code{policy\_version, actor, input\_hashes, rationale, consequence, result}).
+\item \textbf{The benchmark} (\code{benchmark/manifest.py} + schema, \code{rubric.py},
+\code{gates.py}, \code{matrix.py}, \code{baselines.py}, \code{scenarios/}). A benchmark is
+\emph{data}: a manifest of fixture, allowed-skills, budget, required-artifacts, metrics, and stop
+conditions. A weighted \textbf{rubric} (mechanism-id 0.25, held-out 0.20, \dots) scores a run,
+\textbf{hard gates} fail it regardless of score (unreviewed promotion, missing held-out report,
+non-identical snapshot replay), and a CI matrix compares against the \code{full} /
+\code{deterministic\_only} / \code{no\_critique} / \code{no\_build} baselines.
+\item \textbf{\code{discover investigate}} (\code{discover/investigate.py}). One bounded loop over
+the existing verbs --- project $\rightarrow$ emit $\rightarrow$ fill $\rightarrow$ apply under the
+budget, logging each decision --- halting on closure / budget / no-informative-move. It adds no new
+phase logic; every write goes through the existing apply ops.
+\end{itemize}
+
+\noindent These make the three quality gates mechanical: \textbf{epistemic honesty} (the
+evidence-authority guard + reviewed-promotion gate), \textbf{counterfactual discrimination} (the
+held-out residual between a recovered and a candidate model), and \textbf{out-of-sample
+performance} (\code{evaluate\_holdout} on unseen conditions). The reference slice --- Benchmark~1,
+the hidden metabolic regulator --- passes end to end: the full engine recovers the mechanism and
+beats a deterministic-only baseline on held-out prediction under a fixed budget. \real.
 
 % ===========================================================================
 \section{What mutates vs.\ what is read-only}
@@ -679,6 +736,7 @@ B/C/D (plan, design, build\_catalog, bind\_mv) & \textsc{read-only} & panel step
 \code{set\_verdict} / \code{record\_resolution} & \textbf{writes} verdict / resolutions & CLI, or AI-decider\\
 \code{record\_*\_proposal} & \textbf{writes} proposal block & registry apply / \code{discover hypothesize}/\code{critique}\\
 \code{reconcile\_and\_reopen} & \textbf{writes} reopened spec + \code{lifecycle\_history} & CLI \code{ingest-feedback}\\
+\code{record\_decision} & \textbf{writes} \code{decision\_log[]} & every gated action in a bounded run\\
 \bottomrule
 \end{tabularx}
 \end{center}
@@ -744,8 +802,10 @@ Growth $\cdot$ seed / refine & \real & pure spec; autonomous write-back via \cod
 E $\cdot$ Execute / advance & \real, dry by default & sandboxed in the panel; one AutonomyPolicy gates every op\\
 Reopen & \real & structured re-entry on staged feedback; typed, schema-validated\\
 Gate system & \real & deterministic; three blocking kinds; value-ranked next action\\
-Self-contained CLI + linkage & \real & 39 headless \code{discover} verbs (0.4.1--0.5.0)\\
+Self-contained CLI + linkage & \real & 40 headless \code{discover} verbs (0.4.1--0.5.0)\\
 Versioned evidence snapshot & \real & snapshot provenance + stale-on-version-drift gate (0.6.0)\\
+Evaluation substrate & \real & typed Discrepancy + held-out EvidenceRecord + rubric/gates; Benchmark~1 passes (\S\ref{sec:eval})\\
+Bounded run (\code{investigate}) & \real & budget + typed stops + decision log; composes existing verbs\\
 Viz loop & \real & engine + full panel wiring (propose / build / declare / accept)\\
 \code{propose\_study} / \code{visualize} apply & \cond & queued at the seam; handled by the Growth seed op / viz accept path\\
 capability-gap bridge & \cond & engine-complete; no dedicated workbench endpoint yet\\

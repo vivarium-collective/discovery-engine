@@ -14,3 +14,10 @@ venv/
 .coverage
 htmlcov/
 uv.lock
+
+# LaTeX build artifacts for the cycle map
+docs/discovery-engine-cycle-map.aux
+docs/discovery-engine-cycle-map.fdb_latexmk
+docs/discovery-engine-cycle-map.fls
+docs/discovery-engine-cycle-map.log
+docs/discovery-engine-cycle-map.out

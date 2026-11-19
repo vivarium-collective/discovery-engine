@@ -111,6 +111,26 @@ Conventions that matter for fidelity:
 
 ---
 
+### 2.4 Evaluation substrate (Benchmark-1 additions)
+
+Layered over the cycle (pure, additive; the stages are untouched). Reflected in the map's
+`emit` / `apply` / `execute` panels and the PDF's §10:
+- **Typed `Discrepancy`** (`phases/discrepancy.py`) — the sourced anomaly / model-disagreement
+  trigger, derived into `cycle_result.discrepancies` and attached to each `hypothesize` request's
+  context.
+- **Evidence-authority guard** (`phases/evidence_authority.py`) — wraps every study write in
+  `apply_result` so an applied artifact can never change a measured/derived field.
+- **Held-out `EvidenceRecord`** (`study/evaluator/evidence_record.py`, `benchmark/holdout.py`) —
+  quantitative predicted-vs-observed with uncertainty, scored on unseen conditions.
+- **Bounded autonomy** (`discover/budget.py`, `_policy.py` stops, `actions.record_decision`) —
+  a `Budget`, typed stop reasons, and `investigation.yaml::decision_log[]`.
+- **Benchmark** (`benchmark/{manifest,rubric,gates,matrix,baselines}.py`, `scenarios/`) — a
+  declarative manifest + weighted rubric + hard gates + CI baseline matrix.
+- **`discover investigate`** (`discover/investigate.py`) — one bounded loop over the existing
+  verbs (now 40 `discover` verbs).
+
+---
+
 ## 3. The model (edges) — information flow
 
 ```

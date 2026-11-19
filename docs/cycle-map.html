@@ -203,7 +203,7 @@ footer{color:var(--faint);font-size:.72rem;text-align:center;padding:4px 0 26px;
   <header class="top">
     <h1>The Discovery Engine</h1>
     <p class="sub">A clickable map of the derive-first cycle — stages, functions, skills, and the flow into investigations, studies &amp; models. &nbsp;<span class="mono" style="color:var(--muted)">discovery-engine 0.6.0</span></p>
-    <p class="hint">The loop turns clockwise around the engine core. Click any stage for its functions, skills &amp; I/O; click a core artifact or a <b>Writes</b> filter to trace what changes it.</p>
+    <p class="hint">The loop turns clockwise around the engine core. Click any stage for its functions, skills &amp; I/O; click a core artifact or a <b>Writes</b> filter to trace what changes it. A bounded run (<code>discover investigate</code>) drives this loop under a budget with a typed Discrepancy, a held-out EvidenceRecord, and a weighted rubric + hard gates.</p>
     <div class="toolbar">
       <div class="search"><span style="color:var(--faint);font-size:.8rem">⌕</span><input id="q" placeholder="Search stages, functions, skills…" aria-label="Search" autocomplete="off"></div>
       <button class="iconbtn" id="play" aria-pressed="false">▶ Play the cycle</button>
@@ -353,7 +353,7 @@ const NODES = [
   reads:[], writes:[],
   consumes:"each frontier opportunity's action_type",
   produces:"a typed GenerationRequest {kind, produces, gate}",
-  blurb:"Maps every frontier opportunity to one of nine typed GenerationRequest kinds and its produces-contract, with a gate of auto or review. Pure, no LLM. The first of the three act-on-the-frontier moves: Generate."},
+  blurb:"Maps every frontier opportunity to one of nine typed GenerationRequest kinds and its produces-contract, with a gate of auto or review. Pure, no LLM. A hypothesize request also carries the typed Discrepancy (the measured anomaly / model-disagreement it must explain), so a generated alternative is tied to evidence, not a prompt. The first of the three act-on-the-frontier moves: Generate."},
  {id:"fill",label:"fill",band:"seam",grade:"real",purity:"mutating",prov:["AI"],
   fns:[["subprocess_filler","phases/generation_apply.py"]], skills:["/viva-fill"],
   reads:[], writes:[],
@@ -365,7 +365,7 @@ const NODES = [
   reads:[], writes:["study","investigation"],
   consumes:"a GenerationResult + its request",
   produces:"an atomic, comment-preserving write — or queued_for_review / error",
-  blurb:"Gates each request: review → queued; auto → fill + apply. Routes by kind to a native handler (finding/test/decision writers) or the SkillRegistry adapter (the three authoring contracts). A malformed artifact is recorded error, never applied. The engine never promotes a proposal to a fact.",
+  blurb:"Gates each request: review → queued; auto → fill + apply. Routes by kind to a native handler (finding/test/decision writers) or the SkillRegistry adapter (the three authoring contracts). Guarded by evidence-authority: an applied artifact can never overwrite a finding's observed or a run's computed_outcomes (interpretation is never evidence). A malformed artifact is recorded error, an abstaining filler queues — never a silent or fabricated apply. The engine never promotes a proposal to a fact.",
   extra:"kinds"},
  {id:"propose",label:"propose",band:"growth",grade:"real",purity:"pure",prov:["H","AI","D"],
   fns:[["suggest_studies","discover/cycle.py"]], skills:[],
@@ -396,7 +396,7 @@ const NODES = [
   reads:["investigation","study"], writes:["runs","investigation","modelversions"],
   consumes:"the execute_plan + one AutonomyPolicy",
   produces:"{runs, needs_build, designed, frontier_before, frontier_after}",
-  blurb:"The one phase that changes real state. Picks the first run-ready op, checks readiness, dispatches — or records a 'would-run' and stops when not autonomous. Besides running a study it materializes a design, promotes a seed, builds a missing mechanism, and reopens on feedback. Dry by default: in the panel it runs sandboxed on a throwaway copy; with no runner it reports needs_build rather than faking a run."},
+  blurb:"The one phase that changes real state. Picks the first run-ready op, checks readiness, dispatches — or records a 'would-run' and stops when not autonomous. Besides running a study it materializes a design, promotes a seed, builds a missing mechanism, and reopens on feedback. A bounded run (discover investigate) caps it with a Budget (simulation_runs / model_builds / generation_calls), halts on a typed stop (budget_exhausted / no_informative_experiment / …), and appends every gated action to decision_log[]. Dry by default: in the panel it runs sandboxed on a throwaway copy; with no runner it reports needs_build rather than faking a run."},
  {id:"discovery",label:"Discovery",band:"discovery",grade:"real",purity:"mutating",prov:["D"],
   fns:[["detect_finding_candidates","phases/discovery_record.py"],["review_findings","discover/actions.py"],["promote_finding_candidate","discover/actions.py"]], skills:[],
   reads:["investigation"], writes:["investigation"],
@@ -454,14 +454,14 @@ const IO = {
  grade:{r:{study:["behavior_tests[].{measure,pass_if}","runs[].{name,store}"],runs:["runs.db + the run store (measured series)"]},w:{study:["runs[].computed_outcomes.{result,measured_value,evaluated_by,_grader}"]}},
  evaluate:{r:{inv:["hypotheses[].predictions[]","cycle_state.evaluation_snapshot (prev)"],study:["findings[].evidence.observed","behavior_tests[]","runs[].computed_outcomes","discovery_implications.alternate_hypotheses[]"]},w:{inv:["— persisted by persist_cycle: cycle_state.evaluation_snapshot","— persisted by persist_cycle: finding_candidates[]"]}},
  gate:{r:{inv:["resolutions[]","acceptance_criteria[].{study,behavior}","pending_feedback[]","revision_proposals[]","critique_reports[].target","model_acquisition_proposals[]","capability_gaps[]","viz_proposals[]","applied_feedback[]","cycle_flags.viz_untied"],study:["— verdicts/behaviors arrive via the cycle bundle"]},w:{}},
- emit:{r:{inv:["discovery.skill_map (per-workspace override)"],study:["— opportunities come from the cycle bundle"]},w:{}},
+ emit:{r:{inv:["discovery.skill_map (per-workspace override)","discrepancies (→ each hypothesize request's context)"],study:["— opportunities come from the cycle bundle"]},w:{}},
  fill:{r:{inv:["— a GenerationRequest JSON on stdin (no YAML)"]},w:{inv:["— a GenerationResult JSON on stdout (no YAML)"]}},
  apply:{r:{study:["findings[].{id,name} (match)","behavior_tests[].name (dedup)"]},w:{study:["findings[].{statement,explanation,status}  ← interpret_finding","findings[].explanation  ← explain","behavior_tests[] (append)  ← author_tests"],inv:["resolutions[]  ← resolve_decision","hypothesis_proposals[] (status: proposed)  ← hypothesize","critique_reports[] (status: proposed)  ← critique","model_acquisition_proposals[] (status: proposed)  ← acquire_model"]}},
  propose:{r:{inv:["studies[]","executive.decisions_needed[].question"],study:["followup_proposals[].{id,title,motivation,status}","findings[].{status,next_action,statement}","seeded_from.{proposal_id,finding}"]},w:{}},
  select:{r:{inv:["— suggestion dicts: awaiting_expert, status, id (no YAML)"]},w:{}},
  seed:{r:{study:["parent baseline[].{composite,params}","parent observables[], behavior_tests[]","parent findings[].{id,statement,next_action,evidence}"]},w:{study:["new child study.yaml: baseline[], behavior_tests[], purpose, seeded_from","parent findings[].seeded_study","parent followup_proposals[].{status,seeded_study}"]}},
  refine:{r:{study:["robustness.{n_replicates,seeds,parameter_sweep}","baseline[].params, variants[].name"]},w:{study:["robustness.{n_replicates,seeds}","variants[] (append sweep arms)","baseline[0].{composite,note}","refined_from.{study,changes}"]}},
- execute:{r:{inv:["execute_plan + run_readiness"]},w:{inv:["studies[] / members[]  (promote-seed)","model_versions[] + revision_proposals[].status  (apply-revision)","status, executive, lifecycle_history, applied_feedback[]  (reopen)","resolutions[]  (steer)","executed_actions[]  (every action)"],study:["runs[].{computed_outcomes,model_version}","verdict, verdict_rationale  (set-verdict)"],runs:["runs.db — runs_meta rows (register_run)"]}},
+ execute:{r:{inv:["execute_plan + run_readiness"]},w:{inv:["studies[] / members[]  (promote-seed)","model_versions[] + revision_proposals[].status  (apply-revision)","status, executive, lifecycle_history, applied_feedback[]  (reopen)","resolutions[]  (steer)","executed_actions[]  (every action)","decision_log[]  (bounded run: every gated action)"],study:["runs[].{computed_outcomes,model_version}","verdict, verdict_rationale  (set-verdict)"],runs:["runs.db — runs_meta rows (register_run)"]}},
  discovery:{r:{inv:["finding_candidates[].{id,status}","cycle_state.evaluation_snapshot"],study:["findings[].{status,evidence.observed}","runs[].computed_outcomes"]},w:{inv:["discoveries[].{scope,novelty,counterevidence,evidence_refs,fingerprint,…}","finding_candidates[].{status,assessment,discovery_id}","review_decisions[]"]}},
  reopen:{r:{inv:["pending_feedback[]","status, executive.verdict_status","hypotheses[], required_mechanisms[]","studies[], acceptance_criteria[]"]},w:{inv:["status, executive.verdict_status","lifecycle_history[]","applied_feedback[]","studies[], acceptance_criteria[], hypotheses[]"],study:["new studies' study.yaml (ingest-feedback)"]}},
 };
