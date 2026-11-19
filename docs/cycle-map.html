@@ -1,0 +1,694 @@
+<title>Discovery Engine Map</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<meta name="description" content="An interactive map of the discovery-engine 0.6.0 cycle: stages, functions, skills, and the flow into investigations, studies, and models.">
+<style>
+/* Layout: a clockwise racetrack loop of the cycle's stages around a central engine core
+   (the four substrate artifacts). Every edge runs along the perimeter — no crossings. */
+:root{
+  --bg:#F7F8FA; --surface:#FFFFFF; --ink:#1F2937; --muted:#64748B; --faint:#94A3B8;
+  --line:#CBD5E1; --hair:#E2E8F0; --accent:#2563EB; --accent-soft:#DBEAFE;
+  --good:#15803D; --warn:#B45309; --bad:#B91C1C;
+  --b-substrate:#FFFFFF; --b-core:#E0E7FF; --b-phase:#F1F5F9; --b-gate:#EEF2F7;
+  --b-seam:#F3E8FF; --b-growth:#E0E7FF; --b-execute:#FEF3C7; --b-discovery:#DCFCE7;
+  --chip-h:#1F2937; --chip-ai:#7C3AED; --chip-d:#15803D; --chip-cfg:#64748B;
+  --mono:"SFMono-Regular",ui-monospace,"JetBrains Mono",Menlo,Consolas,monospace;
+  --sans:"Inter",system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+  --shadow:0 1px 2px rgba(15,23,42,.06),0 2px 8px rgba(15,23,42,.05);
+  --radius:10px;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --bg:#0B1120; --surface:#131B2E; --ink:#E8EDF5; --muted:#94A3B8; --faint:#64748B;
+  --line:#334155; --hair:#1E293B; --accent:#60A5FA; --accent-soft:#1E3357;
+  --good:#4ADE80; --warn:#FBBF24; --bad:#F87171;
+  --b-substrate:#131B2E; --b-core:#20294A; --b-phase:#172036; --b-gate:#1A2338;
+  --b-seam:#2A2140; --b-growth:#20294A; --b-execute:#39300F; --b-discovery:#16301F;
+  --chip-h:#CBD5E1; --chip-ai:#C4B5FD; --chip-d:#4ADE80; --chip-cfg:#94A3B8;
+  --shadow:0 1px 2px rgba(0,0,0,.4),0 2px 10px rgba(0,0,0,.35); color-scheme:dark;
+}}
+:root[data-theme="dark"]{
+  --bg:#0B1120; --surface:#131B2E; --ink:#E8EDF5; --muted:#94A3B8; --faint:#64748B;
+  --line:#334155; --hair:#1E293B; --accent:#60A5FA; --accent-soft:#1E3357;
+  --good:#4ADE80; --warn:#FBBF24; --bad:#F87171;
+  --b-substrate:#131B2E; --b-core:#20294A; --b-phase:#172036; --b-gate:#1A2338;
+  --b-seam:#2A2140; --b-growth:#20294A; --b-execute:#39300F; --b-discovery:#16301F;
+  --chip-h:#CBD5E1; --chip-ai:#C4B5FD; --chip-d:#4ADE80; --chip-cfg:#94A3B8;
+  --shadow:0 1px 2px rgba(0,0,0,.4),0 2px 10px rgba(0,0,0,.35); color-scheme:dark;
+}
+*{box-sizing:border-box}
+body{background:var(--bg);color:var(--ink);font-family:var(--sans);line-height:1.5;
+  -webkit-font-smoothing:antialiased;font-size:14px}
+.wrap{padding-left:max(16px,env(safe-area-inset-left,0px));
+  padding-right:max(16px,env(safe-area-inset-right,0px));
+  padding-block:0;max-width:1200px;margin:0 auto}
+a{color:var(--accent)}
+h1{font-size:1.45rem;font-weight:800;letter-spacing:-.02em;margin:0;text-wrap:balance}
+.sub{color:var(--muted);font-size:.86rem;margin:.2rem 0 0}
+code,.mono{font-family:var(--mono);font-size:.92em}
+
+header.top{padding-block:18px 10px;position:relative}
+.toolbar{display:flex;flex-wrap:wrap;gap:8px 14px;align-items:center;margin-top:14px}
+.filtergrp{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+.filtergrp>.lbl{font-size:.66rem;letter-spacing:.09em;text-transform:uppercase;
+  color:var(--faint);font-weight:700;margin-right:1px}
+.pill{border:1px solid var(--line);background:var(--surface);color:var(--muted);
+  border-radius:999px;padding:3px 10px;font-size:.74rem;font-weight:600;cursor:pointer;
+  transition:all .13s;white-space:nowrap}
+.pill:hover{border-color:var(--accent);color:var(--ink)}
+.pill[aria-pressed="true"]{background:var(--accent);border-color:var(--accent);color:#fff}
+.pill.art[aria-pressed="true"]{background:var(--warn);border-color:var(--warn)}
+.search{flex:1;min-width:150px;display:flex;align-items:center;gap:6px;
+  border:1px solid var(--line);background:var(--surface);border-radius:999px;padding:3px 12px}
+.search input{border:0;outline:0;background:transparent;color:var(--ink);font:inherit;
+  font-size:.8rem;width:100%}
+.iconbtn{border:1px solid var(--line);background:var(--surface);color:var(--muted);
+  border-radius:8px;padding:4px 10px;font-size:.74rem;font-weight:600;cursor:pointer}
+.iconbtn:hover{border-color:var(--accent);color:var(--ink)}
+.iconbtn[aria-pressed="true"]{background:var(--accent);border-color:var(--accent);color:#fff}
+
+/* stage / ring */
+.stage{position:relative;margin:14px 0 26px}
+#svg{position:absolute;inset:0;width:100%;height:100%;pointer-events:none;z-index:1;overflow:visible}
+
+/* engine core (substrate hub) */
+.hub{position:absolute;z-index:2;background:transparent;text-align:center}
+.hub .ht{font-size:.6rem;letter-spacing:.14em;text-transform:uppercase;color:var(--faint);
+  font-weight:700;margin-bottom:8px}
+.hubgrid{display:grid;grid-template-columns:1fr 1fr;gap:9px}
+.art{background:var(--surface);border:1.5px solid var(--line);border-radius:var(--radius);
+  padding:7px 11px;cursor:pointer;transition:border-color .12s,box-shadow .12s,opacity .18s;text-align:left}
+.art:hover{border-color:var(--accent)}
+.art .al{font-family:var(--mono);font-weight:700;font-size:.74rem}
+.art .ad{font-size:.62rem;color:var(--muted);margin-top:1px}
+.art.measured{border-color:var(--warn)}
+.art.pulse-rd{border-color:var(--muted);box-shadow:0 0 0 3px color-mix(in srgb,var(--muted) 35%,transparent)}
+.art.pulse-wr{border-color:var(--warn);box-shadow:0 0 0 3px color-mix(in srgb,var(--warn) 40%,transparent)}
+.art.dim{opacity:.3}
+.hub .hcap{font-size:.62rem;color:var(--faint);margin-top:9px;font-style:italic}
+
+/* node card */
+.node{position:absolute;z-index:3;transform:translate(-50%,-50%);width:176px;
+  background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);
+  padding:9px 11px 8px;cursor:pointer;box-shadow:var(--shadow);
+  transition:box-shadow .12s,opacity .18s,border-color .12s}
+.node:hover{border-color:var(--accent);box-shadow:0 0 0 1px var(--accent),var(--shadow)}
+.node:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.node .nl{font-weight:700;font-size:.82rem;letter-spacing:-.01em;line-height:1.2}
+.node .nf{color:var(--muted);font-size:.66rem;margin-top:3px;font-family:var(--mono);
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.node .meta{display:flex;align-items:center;gap:7px;margin-top:6px}
+.dot{width:8px;height:8px;border-radius:50%;flex:0 0 auto}
+.dot.real{background:var(--good)} .dot.conditional{background:var(--warn)} .dot.thin{background:var(--bad)}
+.gly{font-size:.62rem;color:var(--faint);font-weight:700}
+.skillcount{font-size:.6rem;color:var(--chip-ai);font-weight:700;letter-spacing:.03em}
+.node[data-band="core"]{background:var(--b-core)}
+.node[data-band="phase"]{background:var(--b-phase)}
+.node[data-band="gate"]{background:var(--b-gate)}
+.node[data-band="seam"]{background:var(--b-seam)}
+.node[data-band="growth"]{background:var(--b-growth)}
+.node[data-band="execute"]{background:var(--b-execute)}
+.node[data-band="discovery"]{background:var(--b-discovery)}
+.node.dim{opacity:.2;filter:saturate(.5)}
+.node.sel{border-color:var(--accent);box-shadow:0 0 0 2px var(--accent),var(--shadow)}
+.node.hl{border-color:var(--warn);box-shadow:0 0 0 2px var(--warn)}
+
+/* legend */
+.legend{display:flex;flex-wrap:wrap;gap:6px 18px;font-size:.72rem;color:var(--muted);
+  padding:4px 2px 0;align-items:center}
+.legend b{color:var(--ink)}
+.lk{display:inline-flex;align-items:center;gap:5px}
+.sw{width:14px;height:10px;border-radius:3px;border:1px solid var(--line);display:inline-block}
+.edgekey{width:20px;height:0;border-top:2px solid var(--accent);display:inline-block}
+.edgekey.rdk{border-top:1.5px dashed var(--muted)}
+.edgekey.wrk{border-top:2.5px solid var(--warn)}
+
+/* detail panel */
+.panel{position:fixed;top:0;right:0;height:100%;width:min(420px,94vw);background:var(--surface);
+  border-left:1px solid var(--line);box-shadow:-8px 0 30px rgba(15,23,42,.18);
+  transform:translateX(102%);transition:transform .26s cubic-bezier(.4,0,.2,1);z-index:40;
+  display:flex;flex-direction:column;
+  padding-top:env(safe-area-inset-top,0px);padding-right:env(safe-area-inset-right,0px)}
+.panel.open{transform:translateX(0)}
+.panel .ph{padding:16px 18px 12px;border-bottom:1px solid var(--hair);position:relative}
+.panel .ph h2{margin:0;font-size:1.12rem;font-weight:800;letter-spacing:-.02em;padding-right:30px}
+.panel .bandtag{font-size:.6rem;letter-spacing:.1em;text-transform:uppercase;font-weight:700;
+  color:var(--muted);margin-bottom:5px}
+.panel .badges{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px}
+.badge{font-size:.66rem;font-weight:700;padding:2px 9px;border-radius:999px;border:1px solid var(--line)}
+.badge.real{color:var(--good);border-color:var(--good)}
+.badge.conditional{color:var(--warn);border-color:var(--warn)}
+.badge.thin{color:var(--bad);border-color:var(--bad)}
+.badge.pure{color:var(--muted)} .badge.mutating{color:var(--warn);border-color:var(--warn)}
+.closex{position:absolute;top:14px;right:14px;border:0;background:transparent;color:var(--muted);
+  font-size:1.5rem;line-height:1;cursor:pointer;padding:0 4px}
+.closex:hover{color:var(--ink)}
+.pbody{overflow-y:auto;padding:14px 18px 40px;flex:1}
+.pbody h3{font-size:.64rem;letter-spacing:.1em;text-transform:uppercase;color:var(--faint);
+  font-weight:700;margin:16px 0 6px}
+.pbody h3:first-child{margin-top:2px}
+.pbody p{margin:0 0 8px}
+.fn{font-family:var(--mono);font-size:.76rem;background:var(--bg);border:1px solid var(--hair);
+  border-radius:6px;padding:5px 8px;margin-bottom:5px}
+.fn .mod{color:var(--muted);font-size:.9em}
+.chip{display:inline-flex;align-items:center;gap:4px;font-size:.72rem;font-weight:600;
+  background:var(--bg);border:1px solid var(--line);border-radius:999px;padding:2px 9px;margin:0 4px 4px 0}
+.chip.skill{color:var(--chip-ai);border-color:color-mix(in srgb,var(--chip-ai) 45%,var(--line))}
+.io{display:flex;gap:8px;margin-bottom:5px}
+.io .k{font-size:.68rem;font-weight:700;color:var(--faint);min-width:64px;flex:0 0 auto;padding-top:1px}
+.io .v{font-size:.8rem}
+.artref{display:inline-block;font-family:var(--mono);font-size:.72rem;font-weight:700;
+  padding:1px 7px;border-radius:5px;margin:0 4px 4px 0;border:1px solid}
+.artref.wr{color:var(--warn);border-color:var(--warn);background:color-mix(in srgb,var(--warn) 9%,transparent)}
+.artref.rd{color:var(--muted);border-color:var(--muted);background:color-mix(in srgb,var(--muted) 8%,transparent)}
+table.mini{width:100%;border-collapse:collapse;font-size:.72rem;margin:4px 0 8px}
+table.mini th{text-align:left;color:var(--faint);font-size:.62rem;letter-spacing:.06em;
+  text-transform:uppercase;padding:3px 6px 3px 0;border-bottom:1px solid var(--hair);font-weight:700}
+table.mini td{padding:4px 6px 4px 0;border-bottom:1px solid var(--hair);vertical-align:top}
+table.mini td.m{font-family:var(--mono);font-size:.92em;white-space:nowrap}
+.tagq{color:var(--warn);font-weight:700} .tagn{color:var(--good);font-weight:700} .tagr{color:var(--accent);font-weight:700}
+.formula{font-family:var(--mono);font-size:.72rem;background:var(--bg);border:1px solid var(--hair);
+  border-radius:6px;padding:8px;line-height:1.6;overflow-x:auto}
+.scrim{position:fixed;inset:0;background:rgba(15,23,42,.35);opacity:0;pointer-events:none;
+  transition:opacity .26s;z-index:39}
+.scrim.on{opacity:1;pointer-events:auto}
+
+footer{color:var(--faint);font-size:.72rem;text-align:center;padding:4px 0 26px;font-family:var(--mono)}
+.hint{color:var(--faint);font-size:.72rem;margin-top:3px}
+
+/* stacked (narrow) fallback */
+.stage.stacked{display:flex;flex-direction:column;gap:12px;min-height:0!important}
+.stage.stacked #svg{display:none}
+.stage.stacked .node{position:static;transform:none;width:auto}
+.stage.stacked .hub{position:static;margin-bottom:6px}
+.stage.stacked .hub .hubgrid{grid-template-columns:1fr 1fr}
+@media (prefers-reduced-motion:reduce){*{transition:none!important}}
+@media (max-width:720px){
+  .panel{width:100%;height:85%;top:auto;bottom:0;border-left:0;border-top:1px solid var(--line);
+    border-radius:16px 16px 0 0;transform:translateY(102%);padding-bottom:env(safe-area-inset-bottom,0px)}
+  .panel.open{transform:translateY(0)}
+}
+</style>
+
+<div class="wrap">
+  <header class="top">
+    <h1>The Discovery Engine</h1>
+    <p class="sub">A clickable map of the derive-first cycle — stages, functions, skills, and the flow into investigations, studies &amp; models. &nbsp;<span class="mono" style="color:var(--muted)">discovery-engine 0.6.0</span></p>
+    <p class="hint">The loop turns clockwise around the engine core. Click any stage for its functions, skills &amp; I/O; click a core artifact or a <b>Writes</b> filter to trace what changes it.</p>
+    <div class="toolbar">
+      <div class="search"><span style="color:var(--faint);font-size:.8rem">⌕</span><input id="q" placeholder="Search stages, functions, skills…" aria-label="Search" autocomplete="off"></div>
+      <button class="iconbtn" id="play" aria-pressed="false">▶ Play the cycle</button>
+      <button class="iconbtn" id="theme" title="Toggle theme">◐ Theme</button>
+    </div>
+    <div class="toolbar">
+      <div class="filtergrp"><span class="lbl">Provenance</span>
+        <button class="pill" data-prov="H">H human</button>
+        <button class="pill" data-prov="AI">AI agent</button>
+        <button class="pill" data-prov="D">D derived</button>
+        <button class="pill" data-prov="CFG">CFG</button>
+      </div>
+      <div class="filtergrp"><span class="lbl">Grade</span>
+        <button class="pill" data-grade="real">real</button>
+        <button class="pill" data-grade="conditional">conditional</button>
+      </div>
+      <div class="filtergrp"><span class="lbl">Touches disk</span>
+        <button class="pill" data-purity="mutating">mutating</button>
+      </div>
+      <div class="filtergrp"><span class="lbl">Writes</span>
+        <button class="pill art" data-writes="investigation">investigation.yaml</button>
+        <button class="pill art" data-writes="study">study.yaml</button>
+        <button class="pill art" data-writes="runs">runs.db</button>
+        <button class="pill art" data-writes="modelversions">model_versions</button>
+      </div>
+      <button class="iconbtn" id="clear">Clear</button>
+    </div>
+  </header>
+
+  <div class="stage" id="stage">
+    <svg id="svg" aria-hidden="true">
+      <defs>
+        <marker id="ah" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7.5" markerHeight="7.5" orient="auto-start-reverse">
+          <path d="M0 0 L10 5 L0 10 z" fill="var(--accent)"/></marker>
+        <marker id="ahw" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7.5" markerHeight="7.5" orient="auto-start-reverse">
+          <path d="M0 0 L10 5 L0 10 z" fill="var(--warn)"/></marker>
+        <marker id="ahm" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+          <path d="M0 0 L10 5 L0 10 z" fill="var(--muted)"/></marker>
+      </defs>
+    </svg>
+
+    <div class="hub" id="hub">
+      <div class="ht">The engine core · what the cycle reads &amp; writes</div>
+      <div class="hubgrid" id="subrow"></div>
+      <div class="hcap">the loop closes · authored ← derived</div>
+    </div>
+  </div>
+
+  <div class="legend">
+    <span class="lk"><span class="edgekey"></span> flow (clockwise)</span>
+    <span class="lk"><span class="edgekey rdk"></span> reads core</span>
+    <span class="lk"><span class="edgekey wrk"></span> writes core</span>
+    <span class="lk"><span class="dot real"></span> real</span>
+    <span class="lk"><span class="dot conditional"></span> conditional</span>
+    <span class="lk">● pure · ◆ mutating</span>
+    <span class="lk"><b>Zones:</b></span>
+    <span class="lk"><span class="sw" style="background:var(--b-core)"></span> core</span>
+    <span class="lk"><span class="sw" style="background:var(--b-phase)"></span> phase</span>
+    <span class="lk"><span class="sw" style="background:var(--b-seam)"></span> seam</span>
+    <span class="lk"><span class="sw" style="background:var(--b-growth)"></span> growth</span>
+    <span class="lk"><span class="sw" style="background:var(--b-execute)"></span> execute</span>
+    <span class="lk"><span class="sw" style="background:var(--b-discovery)"></span> discovery</span>
+  </div>
+
+  <footer>discovery-engine 0.6.0 · derive-first · one measured input · one LLM seam · the loop closes</footer>
+</div>
+
+<div class="scrim" id="scrim"></div>
+<aside class="panel" id="panel" aria-live="polite" aria-label="Stage detail">
+  <div class="ph">
+    <div class="bandtag" id="p-band"></div>
+    <h2 id="p-title"></h2>
+    <div class="badges" id="p-badges"></div>
+    <button class="closex" id="p-close" aria-label="Close">×</button>
+  </div>
+  <div class="pbody" id="p-body"></div>
+</aside>
+
+<script>
+"use strict";
+
+const ARTIFACTS = {
+  investigation:{label:"investigation.yaml", desc:"spec + cycle caches"},
+  study:{label:"study.yaml", desc:"one per study"},
+  runs:{label:"runs.db", desc:"the one measured input", measured:true},
+  modelversions:{label:"model_versions[]", desc:"derived mv: cache"}
+};
+
+const NODES = [
+ {id:"inputs",label:"Load",band:"core",grade:"real",purity:"pure",prov:["D"],
+  fns:[["load_cycle_inputs","discover/cycle.py"]], skills:["/viva-investigation"],
+  reads:["investigation","study"], writes:[],
+  consumes:"investigations/<slug>/investigation.yaml + each member study.yaml",
+  produces:"(inv_path, inv_spec, {slug: study_spec})",
+  blurb:"Resolves the investigation and builds the member set from the spec's own studies: — member-scoped, so an undeclared study can never leak into the cycle. Reads YAML, writes nothing."},
+ {id:"core",label:"Project",band:"core",grade:"real",purity:"pure",prov:["H","AI","D"],
+  fns:[["run_cycle","discover/cycle.py"]], skills:[],
+  reads:["investigation","study"], writes:[],
+  consumes:"authored knowledge/argument (H/AI) merged over derived (D); runs[].outcomes; behavior_tests; relation edges",
+  produces:"the bundle: knowledge, argument, narrative, audit, gates, open_calls, validations, suggestions, signals, revision_proposals, viz_proposals, capability_gaps",
+  blurb:"The pure core. Projects one full cycle under the merge rule — authored wins, derived fills. The validators leave scientific_judgment null: the engine asserts no scientific truth, only consistency."},
+ {id:"reconcile",label:"A · Reconcile",band:"phase",grade:"real",purity:"pure",prov:["D"],
+  fns:[["reconcile_evidence_state","phases/evidence_integrity.py"]], skills:[],
+  reads:["study","runs"], writes:[],
+  consumes:"each finding + its cited run",
+  produces:"{ledger, summary, by_study} — verified / provisional / contradicted / unsupported",
+  blurb:"Classifies every finding by provenance and rolls each study up by its worst finding. VERIFIED requires the cited run completed AND observed matches the computed value within tolerance — a study with no runs.db can never be verified."},
+ {id:"plan",label:"B · Plan",band:"phase",grade:"real",purity:"pure",prov:["D"],
+  fns:[["plan_candidate_actions","phases/candidate_action.py"],["select_portfolio","phases/candidate_action.py"]], skills:[],
+  reads:[], writes:[],
+  consumes:"the frontier + evidence state",
+  produces:"classified CandidateActions (REPAIR / RESOLVE / REVISE / EXTEND), dependency-ordered",
+  blurb:"Recasts the frontier into a scored, ordered portfolio: repair prerequisites first, then resolve by discrimination, then extend. Entirely frontier-driven — with no hypotheses nothing is discriminable."},
+ {id:"design",label:"C · Design",band:"phase",grade:"conditional",purity:"pure",prov:["H"],
+  fns:[["design_discriminating_study","phases/experiment_design.py"]], skills:[],
+  reads:["investigation"], writes:[],
+  consumes:"a study's hypothesis set",
+  produces:"an ExperimentDesign — or None",
+  blurb:"Returns None unless a study has ≥2 live hypotheses predicting the same observable with disjoint numeric bands. Conditional: all the scientific content is authored; the function only reformats and adds control detection."},
+ {id:"build",label:"D · Build",band:"phase",grade:"real",purity:"pure",prov:["D","AI"],
+  fns:[["build_catalog","phases/model_architect.py"],["bind_model_versions","phases/model_architect.py"],["model_version","phases/model_architect.py"]], skills:["/viva-expert"],
+  reads:["study"], writes:["modelversions"],
+  consumes:"every study's baseline + variant arms",
+  produces:"capability catalog; content-addressed mv: ids, parent-linked",
+  blurb:"Groups composites by path and gives each a token-based capability signature. A novel mechanism with no registered synonym routes to BUILD and fires the capability gap. bind_model_versions stamps each arm with an mv: id (run knobs dropped from the hash) and parent-links children to the model that produced prior evidence — so a new mechanism never silently overwrites the old."},
+ {id:"grade",label:"Grading",band:"phase",grade:"real",purity:"mutating",prov:["D"],
+  fns:[["compute_outcomes","study/evaluator/outcomes.py"]], skills:["/viva-study"],
+  reads:["runs"], writes:["study"],
+  consumes:"each recorded run's store",
+  produces:"computed_outcomes = {result, measured_value, evaluated_by, …}",
+  blurb:"The ONE path that reads run data. Grades every behavior_test against the run's store (byte-identically to the workbench) and writes the computed_outcomes block the roll-ups read computed-first. This is what makes a refutation — and therefore the generative loop — fire on a computed result, not an authored label."},
+ {id:"evaluate",label:"F · Evaluate",band:"phase",grade:"conditional",purity:"pure",prov:["D"],
+  fns:[["compare_hypotheses","phases/evaluation.py"],["detect_finding_candidates","phases/discovery_record.py"],["diagnose_refutation","phases/model_error.py"]], skills:["/viva-biology-forward"],
+  reads:["study"], writes:[],
+  consumes:"per-study support logs + the prior evaluation_snapshot",
+  produces:"favored hypothesis + status; FindingCandidate (fc:…); EvidenceUpdate (revise-model / -hypothesis)",
+  blurb:"Picks a favored hypothesis and a status (supported / provisionally-supported / contested / unresolved / gated). A settled flip on VERIFIED evidence mints a FindingCandidate — a pending nomination, not yet a Discovery. On a refutation, diagnose_refutation decides whether the model or the hypothesis was wrong, steering which child Growth seeds. (The legacy detect_discoveries path is retired.)"},
+ {id:"gate",label:"The Gate",band:"gate",grade:"real",purity:"pure",prov:["D"],
+  fns:[["frontier","projection/engine.py"],["closure","projection/engine.py"],["next_action","projection/engine.py"],["opportunities","projection/engine.py"],["execute_plan","projection/engine.py"],["AutonomyPolicy","discover/_policy.py"]], skills:["/viva-harden-investigation","/viva-navigate"],
+  reads:["investigation"], writes:[],
+  consumes:"the cycle bundle + resolutions set",
+  produces:"frontier items; closure boolean; value-ranked opportunities; executor plan",
+  blurb:"One function frontier() builds the list of unresolved items; closure(), next_action(), opportunities() and execute_plan() are re-rankings over it. Closure blocks on exactly three kinds. It then dispatches the frontier three ways — Generate (the seam), Grow, and Execute — each gated by one AutonomyPolicy.",
+  extra:"gate"},
+ {id:"emit",label:"emit",band:"seam",grade:"real",purity:"pure",prov:["D"],
+  fns:[["generation_requests","phases/generation_emit.py"]], skills:[],
+  reads:[], writes:[],
+  consumes:"each frontier opportunity's action_type",
+  produces:"a typed GenerationRequest {kind, produces, gate}",
+  blurb:"Maps every frontier opportunity to one of nine typed GenerationRequest kinds and its produces-contract, with a gate of auto or review. Pure, no LLM. The first of the three act-on-the-frontier moves: Generate."},
+ {id:"fill",label:"fill",band:"seam",grade:"real",purity:"mutating",prov:["AI"],
+  fns:[["subprocess_filler","phases/generation_apply.py"]], skills:["/viva-fill"],
+  reads:[], writes:[],
+  consumes:"one GenerationRequest JSON (stdin)",
+  produces:"one GenerationResult JSON (stdout)",
+  blurb:"The one place an LLM runs. Shells out to $VIVA_FILLER_CMD — /viva-fill — passing the request on stdin and reading the result on stdout, then validates the shape. No command configured → None, and nothing auto-fills. Honesty rules are non-negotiable: no fabricated numbers, provided-mechanisms-only, interpretation ≠ evidence."},
+ {id:"apply",label:"apply",band:"seam",grade:"real",purity:"mutating",prov:["AI","D"],
+  fns:[["apply_result","phases/generation_apply.py"],["run_requests","phases/generation_apply.py"]], skills:["hypothesize","critique","acquire_model"],
+  reads:[], writes:["study","investigation"],
+  consumes:"a GenerationResult + its request",
+  produces:"an atomic, comment-preserving write — or queued_for_review / error",
+  blurb:"Gates each request: review → queued; auto → fill + apply. Routes by kind to a native handler (finding/test/decision writers) or the SkillRegistry adapter (the three authoring contracts). A malformed artifact is recorded error, never applied. The engine never promotes a proposal to a fact.",
+  extra:"kinds"},
+ {id:"propose",label:"propose",band:"growth",grade:"real",purity:"pure",prov:["H","AI","D"],
+  fns:[["suggest_studies","discover/cycle.py"]], skills:[],
+  reads:["investigation"], writes:[],
+  consumes:"five proposal sources + refuted findings",
+  produces:"de-duplicated study suggestions",
+  blurb:"The generative loop. De-duplicates proposals from authored followups, narrative-gap bridges, and decisions_needed — and, crucially, a refuted finding auto-spawns a builds-on child plus a synthesis study folding the refutations into the next discriminating question."},
+ {id:"select",label:"select",band:"growth",grade:"real",purity:"pure",prov:["CFG"],
+  fns:[["select_for_launch","growth/seeding.py"]], skills:[],
+  reads:[], writes:[],
+  consumes:"the ready suggestions + the AutonomyPolicy",
+  produces:"{launch, held, autonomy}",
+  blurb:"A thin shim over the one AutonomyPolicy: in autonomous mode every ready proposal launches; in default human_in_the_loop only approved, non-expert-gated proposals do."},
+ {id:"seed",label:"seed",band:"growth",grade:"real",purity:"pure",prov:["D"],
+  fns:[["build_seeded_study","growth/seeding.py"],["build_child_seed_from_finding","growth/seed_from_followup.py"]], skills:[],
+  reads:["study"], writes:["study"],
+  consumes:"a parent study + a proposal",
+  produces:"a complete, run-ready child study.yaml",
+  blurb:"Authors a run-ready study.yaml that inherits the parent's composite, observables and behavior tests — so the child is runnable and evaluable by construction — then applies the proposal's model_change as the variation under test. This is the apply handler the queued propose_study kind hands off to."},
+ {id:"refine",label:"refine",band:"growth",grade:"real",purity:"pure",prov:["D"],
+  fns:[["refine_study","growth/refinement.py"]], skills:[],
+  reads:["study"], writes:["study"],
+  consumes:"a study + the engine's own signals",
+  produces:"(refined_spec, changes)",
+  blurb:"Deepens an existing study from the engine's own signals — replicate count, a parameter sweep, a higher-fidelity composite — rather than from a new question. Where to look harder, not where to look next."},
+ {id:"execute",label:"E · Execute",band:"execute",grade:"real",purity:"mutating",prov:["CFG"],
+  fns:[["advance_cycle","discover/cycle.py"]], skills:["/viva-harden-investigation"],
+  reads:["investigation","study"], writes:["runs","investigation","modelversions"],
+  consumes:"the execute_plan + one AutonomyPolicy",
+  produces:"{runs, needs_build, designed, frontier_before, frontier_after}",
+  blurb:"The one phase that changes real state. Picks the first run-ready op, checks readiness, dispatches — or records a 'would-run' and stops when not autonomous. Besides running a study it materializes a design, promotes a seed, builds a missing mechanism, and reopens on feedback. Dry by default: in the panel it runs sandboxed on a throwaway copy; with no runner it reports needs_build rather than faking a run."},
+ {id:"discovery",label:"Discovery",band:"discovery",grade:"real",purity:"mutating",prov:["D"],
+  fns:[["detect_finding_candidates","phases/discovery_record.py"],["review_findings","discover/actions.py"],["promote_finding_candidate","discover/actions.py"]], skills:[],
+  reads:["investigation"], writes:["investigation"],
+  consumes:"FindingCandidates (fc:…) + a reviewer's assessment",
+  produces:"discoveries[] (the only writer)",
+  blurb:"A FindingCandidate is a pending nomination. A Discovery is minted only by a reviewed promotion — discover review-findings --promote, with novelty and counterevidence assessment — the one path that writes discoveries[]. A candidate diffed against a snapshot from a different grader/resolver VERSION is stale and re-baselined, not mined; a change in measured inputs under the same evaluator is the normal path to a finding, not staleness."},
+ {id:"reopen",label:"Reopen",band:"discovery",grade:"real",purity:"mutating",prov:["H"],
+  fns:[["reconcile_and_reopen","feedback/compiler.py"],["ingest_feedback","feedback/compiler.py"]], skills:[],
+  reads:["investigation"], writes:["investigation"],
+  consumes:"a compiled scientist request on pending_feedback[]",
+  produces:"reopened spec + lifecycle_history; applied_feedback[]",
+  blurb:"Staged scientist feedback is a first-class cycle move, not a side channel. It surfaces as a pending_feedback frontier item whose op is reopen; the execute phase applies it under the autonomy policy, re-opening the closed investigation and recording the applied id so it is not re-applied. ingest-feedback compiles a reopening YAML into typed, schema-validated actions — no prose inference."},
+];
+
+/* clockwise cycle order around the loop (top → right → bottom → left) */
+const CYCLE = ["inputs","core","reconcile","plan","design","build",  // top (6)
+               "grade","evaluate","gate",                              // right (3)
+               "emit","fill","apply","propose","select","seed",        // bottom R→L (6)
+               "refine","execute","discovery","reopen"];               // left B→T (4)
+
+const KINDS = [
+ ["interpret_finding","finding/v1","native — writes the finding's prose slots","n"],
+ ["explain","explanation/v1","native — a promoted claim's narrative","n"],
+ ["author_tests","behavior_tests[]","native — appends tests (idempotent)","n"],
+ ["resolve_decision","decision/v1","native → record_resolution","n"],
+ ["hypothesize","hypothesis_proposal/v1","registry → record_hypothesis_proposal","r"],
+ ["critique","critique_report/v1","registry → record_critique_report","r"],
+ ["acquire_model","model_spec/v1","registry → record_model_acquisition_proposal","r"],
+ ["propose_study","study.yaml/v4","queued → the Grow seed op authors it","q"],
+ ["visualize","viz_spec/v1","queued → viz-accept path","q"],
+];
+const FRONTIER = [
+ ["90","unaddressed_criterion","branch","b"],["80","open_challenge","synthesize","b"],["70","narrative_gap","branch","b"],
+ ["60","open_decision","steer",""],["59","pending_feedback","reopen",""],["58","revision_proposed","revise_model",""],
+ ["55","stale_validation","revalidate",""],["50","divergence","reconcile",""],["48","model_disagreement / anomaly","revise_model",""],
+ ["47","viz_broken","refine_viz",""],["46","viz_missing","build_viz",""],["46","verdict_overreach","critique",""],
+ ["45","validation_finding","revise",""],["44","viz_proposed","build_viz",""],["43","capability_gap","build_process",""],
+ ["43","model_acquisition","accept_model_acquisition",""],["42","pending_gate","test",""],["40","open_question","test",""],
+ ["39","proposed_study","seed",""],["38","viz_stale","refine_viz",""],["37–35","viz_misplaced / duplicated / untied","relocate_viz",""],
+ ["34","coverage_gap","branch",""],
+];
+
+const byId = Object.fromEntries(NODES.map(n=>[n.id,n]));
+const esc = s => s.replace(/[&<>]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;"}[c]));
+const stage=document.getElementById("stage"), svg=document.getElementById("svg"), hub=document.getElementById("hub");
+
+/* ---- substrate (engine core) ---- */
+const subrow=document.getElementById("subrow");
+Object.entries(ARTIFACTS).forEach(([id,a])=>{
+  const el=document.createElement("div");
+  el.className="art"+(a.measured?" measured":""); el.dataset.art=id; el.tabIndex=0;
+  el.innerHTML=`<div class="al">${esc(a.label)}</div><div class="ad">${esc(a.desc)}</div>`;
+  el.addEventListener("click",()=>toggleWrites(id));
+  el.addEventListener("keydown",e=>{if(e.key==="Enter")toggleWrites(id);});
+  subrow.appendChild(el);
+});
+
+/* ---- nodes (DOM order = cycle order, for the stacked fallback) ---- */
+CYCLE.forEach(id=>{
+  const n=byId[id];
+  const el=document.createElement("div");
+  el.className="node"; el.dataset.band=n.band; el.dataset.id=n.id; el.id="n-"+n.id; el.tabIndex=0;
+  el.setAttribute("role","button");
+  const gly=n.purity==="mutating"?"◆":"●";
+  const sc=n.skills.length?`<span class="skillcount">${n.skills.length} skill${n.skills.length>1?"s":""}</span>`:"";
+  el.innerHTML=`<div class="nl">${esc(n.label)}</div>
+    <div class="nf">${esc(n.fns[0][0])}${n.fns.length>1?" +"+(n.fns.length-1):""}</div>
+    <div class="meta"><span class="dot ${n.grade}"></span><span class="gly">${gly}</span>${sc}</div>`;
+  el.addEventListener("click",()=>select(n.id,true));
+  el.addEventListener("keydown",e=>{if(e.key==="Enter"||e.key===" "){e.preventDefault();select(n.id,true);}});
+  stage.appendChild(el);
+});
+
+/* ---- racetrack layout ---- */
+let stacked=false;
+function rectOf(el){const r=el.getBoundingClientRect(),s=stage.getBoundingClientRect();
+  return{x:r.left-s.left,y:r.top-s.top,w:r.width,h:r.height,cx:r.left-s.left+r.width/2,cy:r.top-s.top+r.height/2};}
+function place(id,x,y){const el=document.getElementById("n-"+id);el.style.left=x+"px";el.style.top=y+"px";}
+function layout(){
+  const W=stage.clientWidth;
+  stacked = W < 760;
+  stage.classList.toggle("stacked",stacked);
+  if(stacked){stage.style.height="";svg.removeAttribute("viewBox");drawBase();return;}
+  const cardW=176, gutter=20;
+  const xL=cardW/2+gutter, xR=W-cardW/2-gutter;
+  const topY=58, rowGap=132;
+  const bottomY=topY+5*rowGap;          // 5 vertical slots → room for 4 left-column nodes
+  const H=bottomY+58;
+  stage.style.height=H+"px";
+  // top row (6) left→right
+  const top=CYCLE.slice(0,6);
+  top.forEach((id,i)=>place(id, xL+(xR-xL)*i/5, topY));
+  // right column (3) top→bottom, aligned x=xR
+  const right=CYCLE.slice(6,9);
+  right.forEach((id,j)=>place(id, xR, topY+(bottomY-topY)*(j+1)/4));
+  // bottom row (6) right→left, y=bottomY
+  const bottom=CYCLE.slice(9,15);
+  bottom.forEach((id,k)=>place(id, xR-(xR-xL)*k/5, bottomY));
+  // left column (4) bottom→top, aligned x=xL
+  const left=CYCLE.slice(15,19);
+  left.forEach((id,m)=>place(id, xL, bottomY-(bottomY-topY)*(m+1)/5));
+  // hub centered
+  const hw=Math.min(380,(xR-xL)-2*cardW-10);
+  hub.style.left=((xL+xR)/2 - hw/2)+"px"; hub.style.top=(topY+(bottomY-topY)/2-92)+"px";
+  hub.style.width=hw+"px"; hub.style.transform="none";
+  svg.setAttribute("width",W); svg.setAttribute("height",H); svg.setAttribute("viewBox",`0 0 ${W} ${H}`);
+  drawBase();
+  if(lastSel){const n=byId[lastSel];clearDynamic();clearArtPulse();drawIO(n);}
+  if(writesArt)applyFilters();
+}
+
+/* ---- edges: perimeter segments between consecutive cycle nodes ---- */
+function seg(ax,ay,bx,by,cls){
+  const p=document.createElementNS("http://www.w3.org/2000/svg","path");
+  p.setAttribute("d",`M${ax},${ay} L${bx},${by}`);
+  p.setAttribute("class",cls);p.setAttribute("fill","none");
+  p.setAttribute("stroke","var(--accent)");p.setAttribute("stroke-width","2");
+  p.setAttribute("stroke-linecap","round");p.setAttribute("marker-end","url(#ah)");p.setAttribute("opacity",".7");
+  return p;
+}
+function drawBase(){
+  [...svg.querySelectorAll("path.base")].forEach(p=>p.remove());
+  if(stacked)return;
+  const frag=document.createDocumentFragment();
+  const order=CYCLE.concat([CYCLE[0]]); // close the loop
+  for(let i=0;i<order.length-1;i++){
+    const A=rectOf(document.getElementById("n-"+order[i]));
+    const B=rectOf(document.getElementById("n-"+order[i+1]));
+    const gap=6;
+    if(Math.abs(A.cx-B.cx)<2){ // vertical
+      if(B.cy>A.cy)frag.appendChild(seg(A.cx,A.y+A.h+gap,B.cx,B.y-gap,"base"));
+      else frag.appendChild(seg(A.cx,A.y-gap,B.cx,B.y+B.h+gap,"base"));
+    }else if(Math.abs(A.cy-B.cy)<2){ // horizontal
+      if(B.cx>A.cx)frag.appendChild(seg(A.x+A.w+gap,A.cy,B.x-gap,B.cy,"base"));
+      else frag.appendChild(seg(A.x-gap,A.cy,B.x+B.w+gap,B.cy,"base"));
+    }else{ // fallback diagonal (shouldn't happen)
+      frag.appendChild(seg(A.cx,A.cy,B.cx,B.cy,"base"));
+    }
+  }
+  svg.appendChild(frag);
+}
+
+/* ---- on-select read/write spokes to the core ---- */
+function clearDynamic(){[...svg.querySelectorAll("path.dyn")].forEach(p=>p.remove());}
+function clearArtPulse(){document.querySelectorAll(".art").forEach(a=>a.classList.remove("pulse-wr","pulse-rd"));}
+function spoke(nodeId,artId,kind){
+  if(stacked)return;
+  const en=document.getElementById("n-"+nodeId), ea=document.querySelector(`[data-art="${artId}"]`);
+  if(!en||!ea)return;
+  const rn=rectOf(en), ra=rectOf(ea);
+  const p=document.createElementNS("http://www.w3.org/2000/svg","path");
+  // straight line from node center toward hub artifact center, trimmed near the artifact
+  const dx=ra.cx-rn.cx, dy=ra.cy-rn.cy, len=Math.hypot(dx,dy)||1;
+  const bx=ra.cx-dx/len*(ra.w/2+6), by=ra.cy-dy/len*(ra.h/2+6);
+  p.setAttribute("d",`M${rn.cx},${rn.cy} L${bx},${by}`);
+  p.setAttribute("class","dyn");p.setAttribute("fill","none");
+  if(kind==="wr"){p.setAttribute("stroke","var(--warn)");p.setAttribute("stroke-width","2.4");p.setAttribute("marker-end","url(#ahw)");}
+  else{p.setAttribute("stroke","var(--muted)");p.setAttribute("stroke-width","1.5");p.setAttribute("stroke-dasharray","4 3");p.setAttribute("marker-start","url(#ahm)");}
+  p.setAttribute("opacity",".85");
+  svg.appendChild(p);
+  ea.classList.add(kind==="wr"?"pulse-wr":"pulse-rd");
+}
+function drawIO(n){clearDynamic();(n.reads||[]).forEach(a=>spoke(n.id,a,"rd"));(n.writes||[]).forEach(a=>spoke(n.id,a,"wr"));}
+
+/* ---- detail panel ---- */
+const panel=document.getElementById("panel"), scrim=document.getElementById("scrim");
+const bandNames={core:"Pure core",phase:"Projection phase",gate:"The gate system",seam:"Generation seam",growth:"Growth · generative loop",execute:"Execute · mutating",discovery:"Discovery & reopen"};
+let lastSel=null;
+function select(id,fromClick){
+  const n=byId[id]; if(!n)return;
+  document.querySelectorAll(".node").forEach(e=>e.classList.remove("sel"));
+  document.getElementById("n-"+id).classList.add("sel");
+  clearArtPulse(); drawIO(n);
+  document.getElementById("p-band").textContent=bandNames[n.band]||n.band;
+  document.getElementById("p-title").textContent=n.label;
+  document.getElementById("p-badges").innerHTML=
+    `<span class="badge ${n.grade}">${n.grade}</span><span class="badge ${n.purity}">${n.purity==="mutating"?"◆ mutating":"● pure"}</span>`
+    + n.prov.map(p=>`<span class="badge">${p}</span>`).join("");
+  let h=`<p>${esc(n.blurb)}</p>`;
+  h+=`<h3>Functions</h3>`+n.fns.map(f=>`<div class="fn">${esc(f[0])} <span class="mod">· ${esc(f[1])}</span></div>`).join("");
+  if(n.skills.length) h+=`<h3>Skills that drive it</h3>`+n.skills.map(s=>`<span class="chip skill">${esc(s)}</span>`).join("");
+  h+=`<h3>Consumes → produces</h3><div class="io"><span class="k">consumes</span><span class="v">${esc(n.consumes)}</span></div><div class="io"><span class="k">produces</span><span class="v">${esc(n.produces)}</span></div>`;
+  if(n.reads.length||n.writes.length){
+    h+=`<h3>Flow to the engine core</h3><div>`;
+    n.reads.forEach(a=>h+=`<span class="artref rd">reads ${esc(ARTIFACTS[a].label)}</span>`);
+    n.writes.forEach(a=>h+=`<span class="artref wr">writes ${esc(ARTIFACTS[a].label)}</span>`);
+    h+=`</div>`;
+  }
+  if(n.extra==="kinds"){
+    h+=`<h3>The nine generation kinds</h3><table class="mini"><thead><tr><th>kind</th><th>produces</th><th>apply</th></tr></thead><tbody>`;
+    KINDS.forEach(k=>{const tag=k[3]==="q"?'tagq':k[3]==="r"?'tagr':'tagn';
+      h+=`<tr><td class="m">${esc(k[0])}</td><td class="m">${esc(k[1])}</td><td><span class="${tag}">${esc(k[2])}</span></td></tr>`;});
+    h+=`</tbody></table>`;
+  }
+  if(n.extra==="gate"){
+    h+=`<h3>Frontier kinds · priority → op</h3><p style="font-size:.74rem;color:var(--muted);margin-bottom:6px">Closure blocks on only the three <span class="tagr">red</span> kinds; every other kind is open but non-blocking.</p>`;
+    h+=`<table class="mini"><thead><tr><th>pri</th><th>kind</th><th>op</th></tr></thead><tbody>`;
+    FRONTIER.forEach(f=>{const blk=f[3]==="b";
+      h+=`<tr><td class="m">${esc(f[0])}</td><td class="m"${blk?' style="color:var(--bad);font-weight:700"':''}>${esc(f[1])}</td><td class="m">${esc(f[2])}</td></tr>`;});
+    h+=`</tbody></table>`;
+    h+=`<h3>Opportunity score</h3><div class="formula">score = 0.30·info + 0.40·impact + 0.20·enable<br>&nbsp;&nbsp;&nbsp;&nbsp;+ 0.35·closure + 0.50·discriminate − 0.30·cost</div>`;
+    h+=`<h3>closure()</h3><div class="formula">closed = no unaddressed_criterion<br>&nbsp;&nbsp;&nbsp;and no narrative_gap<br>&nbsp;&nbsp;&nbsp;and no open_challenge</div>`;
+  }
+  document.getElementById("p-body").innerHTML=h;
+  panel.classList.add("open"); scrim.classList.add("on");
+  if(fromClick && location.hash.slice(1)!==id)history.replaceState(null,"","#"+id);
+  lastSel=id;
+}
+function closePanel(){panel.classList.remove("open");scrim.classList.remove("on");
+  document.querySelectorAll(".node").forEach(e=>e.classList.remove("sel"));
+  clearDynamic();clearArtPulse();lastSel=null;
+  if(location.hash)history.replaceState(null,"",location.pathname+location.search);}
+document.getElementById("p-close").addEventListener("click",closePanel);
+scrim.addEventListener("click",closePanel);
+document.addEventListener("keydown",e=>{if(e.key==="Escape")closePanel();});
+
+/* ---- filters ---- */
+const active={prov:new Set(),grade:new Set(),purity:new Set()};
+let writesArt=null;
+function applyFilters(){
+  const any=active.prov.size||active.grade.size||active.purity.size;
+  NODES.forEach(n=>{
+    const el=document.getElementById("n-"+n.id);
+    let show=true;
+    if(active.prov.size&&!n.prov.some(p=>active.prov.has(p)))show=false;
+    if(active.grade.size&&!active.grade.has(n.grade))show=false;
+    if(active.purity.size&&!active.purity.has(n.purity))show=false;
+    el.classList.toggle("dim",any&&!show); el.classList.remove("hl");
+  });
+  document.querySelectorAll(".art").forEach(a=>a.classList.remove("pulse-wr"));
+  clearDynamic();
+  if(writesArt){
+    document.querySelectorAll(".art").forEach(a=>a.classList.toggle("dim",a.dataset.art!==writesArt));
+    NODES.forEach(n=>{const el=document.getElementById("n-"+n.id);
+      if(n.writes.includes(writesArt)){el.classList.add("hl");el.classList.remove("dim");spoke(n.id,writesArt,"wr");}
+      else{el.classList.remove("hl");el.classList.add("dim");}});
+  }else{
+    document.querySelectorAll(".art").forEach(a=>a.classList.remove("dim"));
+    if(!any)NODES.forEach(n=>document.getElementById("n-"+n.id).classList.remove("dim"));
+  }
+}
+document.querySelectorAll(".pill[data-prov]").forEach(b=>b.addEventListener("click",()=>tog(b,"prov","prov")));
+document.querySelectorAll(".pill[data-grade]").forEach(b=>b.addEventListener("click",()=>tog(b,"grade","grade")));
+document.querySelectorAll(".pill[data-purity]").forEach(b=>b.addEventListener("click",()=>tog(b,"purity","purity")));
+function tog(b,attr,key){
+  writesArt=null;document.querySelectorAll(".pill.art").forEach(p=>p.setAttribute("aria-pressed","false"));
+  const v=b.dataset[attr], on=b.getAttribute("aria-pressed")==="true";
+  b.setAttribute("aria-pressed",String(!on));
+  if(on)active[key].delete(v);else active[key].add(v);
+  applyFilters();
+}
+document.querySelectorAll(".pill.art").forEach(b=>b.addEventListener("click",()=>toggleWrites(b.dataset.writes)));
+function toggleWrites(id){
+  const btn=document.querySelector(`.pill.art[data-writes="${id}"]`);
+  if(writesArt===id){writesArt=null;btn&&btn.setAttribute("aria-pressed","false");}
+  else{writesArt=id;document.querySelectorAll(".pill.art").forEach(p=>p.setAttribute("aria-pressed",String(p.dataset.writes===id)));
+    active.prov.clear();active.grade.clear();active.purity.clear();
+    document.querySelectorAll(".pill[data-prov],.pill[data-grade],.pill[data-purity]").forEach(p=>p.setAttribute("aria-pressed","false"));}
+  applyFilters();
+}
+document.getElementById("clear").addEventListener("click",()=>{
+  active.prov.clear();active.grade.clear();active.purity.clear();writesArt=null;
+  document.querySelectorAll(".pill").forEach(p=>p.setAttribute("aria-pressed","false"));
+  document.querySelectorAll(".art").forEach(a=>a.classList.remove("dim","pulse-wr","pulse-rd"));
+  applyFilters();
+});
+
+/* ---- search ---- */
+const q=document.getElementById("q");
+q.addEventListener("input",()=>{
+  const t=q.value.trim().toLowerCase();
+  if(!t){NODES.forEach(n=>document.getElementById("n-"+n.id).classList.remove("dim"));return;}
+  NODES.forEach(n=>{const hay=(n.label+" "+n.fns.map(f=>f[0]).join(" ")+" "+n.skills.join(" ")+" "+n.blurb).toLowerCase();
+    document.getElementById("n-"+n.id).classList.toggle("dim",!hay.includes(t));});
+});
+q.addEventListener("keydown",e=>{if(e.key==="Enter"){
+  const t=q.value.trim().toLowerCase();
+  const hit=NODES.find(n=>(n.label+" "+n.fns.map(f=>f[0]).join(" ")+" "+n.skills.join(" ")).toLowerCase().includes(t));
+  if(hit)select(hit.id,true);}});
+document.addEventListener("keydown",e=>{if(e.key==="/"&&document.activeElement!==q){e.preventDefault();q.focus();}});
+
+/* ---- play ---- */
+const playBtn=document.getElementById("play");let playing=false,playTimer=null;
+playBtn.addEventListener("click",()=>{
+  if(playing){stopPlay();return;}
+  playing=true;playBtn.setAttribute("aria-pressed","true");playBtn.textContent="⏸ Stop";
+  let i=0;const step=()=>{if(!playing)return;select(CYCLE[i],false);i++;
+    if(i>=CYCLE.length){stopPlay();return;}playTimer=setTimeout(step,1250);};
+  step();
+});
+function stopPlay(){playing=false;clearTimeout(playTimer);playBtn.setAttribute("aria-pressed","false");playBtn.textContent="▶ Play the cycle";}
+
+/* ---- theme ---- */
+document.getElementById("theme").addEventListener("click",()=>{
+  const cur=document.documentElement.getAttribute("data-theme");
+  const dark=cur?cur==="dark":matchMedia("(prefers-color-scheme:dark)").matches;
+  document.documentElement.setAttribute("data-theme",dark?"light":"dark");
+  requestAnimationFrame(()=>{drawBase();if(lastSel){const n=byId[lastSel];clearDynamic();clearArtPulse();drawIO(n);}});
+});
+
+/* ---- lifecycle ---- */
+let rt;addEventListener("resize",()=>{clearTimeout(rt);rt=setTimeout(layout,120);});
+window.addEventListener("load",()=>{layout();const h=location.hash.slice(1);if(h&&byId[h])select(h,false);});
+addEventListener("hashchange",()=>{const h=location.hash.slice(1);if(h&&byId[h])select(h,false);});
+requestAnimationFrame(layout);
+</script>

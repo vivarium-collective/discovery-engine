@@ -1,8 +1,3 @@
-% Discovery-engine cycle map — condensed, designed one-pager-per-section edition.
-% Canonical source for docs/discovery-engine-cycle-map.pdf (tracks `main`; currently 0.6.0).
-% Build:  latexmk -pdf docs/discovery-engine-cycle-map.tex
-% Needs: TikZ (arrows.meta, positioning, calc, fit, backgrounds), titlesec, xcolor, hyperref.
-% Keep this .tex in sync with the PDF — do not regenerate the PDF from any other source.
 \documentclass[11pt]{article}
 
 \usepackage[margin=1in]{geometry}
@@ -33,6 +28,7 @@
 \definecolor{authored}{HTML}{E0E7FF}
 \definecolor{derived}{HTML}{DCFCE7}
 \definecolor{measured}{HTML}{FEF3C7}
+\definecolor{skillc}{HTML}{F3E8FF}
 
 \titleformat{\section}{\Large\bfseries\color{ink}}{\thesection}{0.6em}{}
 \titleformat{\subsection}{\large\bfseries\color{ink}}{\thesubsection}{0.6em}{}
@@ -58,17 +54,18 @@
 {\Huge\bfseries\color{ink} The Discovery Engine\par}
 \vspace{0.8em}
 {\large\color{muted} A map of the derive-first discovery cycle:\\[2pt]
-the flow, the artifacts, the gates, and what is real vs.\ authored vs.\ derived.\par}
+the stages, the functions, the skills, and the flow into investigations, studies, and models.\par}
 \vspace{2.4cm}
 {\large discovery-engine \textbf{0.6.0} \; (\code{main})\par}
 \vspace{0.4em}
-{\color{muted} 2026-11-11\par}
+{\color{muted} 2026-11-18\par}
 \vspace{2cm}
 {\color{muted}\small
 \begin{tabular}{@{}r@{\;\;}l@{}}
 \textcolor{ink}{\textbf{Derive-first.}} & One pure projection over an authored substrate.\\
 \textcolor{ink}{\textbf{One measured input.}} & The simulation run (\code{runs.db}).\\
-\textcolor{ink}{\textbf{The loop closes.}} & Refutation $\rightarrow$ next study; verdict $\rightarrow$ discovery; feedback $\rightarrow$ reopen.\\
+\textcolor{ink}{\textbf{One LLM seam.}} & Typed requests out, typed results in (\code{\$VIVA\_FILLER\_CMD}).\\
+\textcolor{ink}{\textbf{The loop closes.}} & Refutation $\rightarrow$ next study; candidate $\rightarrow$ reviewed Discovery; feedback $\rightarrow$ reopen.\\
 \end{tabular}\par}
 \vfill
 \end{titlepage}
@@ -79,23 +76,28 @@ the flow, the artifacts, the gates, and what is real vs.\ authored vs.\ derived.
 The discovery engine turns an \textbf{investigation} --- an \code{investigation.yaml}, its
 member \code{study.yaml} files, and each study's registered runs --- into a reproducible
 view of \emph{what is known} and \emph{what to do next}, and drives the cycle that advances
-it. Two properties hold everywhere.
+it. Three properties hold everywhere.
 
 \begin{itemize}
 \item \textbf{Derive-first.} Every view is \emph{computed} from the studies, then merged over
 any authored override. The rule is uniform: \textbf{authored wins, derived fills; an empty
 authored value never clobbers a derived one.} Same inputs $\rightarrow$ same bundle.
 \item \textbf{Pure core, I/O at the edge.} The projection and the phase functions are pure
-(dicts in, dicts out). Only the execute phase and a few explicit writers touch disk.
+(dicts in, dicts out). Only the execute phase, the grading sync, and a few explicit writers
+touch disk.
+\item \textbf{One LLM seam.} The engine performs no generative act itself. Where judgment is
+needed it \emph{emits} a typed \code{GenerationRequest}, an external filler returns a typed
+\code{GenerationResult}, and the engine \emph{applies} it through a deterministic, honesty-gated
+writer. The LLM runs in exactly one place; everything around it is mechanical.
 \end{itemize}
 
 The engine \textbf{performs no science itself}. It reconciles, plans, designs, routes model
 acquisition, evaluates, and composes; the actual simulation runs happen in the workspace
 (via vivarium-workbench) and the engine reads their results back. The \textbf{one genuinely
 measured input} is a run's pass/fail outcomes --- everything else (verdicts, edges, ordering,
-gaps, gates, actions, designs, proposals, discoveries) is derived.
+gaps, gates, actions, designs, proposals, candidates) is derived.
 
-\paragraph{The loop now closes.} Earlier revisions could only \emph{advance} an investigation
+\paragraph{The loop closes.} Earlier revisions could only \emph{advance} an investigation
 toward closure. As of 0.4.0 the cycle also \emph{regenerates} itself and \emph{re-enters}:
 
 \begin{itemize}
@@ -103,8 +105,9 @@ toward closure. As of 0.4.0 the cycle also \emph{regenerates} itself and \emph{r
 finding, plus a synthesis study folding the refutations into the next discriminating question);
 \item a \textbf{model-error diagnosis} decides \emph{which} child to seed --- revise the model
 or revise the hypothesis;
-\item a claim verdict that flips to a \emph{settled} outcome on \emph{verified} evidence
-records a first-class \textbf{Discovery};
+\item a claim verdict that flips to a \emph{settled} outcome on \emph{verified} evidence mints a
+\textbf{FindingCandidate}; a reviewed promotion turns that candidate into a first-class
+\textbf{Discovery};
 \item staged scientist feedback re-enters a closed investigation through the \textbf{reopen}
 op --- a policy-gated cycle move, not a side channel.
 \end{itemize}
@@ -112,10 +115,14 @@ op --- a policy-gated cycle move, not a side channel.
 \paragraph{Self-contained, and evidence versioned.} Two later increments harden this. The engine
 became \textbf{self-contained} (0.4.1--0.5.0): the report render, the report lint, the
 study-maintenance verbs, and the whole linkage index moved out of the workbench and the skills into
-engine-native \code{discover} commands that run \emph{headless}, with no server. And the evaluation
-snapshot became \textbf{versioned} (0.6.0): it carries its grader/resolver versions and a hash of the
-measured evidence, so a verdict flip diffed against a provenance-incompatible snapshot is
-re-baselined, not mined as a false Discovery.
+engine-native \code{discover} commands that run \emph{headless}, with no server (39 verbs today;
+\S\ref{sec:cli}). And the evaluation snapshot became \textbf{versioned} (0.6.0): it carries a
+\code{schema\_version}, its \code{grader}/\code{resolver} versions, and an \code{inputs\_hash} over
+the measured ledger. A candidate diffed against a snapshot written by a \emph{different
+grader/resolver version} is \code{stale} and re-baselined rather than mined --- so a candidate
+reflects new science, not a grader bump. (A change in the \emph{measured inputs} under the same
+evaluator is deliberately \emph{not} stale: that is the normal path to a genuine finding. The
+\code{inputs\_hash} is kept for provenance, not as a staleness gate.)
 
 % ===========================================================================
 \section{The cycle at a glance}
@@ -128,21 +135,20 @@ re-baselined, not mined as a false Discovery.
   core/.style={box, fill=authored!60, text width=30mm},
   eval/.style={box, fill=derived!70},
   mut/.style={box, fill=measured!80, draw=warn},
+  seam/.style={box, fill=skillc!80, draw=accent, text width=30mm},
   io/.style={box, fill=white, draw=line, text width=22mm},
-  flow/.style={-{Stour[length=2.2mm]}, draw=accent, line width=0.9pt},
-  back/.style={-{Stour[length=2.2mm]}, draw=muted, line width=0.8pt, dashed},
   lbl/.style={text=muted, font=\sffamily\scriptsize}
 ]
-% use a valid arrow tip name
 \tikzset{flow/.style={-{Latex[length=2.2mm]}, draw=accent, line width=0.9pt}}
 \tikzset{back/.style={-{Latex[length=2.2mm]}, draw=muted, line width=0.8pt, dashed}}
 
 \node[io] (sub) {Authored substrate\\\scriptsize investigation.yaml\\\scriptsize study.yaml};
 \node[core, right=10mm of sub] (core) {\textbf{run\_cycle}\\\scriptsize pure projection};
 \node[box, right=10mm of core] (plan) {A--D\\\scriptsize reconcile $\cdot$ plan\\\scriptsize design $\cdot$ build};
-\node[eval, below=9mm of plan] (eval) {F $\cdot$ Evaluate\\\scriptsize verdicts $\cdot$ Discovery\\\scriptsize model-error};
+\node[eval, below=9mm of plan] (eval) {F $\cdot$ Evaluate\\\scriptsize verdicts $\cdot$ candidates\\\scriptsize model-error};
 \node[box, left=10mm of eval] (gate) {Gates\\\scriptsize frontier $\cdot$ closure\\\scriptsize opportunities};
-\node[mut, left=10mm of gate] (exec) {E $\cdot$ Execute\\\scriptsize the one\\\scriptsize mutating phase};
+\node[seam, left=10mm of gate] (seam) {Generation seam\\\scriptsize emit $\cdot$ fill $\cdot$ apply};
+\node[mut, below=9mm of seam] (exec) {E $\cdot$ Execute\\\scriptsize the one\\\scriptsize mutating phase};
 
 \node[io, below=12mm of core] (runs) {\code{\scriptsize runs.db}\\\scriptsize the one measured\\\scriptsize input};
 \node[box, below=9mm of gate, fill=authored!40] (grow) {Growth + Reopen\\\scriptsize propose $\cdot$ seed\\\scriptsize reopen};
@@ -151,11 +157,12 @@ re-baselined, not mined as a false Discovery.
 \draw[flow] (core) -- (plan);
 \draw[flow] (plan) -- (eval);
 \draw[flow] (eval) -- (gate);
-\draw[flow] (gate) -- (exec);
+\draw[flow] (gate) -- (seam);
+\draw[flow] (seam) -- (exec);
 \draw[flow] (runs) -- (core) node[lbl, midway, right] {outcomes};
 \draw[flow] (exec) |- (runs) node[lbl, pos=0.25, left] {runs sims};
 \draw[flow] (gate) -- (grow);
-\draw[back] (grow) -| (sub) node[lbl, pos=0.25, below] {seed / reopen $\rightarrow$ authored};
+\draw[back] (grow) -| (sub) node[lbl, pos=0.25, below] {seed / reopen / apply $\rightarrow$ authored};
 
 \begin{scope}[on background layer]
 \node[fit=(core)(plan)(eval)(gate), draw=line, rounded corners=6pt,
@@ -164,39 +171,43 @@ re-baselined, not mined as a false Discovery.
 \end{tikzpicture}
 \end{center}
 
-The engine has \textbf{no single function that chains its phases}. \code{run\_cycle} is the pure
-core; the lettered phases are separate functions layered on its output, each also a
-\code{discover} CLI verb. The one canonical ordered step graph lives in the workbench panel;
-\textbf{\code{run\_cycle} is pure}, and state changes only through the execute phase and a few
-explicit write-backs.
+The engine has \textbf{no single function that chains its phases}. \code{run\_cycle}
+(\code{discover/cycle.py}) is the pure core; the lettered phases are separate functions layered
+on its output, each also a \code{discover} CLI verb. The one canonical ordered step graph lives
+in the workbench panel; \textbf{\code{run\_cycle} is pure}, and state changes only through the
+execute phase, the grading sync, and a few explicit write-backs.
 
 \medskip
-\noindent\textbf{The steps.} Fourteen in the panel's step graph --- thirteen pure, one mutating.
+\noindent\textbf{The steps.} Fourteen in the panel's projection graph --- thirteen pure, one
+mutating --- plus the generation seam that runs an LLM against the frontier (\S\ref{sec:seam}).
 
 \begin{center}\small
 \begin{tabular}{@{}llll@{}}
 \toprule
-\textbf{Step} & \textbf{Function} & \textbf{Role} & \textbf{Kind}\\
+\textbf{Step} & \textbf{Function} \scriptsize(module) & \textbf{Role} & \textbf{Kind}\\
 \midrule
-Inputs      & \code{load\_cycle\_inputs}        & load the substrate        & pure\\
+Inputs      & \code{load\_cycle\_inputs}        & load the substrate        & pure$^{*}$\\
 Core        & \code{run\_cycle}                 & project the whole cycle   & pure\\
 A $\cdot$ Reconcile & \code{reconcile\_evidence\_state} & grade the evidence  & pure\\
-B $\cdot$ Plan      & \code{plan\_candidate\_actions}   & rank the moves      & pure\\
+B $\cdot$ Plan      & \code{plan\_candidate\_actions} + \code{select\_portfolio} & rank the moves & pure\\
 C $\cdot$ Design    & \code{design\_discriminating\_study} & design the test  & pure\\
-D $\cdot$ Build     & \code{build\_catalog} / build-model & acquire the model & pure\\
-F $\cdot$ Evaluate  & \code{compare\_hypotheses}        & verdicts + Discovery & pure\\
-Grading     & \code{compute\_outcomes}          & the sync that feeds the verdict & pure\\
+D $\cdot$ Build     & \code{build\_catalog} / \code{bind\_model\_versions} & acquire \& bind the model & pure\\
+F $\cdot$ Evaluate  & \code{compare\_hypotheses} + \code{detect\_finding\_candidates} & verdicts + candidates & pure\\
+Grading     & \code{compute\_outcomes}          & the sync that feeds the verdict & \textcolor{warn}{\textbf{mut.}}\\
 Growth      & \code{suggest\_studies}           & propose the next studies  & pure\\
 \quad $\cdot$ select & \code{select\_for\_launch}       & the autonomy gate         & pure\\
 \quad $\cdot$ seed   & \code{build\_seeded\_study}      & author a run-ready study   & pure\\
 \quad $\cdot$ refine & \code{refine\_study}             & deepen an existing study   & pure\\
 Reopen      & \code{reconcile\_and\_reopen}     & re-enter on feedback      & pure$^\dagger$\\
-E $\cdot$ Execute   & \code{advance\_cycle}             & run + change state   & \textcolor{warn}{\textbf{mut.}}\\
+E $\cdot$ Execute   & \code{advance\_cycle}             & build + run + change state   & \textcolor{warn}{\textbf{mut.}}\\
 \bottomrule
 \end{tabular}
 \end{center}
-{\footnotesize $^\dagger$ \code{reconcile\_and\_reopen} is a pure planner; its write happens
-through the execute phase / the \code{ingest-feedback} writer. The one mutating step
+{\footnotesize $^{*}$ \code{load\_cycle\_inputs} reads YAML from disk but writes nothing.
+$^\dagger$ \code{reconcile\_and\_reopen} (\code{feedback/compiler.py}) is a pure planner; its
+write happens through the execute phase / the \code{ingest-feedback} writer. \code{compute\_outcomes}
+(\code{study/evaluator/outcomes.py}) is the one \emph{reader of run data}, and it writes the
+\code{computed\_outcomes} block back (idempotent). The one mutating step
 (\code{advance\_cycle}) runs sandboxed in the panel --- it copies the investigation into a
 throwaway workspace first, so a cycle run never touches real files.}
 
@@ -204,36 +215,42 @@ throwaway workspace first, so a cycle run never touches real files.}
 \section{The data substrate --- what the cycle reads and writes}
 
 The cycle operates on a \textbf{workspace} directory whose layout is resolved from
-\code{workspace.yaml} (never hard-coded). Three artifact classes:
+\code{workspace.yaml} (never hard-coded). Four artifact classes:
 
 \begin{itemize}
 \item \code{investigation.yaml} --- the investigation spec. \textbf{Authored:} \code{question},
 \code{audience}, \code{studies[]}, \code{hypotheses[]}, \code{acceptance\_criteria[]},
 \code{plan\_gates[]}, \code{required\_mechanisms[]}, \code{cycle\_flags}, \code{decisions\_needed},
 epistemic \code{relation} tags on edges. \textbf{Cycle-written caches:} \code{resolutions[]},
-\code{discoveries[]}, \code{applied\_feedback[]}, \code{lifecycle\_history}, \code{cycle\_state}
-(with \code{evaluation\_snapshot}), proposal caches.
+\code{discoveries[]}, \code{hypothesis\_proposals[]}, \code{critique\_reports[]},
+\code{model\_acquisition\_proposals[]}, \code{model\_versions[]}, \code{applied\_feedback[]},
+\code{pending\_feedback[]}, \code{lifecycle\_history}, \code{cycle\_state} (with
+\code{evaluation\_snapshot}), viz/proposal caches.
 \item \code{study.yaml} --- one per member. \textbf{Authored:} \code{claim}, \code{title},
 \code{question}, \code{hypothesis}, \code{behavior\_tests} (with \code{pass\_if} bands +
-\code{measure}), \code{findings[]} (\code{evidence.observed}, \code{from\_test}),
-\code{baseline}/variant arms, \code{observables}, \code{required\_mechanisms},
-\code{parent\_studies} + relations. The \code{runs[]} list is \textbf{code-synced} from
-\code{runs.db}.
-\item \code{runs.db} --- SQLite, written by the simulation machinery. \textbf{The durable record
-of what actually ran} --- the one measured artifact.
+\code{measure}), \code{findings[]} prose, \code{baseline}/variant arms, \code{observables},
+\code{required\_mechanisms}, \code{parent\_studies} + relations. \textbf{Code-synced:} the
+\code{runs[]} list (from \code{runs.db}), \code{computed\_outcomes}, and the measured slots of a
+finding (\code{evidence.observed}, \code{expected.range}, \code{divergence\_factor}).
+\item \code{runs.db} --- per-study SQLite (\code{runs\_meta}), written by the simulation
+machinery. \textbf{The durable record of what actually ran} --- the one measured artifact.
+\item \code{model\_versions[]} --- a derived cache on \code{investigation.yaml}. Each arm's
+composite + params hashes to a content-addressed \code{mv:} id; seeded / refined / revision
+children are \emph{parent-linked} to the model that produced prior evidence, so a new mechanism
+never silently overwrites the old one.
 \end{itemize}
 
 \paragraph{Provenance.} Throughout this map: \textbf{(H)} human-authored, \textbf{(AI)}
-agent-authored (via the \code{/viva-*} skills), \textbf{(D)} derived/computed from evidence,
-\textbf{(CFG)} config / schema / rollout flag. The verdict/gate/acceptance roll-ups read the
-\emph{computed} outcome, not the authored one: a test that \emph{computes} fail can no longer
+agent-authored (via the \code{/viva-*} skills or the filler), \textbf{(D)} derived/computed from
+evidence, \textbf{(CFG)} config / schema / rollout flag. The verdict/gate/acceptance roll-ups read
+the \emph{computed} outcome, not the authored one: a test that \emph{computes} fail can no longer
 read ``met'' through a gate.
 
 % ===========================================================================
 \section{The stages}
 
 Each stage: \textbf{what happens $\rightarrow$ consumes $\rightarrow$ produces $\rightarrow$
-is it real?} All stages except Execute are pure and re-runnable.
+is it real?} All stages except Grading and Execute are pure and re-runnable.
 
 \stage{Inputs --- load\_cycle\_inputs}{pure reader}
 Resolves \code{investigations/<slug>/investigation.yaml}, builds the \textbf{member set} from
@@ -248,9 +265,10 @@ outcomes, H on tests), epistemic \code{relation} edges (H), and the optional evi
 \textbf{Produces the bundle:} \code{knowledge}, \code{argument}, \code{narrative} (a
 deterministic topological ordering of claims --- \emph{not} generated prose), \code{audit},
 \code{gates}, \code{open\_calls}, \code{validations}, \code{suggestions}, \code{signals}
-(model disagreements, anomalies), and the viz/revision proposals. The validators leave
-\code{scientific\_judgment} null --- \textbf{none asserts scientific truth}. \real{} (mechanical;
-quality is a function of authoring).
+(\code{model\_disagreements}, \code{anomalies}, \code{verdict\_overreach}),
+\code{revision\_proposals}, \code{viz\_proposals}, \code{viz\_appropriateness},
+\code{capability\_gaps}. The validators leave \code{scientific\_judgment} null ---
+\textbf{none asserts scientific truth}. \real{} (mechanical; quality is a function of authoring).
 
 \stage{A --- reconcile\_evidence\_state}{pure}
 Classifies each study \textbf{finding} by provenance into \code{verified} / \code{provisional} /
@@ -261,7 +279,7 @@ run id is registered. A study with no \code{runs.db} can never be verified. \rea
 contract (\code{registered\_run\_contract}) for ``what makes a finding run-backed.''
 
 \stage{B --- plan\_candidate\_actions + select\_portfolio}{pure}
-Recasts the frontier into classified CandidateActions (REPAIR / RESOLVE / EXTEND) with a
+Recasts the frontier into classified CandidateActions (REPAIR / RESOLVE / REVISE / EXTEND) with a
 heuristic value score; \code{select\_portfolio} orders them (repair prereqs first, then resolve
 by discrimination, then extend). \real, entirely frontier-driven --- with no hypotheses nothing
 is discriminable, so the plan is all repair/extend.
@@ -273,33 +291,34 @@ packages the authored hypotheses into an ExperimentDesign (one arm per predictio
 by naming heuristic, a pre-committed decision rule). \cond{} --- all scientific content is
 authored; the function only reformats + adds control detection.
 
-\stage{D --- build\_catalog / build-model}{pure}
+\stage{D --- build\_catalog / bind\_model\_versions}{pure}
 Walks every study's baseline + variant arms, groups composites by path, and builds one
 ``component'' per composite with a token-based capability signature. Resolution
 (\emph{reuse} / \emph{wrap} / \emph{build}) runs on the evidence path when a workspace root is
 passed --- that route is what \emph{sources} a capability gap. A required mechanism with no
 registered synonym is matched by honest token coverage, so a novel compound routes to
-\textbf{BUILD} and the gap fires. In autonomous advance the \code{needs\_build} route now
-resolves into a concrete immutable \textbf{ModelVersion} build (content-addressed, parent-linked;
-never overwrite the model that produced prior evidence). \real.
+\textbf{BUILD} and the gap fires. \code{bind\_model\_versions} then stamps each arm with a
+content-addressed \code{mv:} id (non-semantic run knobs --- seed, emitter, out\_dir --- dropped
+from the hash), parent-linking children to the model that produced prior evidence. \real.
 
-\stage{F --- compare\_hypotheses + Discovery + model-error}{pure}
+\stage{F --- compare\_hypotheses + candidates + model-error}{pure}
 \textbf{Evaluate.} Per study, recomputes each hypothesis's support log from a quantitative source
 (an observed value matching a prediction's band) and picks a \code{favored} hypothesis and a
 status: \code{supported} (net${>}0$ \emph{and} VERIFIED evidence), \code{provisionally-supported},
 \code{contested} (net${<}0$), \code{unresolved}, or \code{gated}. \code{model\_disagreement\_map}
-surfaces multi-arm disagreement on the same observable (\emph{never averaged}); an
-\emph{adjudicated} supersession is resolved history, not a live caveat.
+surfaces multi-arm disagreement on the same observable (\emph{never averaged}).
 
-\noindent\textbf{Discovery record (0.4.0--0.6.0).} \code{detect\_discoveries} compares the current
-\code{evaluation\_snapshot} against the previous one and records a first-class \textbf{Discovery}
-(scope, novelty, counterevidence, evidence refs) for every claim that \emph{flipped to a settled
-outcome} (\code{supported}/\code{contested}) \textbf{on VERIFIED evidence}. Passing a gate is not
-a discovery; a flip on merely provisional evidence is not one either. \textbf{(0.6.0)} the snapshot
-now carries its own provenance --- a \code{schema\_version}, the \code{grader}/\code{resolver}
-versions, and an \code{inputs\_hash} over the measured ledger --- and a flip diffed against a snapshot
-from a \emph{different} grader/resolver or different measured inputs is \code{stale}: re-baselined,
-not recorded, so a Discovery reflects new science rather than a grader bump or shifted run data.
+\noindent\textbf{FindingCandidate (0.6.0, the revised discovery path).} At persist time the current
+\code{evaluation\_snapshot} is diffed against the previous one. \code{snapshot\_is\_stale} first
+checks provenance: a \emph{grader/resolver version} change re-baselines (no candidates). Otherwise
+\code{detect\_finding\_candidates} mints a content-addressed \textbf{FindingCandidate}
+(\code{fc:\dots}) for every claim that \emph{flipped to a settled outcome}
+(\code{supported}/\code{contested}) \textbf{on VERIFIED evidence}. A candidate is \emph{not} a
+Discovery: it is a pending nomination. A \textbf{Discovery} is minted only by a \emph{reviewed
+promotion} --- \code{discover review-findings -{}-promote} (with novelty + counterevidence
+assessment), the one path that writes \code{discoveries[]}. Passing a gate is not a candidate; a
+flip on merely provisional evidence is not one either. (The legacy \code{detect\_discoveries} is
+retired --- back-compat only.)
 
 \noindent\textbf{Model-error diagnosis (0.4.0).} On a refutation, \code{diagnose\_refutation}
 emits a typed \textbf{EvidenceUpdate}: \code{revise-model} when competing model arms disagree on
@@ -307,7 +326,7 @@ the refuting observable (the model choice is implicated), else \code{revise-hypo
 model is coherent; the prediction was wrong). The diagnosis steers \emph{which} child seed the
 Growth phase proposes. \real.
 
-\stage{Grading --- compute\_outcomes}{the sync that feeds the verdict}
+\stage{Grading --- compute\_outcomes}{the one run-data path; mutating}
 The reconcile sync that writes each run's \code{computed\_outcomes} block, which the roll-ups read
 \emph{computed-first}. For each recorded run it grades every \code{behavior\_test} against the
 run's store and writes \code{\{result, measured\_value, evaluated\_by, ...\}}. A bare-string
@@ -315,7 +334,7 @@ measure is graded through the shared \code{viva\_emitters} resolver (the engine 
 byte-identically to the workbench); a missing store degrades to the agent / needs-rerun bucket
 rather than crashing. \textbf{This is the one path that reads run data} --- it is what makes a
 refutation (and therefore the generative loop) fire on a \emph{computed} result, not an authored
-label. \real.
+label. It writes \code{study.yaml} idempotently. \real.
 
 \stage{Growth --- propose $\rightarrow$ select $\rightarrow$ seed $\rightarrow$ refine}{pure; the generative loop}
 \textbf{Propose} (\code{suggest\_studies}) de-duplicates proposals from five sources: authored
@@ -325,14 +344,14 @@ that name a member study (H, gated on a decision), and --- the \textbf{generativ
 synthesis study folding the refutations into the next discriminating question. A refutation is a
 concrete signal, so these are proposed \code{ready} and flow through the autonomy gate.
 \textbf{Select} (\code{select\_for\_launch}) is a thin shim over the one \code{AutonomyPolicy}
-(below): in \code{autonomous} mode every ready proposal launches; in default
-\code{human\_in\_the\_loop} only approved, non-expert-gated proposals do. \textbf{Seed} (\code{build\_seeded\_study}) authors a complete, run-ready
-\code{study.yaml} --- it inherits the parent's composite, observables and behavior tests (so the
-child is runnable and evaluable by construction) and applies the proposal's \code{model\_change}
-as the variation under test. \textbf{Refine} (\code{refine\_study}) deepens an existing study from
-the engine's own signals (replicate count, low-fidelity flags). \real{} --- it proposes
-\emph{where to look next} from a negative result, authors the child, and (under the autonomy
-policy) promotes it to run.
+(\S\ref{sec:gates}): in \code{autonomous} mode every ready proposal launches; in default
+\code{human\_in\_the\_loop} only approved, non-expert-gated proposals do. \textbf{Seed}
+(\code{build\_seeded\_study}) authors a complete, run-ready \code{study.yaml} --- it inherits the
+parent's composite, observables and behavior tests (so the child is runnable and evaluable by
+construction) and applies the proposal's \code{model\_change} as the variation under test.
+\textbf{Refine} (\code{refine\_study}) deepens an existing study from the engine's own signals
+(replicate count, low-fidelity flags). \real{} --- it proposes \emph{where to look next} from a
+negative result, authors the child, and (under the autonomy policy) promotes it to run.
 
 \stage{Reopen --- reconcile\_and\_reopen}{pure planner; the re-entry}
 Staged scientist feedback --- a compiled request on the investigation's \code{pending\_feedback[]}
@@ -348,12 +367,12 @@ schema; no prose inference). \real{} --- the structured on-ramp by which an inve
 The phase that changes real state. Loop: reload $\rightarrow$ \code{execute\_plan} $\rightarrow$ pick
 the first run-ready advance op not yet seen $\rightarrow$ check readiness $\rightarrow$ dispatch (or,
 if not autonomous, record one ``would-run'' and stop). Its dispatch set widened as the loop closed:
-besides running a study (\code{test}/\code{branch}) it now also \textbf{promotes a seed} to a real
-study, \textbf{builds a missing mechanism}, and \textbf{reopens} on staged feedback. Every
-consequential dispatch is checked against \textbf{one} \code{AutonomyPolicy} (0.4.0 unified it from
-per-op gates). \real{} but \textbf{dry by default}: in the panel it runs \emph{sandboxed} on a
-throwaway copy, never on real files; with no runner it reports \code{needs\_build} rather than faking
-a run.
+besides running a study (\code{test}/\code{branch}) it now also \textbf{materializes a discriminating
+design} for a pending fork, \textbf{promotes a seed} to a real study, \textbf{builds a missing
+mechanism}, and \textbf{reopens} on staged feedback. Every consequential dispatch is checked against
+\textbf{one} \code{AutonomyPolicy} (0.4.0 unified it from per-op gates). \real{} but \textbf{dry by
+default}: in the panel it runs \emph{sandboxed} on a throwaway copy, never on real files; with no
+runner it reports \code{needs\_build} rather than faking a run.
 
 \paragraph{Supporting derivations.} Three non-blocking families ride the same projection and feed
 the frontier: the \textbf{viz loop} (declared figures classified fresh / unrendered / stale /
@@ -364,17 +383,98 @@ is a figure shown where it belongs). They are advisory --- they inform the front
 gate closure.
 
 % ===========================================================================
-\section{The gate system --- one engine, four views}
+\section{The generation seam --- the AI-drivable half}\label{sec:seam}
+
+Where the engine needs a judgement it cannot derive, it does not call an LLM inline. It
+\emph{emits} a typed request, a filler returns a typed result, and a deterministic writer
+\emph{applies} it. Three pure steps around one impure filler.
+
+\begin{center}\small
+\begin{tabularx}{\textwidth}{@{}l l Y@{}}
+\toprule
+\textbf{step} & \textbf{function} \scriptsize(module) & \textbf{what it does}\\
+\midrule
+emit  & \code{generation\_requests} \scriptsize(phases/generation\_emit.py) & maps each frontier opportunity's \code{action\_type} to a \code{GenerationRequest.kind} + its \code{produces} contract and a \code{gate} (\code{auto}/\code{review}). Pure, no LLM.\\
+fill  & \code{subprocess\_filler} \scriptsize(phases/generation\_apply.py) & shells out to \code{\$VIVA\_FILLER\_CMD}, request JSON on stdin, result JSON on stdout; validates the result shape. The one place an LLM runs. No command $\rightarrow$ \code{None} (nothing auto-fills).\\
+apply & \code{apply\_result} / \code{run\_requests} \scriptsize(generation\_apply.py) & gates each: \code{review} $\rightarrow$ \code{queued\_for\_review}; \code{auto} $\rightarrow$ fill + apply via a native handler or the SkillRegistry adapter. A malformed artifact is recorded \code{error}, never applied.\\
+\bottomrule
+\end{tabularx}
+\end{center}
+
+\noindent\textbf{The nine kinds.} \code{GenerationRequest.kind} is one of nine (schema-enforced).
+Seven are apply-wired; two are queued for a downstream op.
+
+\begin{center}\small
+\begin{tabularx}{\textwidth}{@{}l l Y@{}}
+\toprule
+\textbf{kind} & \textbf{produces} & \textbf{apply handler}\\
+\midrule
+\code{interpret\_finding} & \code{finding/v1} & \textbf{native} --- writes the finding's prose slots (interpretation only; never the number)\\
+\code{explain}           & \code{explanation/v1} & \textbf{native} --- writes a promoted claim's narrative\\
+\code{author\_tests}     & \code{behavior\_tests[]} & \textbf{native} --- appends behavior tests (idempotent)\\
+\code{resolve\_decision} & \code{decision/v1} & \textbf{native} $\rightarrow$ \code{record\_resolution}\\
+\code{hypothesize}       & \code{hypothesis\_proposal/v1} & \textbf{registry} $\rightarrow$ \code{record\_hypothesis\_proposal}\\
+\code{critique}          & \code{critique\_report/v1} & \textbf{registry} $\rightarrow$ \code{record\_critique\_report}\\
+\code{acquire\_model}    & \code{model\_spec/v1} & \textbf{registry} $\rightarrow$ \code{record\_model\_acquisition\_proposal}\\
+\code{propose\_study}    & \code{study.yaml/v4} & \textcolor{warn}{queued} --- the Growth \code{seed} op authors it instead\\
+\code{visualize}         & \code{viz\_spec/v1} & \textcolor{warn}{queued} --- viz acceptance goes through \code{accept\_viz\_proposal}\\
+\bottomrule
+\end{tabularx}
+\end{center}
+
+\noindent The three \textbf{registry-backed} kinds are the engine's own authoring contracts
+(\code{discovery\_engine/skills/}): each binds a \code{coerce} honesty-gate validator to a
+\code{record} writer, recorded idempotently-by-id into an \code{investigation.yaml} proposal block
+as \code{status: proposed/open}. The engine \textbf{never promotes a proposal to a fact} --- accept
+/ decline is a separate rationale-gated verb. \code{discover requests <inv> -{}-fill} drains the
+auto-gated requests through the filler; \code{discover propose} routes via the
+\code{DiscoveryAgent} coordinator. \real.
+
+% ===========================================================================
+\section{The skills --- who drives each stage}\label{sec:skills}
+
+The engine is headless. Two skill families drive it: the engine's own \textbf{authoring contracts}
+(the three registry kinds above) and the vivarium-workbench \textbf{\code{/viva-*} plugin skills}.
+The plugin skills reach the engine either by shelling a \code{discover} verb, by the workbench
+\code{/api/*} endpoints (which import the engine server-side), or --- for the filler --- by
+\emph{being invoked by} the engine.
+
+\begin{center}\small
+\begin{tabularx}{\textwidth}{@{}l l Y@{}}
+\toprule
+\textbf{stage} & \textbf{skill} & \textbf{role \& how it reaches the engine}\\
+\midrule
+Author (inv)   & \code{/viva-investigation} & investigation CRUD, \code{scaffold-from-plan}, members, \code{run}; writes \code{investigation.yaml}; shells \code{import}/\code{reconcile}; owns \code{proposed\_inputs} discipline. Investigation $\equiv$ branch $\equiv$ worktree.\\
+Author (study) & \code{/viva-study} & the primary \code{study.yaml} writer; Design$\rightarrow$Decide lifecycle via \code{/api/study-*}; inline \code{report\_linter} / \code{study.verdict}.\\
+Author (bands) & \code{/viva-cite-bands} & band provenance --- cites + calibration anchors into \code{study.yaml}; enforced by the report linter.\\
+Fill (seam)    & \code{/viva-fill} & the AI \textbf{filler} wired as \code{\$VIVA\_FILLER\_CMD}; one request in, one result out. The only skill that drives the generation/apply seam directly.\\
+Build (model)  & \code{/viva-expert} & wraps a simulator as a real composite; an accepted \code{acquire\_model} proposal feeds \code{required\_mechanisms} $\rightarrow$ the capability-gap build loop calls a workspace \code{build\_hook}.\\
+Evaluate       & \code{/viva-biology-forward} & the \code{interpret\_finding} realization --- populates the measured slots (deterministic) then authors the mechanism prose (AI). Via \code{/api/study-findings-populate-observations}.\\
+Grow / gate    & \code{/viva-harden-investigation} & the clearest CLI consumer --- shells \code{discover crank}, then \code{resolve}/\code{connect}/\code{relate} to drive the frontier to CLOSED.\\
+Report         & \code{/viva-report} & Pass A audit + Pass B lint + render, via \code{/api/report-lint} / \code{/api/render}; the engine owns the lint/render logic. Headless twin: \code{discover report}/\code{lint}.\\
+Navigate       & \code{/viva-navigate} & read-only \code{/api/linkage-index} + \code{/api/needs-attention} (``decisions needed''). Headless twin: \code{discover linkage}.\\
+Author (eng)   & \code{hypothesize} / \code{critique} / \code{acquire\_model} & the engine's own authoring contracts (\S\ref{sec:seam}); surfaced by the \code{anomaly}/\code{coverage\_gap}, \code{verdict\_overreach}, and \code{model\_acquisition} frontier kinds.\\
+\bottomrule
+\end{tabularx}
+\end{center}
+
+{\footnotesize Not part of the cycle: \code{/viva-suggest} (an internal dashboard callback that
+drafts a repo name / PR title / PR body --- touches no engine function) and \code{/viva-run}
+(smoke-tests one composite; does not write \code{runs.db} or any study).}
+
+% ===========================================================================
+\section{The gate system --- one engine, four views}\label{sec:gates}
 
 A single function \code{frontier()} builds the list of unresolved items; \code{closure()},
 \code{next\_action()}, \code{opportunities()} and \code{execute\_plan()} are re-rankings or
-filters over it. All pure and deterministic.
+filters over it. All pure and deterministic, all in \code{projection/engine.py}.
 
 \subsection*{frontier() --- the one list everything reads}
 An item is \emph{open} if a source raises it \textbf{and} its \code{(kind, target)} is not in the
 \code{resolutions} set (the single discharge test). Each item carries a \code{priority} and an
-\code{op}; the list is sorted by \code{(-priority, kind, target)}. \textbf{Closure blocks on only
-three kinds} (shaded); every other kind is ``open but non-blocking.''
+\code{op}; the list is sorted by \code{(-priority, kind, target)}. An unlisted kind defaults to
+priority 30, op \code{test}. \textbf{Closure blocks on only three kinds} (shaded); every other
+kind is ``open but non-blocking.''
 
 \begin{center}\small
 \begin{tabular}{@{}rlll@{}}
@@ -390,18 +490,26 @@ three kinds} (shaded); every other kind is ``open but non-blocking.''
 55 & stale\_validation     & revalidate    & \nob\\
 50 & divergence            & reconcile     & \nob\\
 48 & model\_disagreement / anomaly & revise\_model & \nob\\
-47--44 & viz\_broken / viz\_missing / viz\_proposed & refine\_viz / build\_viz & \nob\\
+47 & viz\_broken           & refine\_viz   & \nob\\
+46 & viz\_missing          & build\_viz    & \nob\\
+46 & \textbf{verdict\_overreach} & \textbf{critique} & \nob\\
 45 & validation\_finding   & revise        & \nob\\
+44 & viz\_proposed         & build\_viz    & \nob\\
 43 & capability\_gap       & build\_process & \nob\\
+43 & \textbf{model\_acquisition} & \textbf{accept\_model\_acquisition} & \nob\\
 42 & pending\_gate         & test          & \nob\\
 40 & open\_question        & test          & \nob\\
 39 & \textbf{proposed\_study} & \textbf{seed} & \nob\\
-38--35 & viz\_stale / viz\_misplaced / viz\_duplicated / viz\_untied & refine\_viz / relocate\_viz & \nob\\
+38 & viz\_stale            & refine\_viz   & \nob\\
+37--35 & viz\_misplaced / viz\_duplicated / viz\_untied & relocate\_viz & \nob\\
+34 & \textbf{coverage\_gap} & branch       & \nob\\
 \bottomrule
 \end{tabular}
 \end{center}
 {\footnotesize \textbf{reopen} and \textbf{proposed\_study} (the seed op) are the two
-loop-closing kinds. \code{viz\_untied} is behind a rollout flag, off by default.}
+loop-closing kinds. \code{verdict\_overreach}, \code{model\_acquisition}, and \code{coverage\_gap}
+are the 0.6 additions; \code{coverage\_gap} is the proactive coverage loop. \code{viz\_untied} is
+behind a rollout flag, off by default.}
 
 \subsection*{closure() --- a boolean over three kinds}
 \code{closed = (no unaddressed\_criterion) and (no narrative\_gap) and (no open\_challenge)}.
@@ -431,23 +539,31 @@ seed         & promote-seed                & \code{authoring}       & no\\
 reopen       & reconcile-and-reopen        & \code{reopen}          & no\\
 reconcile    & set-verdict                 & \code{review}          & no\\
 revise / revise\_model & act-on-validator / discover revise & \code{review} & no\\
-build\_process & discover gap              & \code{review}          & no\\
+critique     & discover critique           & \code{review}          & no\\
+accept\_model\_acquisition & discover execute -{}-ai-decide & \code{review}$^\ddagger$ & no\\
+build\_process & discover gap              & \code{review}$^\ddagger$ & no\\
 build\_viz / refine\_viz (resolvable) & render-viz & \code{render}   & no\\
-build\_viz / refine\_viz (stub) / relocate\_viz & discover viz & \code{review} & no\\
+build\_viz / refine\_viz (stub / proposal) & discover viz & \code{review} & no\\
+relocate\_viz & discover viz               & \code{review}          & no\\
 steer        & expert (no command)         & \code{human-only}      & no\\
 synthesize   & author finding + resolve    & \code{human-only}      & no\\
 \bottomrule
 \end{tabularx}
 \end{center}
+{\footnotesize $^\ddagger$ \code{execute\_plan} tags these \code{review}, but at run time
+\code{execute\_action} gates the actual build via \code{pol.allows(consequence="build")} --- a
+distinct allowlist tier. A reviewed promotion of a FindingCandidate uses consequence
+\code{discovery}.}
 
 \paragraph{AutonomyPolicy (0.4.0) --- the machine-vs-human gate.} At run time a single
-\code{AutonomyPolicy} decides, per consequence tier, what may run without a human: \code{safe}
-always runs; \code{simulation}/\code{simulation+study} run only in autonomous mode on a run-ready
-study; \code{render} is autonomous-only and resolvable-only; \code{authoring}, \code{reopen},
-\code{review} and \code{build\_process} go to an AI-decider path that records a rationale'd
-resolution; \code{steer}/\code{synthesize} are always human-only. One policy now gates \emph{every}
-consequential op --- the banner's ``runnable'' count and what Advance actually dispatches are the
-same set by construction.
+\code{AutonomyPolicy} (\code{discover/\_policy.py}) decides, per consequence tier, what may run
+without a human: \code{safe} always runs; \code{simulation}/\code{simulation+study} run only in
+autonomous mode on a run-ready study; \code{render} is autonomous-only and resolvable-only;
+\code{authoring}, \code{reopen}, \code{review}, \code{build} go to an AI-decider path that records
+a rationale'd resolution; \code{steer}/\code{synthesize} are always human-only. One policy now gates
+\emph{every} consequential op --- the banner's ``runnable'' count and what Advance actually
+dispatches are the same set by construction. \code{auto\_safe} (\code{revalidate}) never consults
+the policy.
 
 \paragraph{Discharge \& debts.} A \code{resolution \{kind, target, rationale, by?\}} removes the
 matching \code{(kind, target)} from the frontier. A \code{pending\_gate} (a criterion whose study
@@ -457,6 +573,31 @@ check for X.'' \code{capability\_gap} is deliberately excluded from the discharg
 closes by its own build/reject lifecycle. Advisory-only: \code{diagnose()} (bottleneck
 classifier) and \code{invariants()} (provenance + epistemic-separation violations) inform, they
 do not gate.
+
+% ===========================================================================
+\section{The headless surface --- the \code{discover} CLI}\label{sec:cli}
+
+The 0.4.1--0.5.0 increment moved the whole cycle behind one headless CLI
+(\code{python -m discovery\_engine.discover}, 39 verbs). The skills and the workbench both reach
+the same logic; nothing requires a server. Grouped:
+
+\begin{center}\small
+\begin{tabularx}{\textwidth}{@{}l Y@{}}
+\toprule
+\textbf{group} & \textbf{verbs}\\
+\midrule
+Project / status & \code{cycle}, \code{status}, \code{crank}, \code{opportunities}, \code{complete}, \code{diagnose}, \code{benchmark}\\
+Phases A--F & \code{reconcile-evidence}, \code{plan}, \code{design}, \code{build-model}, \code{hypotheses}, \code{evaluate}, \code{delta}\\
+Generation seam & \code{requests} (\code{-{}-fill}), \code{propose} (\code{-{}-fill}/\code{-{}-autonomous})\\
+Growth / execute & \code{suggest}, \code{seed-study}, \code{refine-study}, \code{advance}, \code{execute}\\
+Author / discharge & \code{set-verdict}, \code{relate}, \code{connect}, \code{resolve}, \code{revise}, \code{gap}, \code{viz}, \code{hypothesize}, \code{critique}\\
+Discovery & \code{review-findings} (\code{-{}-promote}/\code{-{}-hold})\\
+Reopen & \code{ingest-feedback}\\
+Report / audit & \code{report}, \code{lint}, \code{linkage}, \code{snapshot-validations}\\
+Study maintenance & \code{populate-observations}, \code{readout-migrate}, \code{band-provenance}\\
+\bottomrule
+\end{tabularx}
+\end{center}
 
 % ===========================================================================
 \section{What mutates vs.\ what is read-only}
@@ -470,15 +611,17 @@ write-backs.
 \textbf{function} & \textbf{class} & \textbf{trigger}\\
 \midrule
 \code{run\_cycle} (+ suggest, propose\_viz) & \textsc{read-only} & every panel cycle\\
-A--F (reconcile, compare, delta, discoveries) & \textsc{read-only} & panel steps A--F\\
-B/C/D (plan, design, build\_catalog) & \textsc{read-only} & panel steps B/C/D\\
-\code{select\_for\_launch} & \textsc{read-only} (now wired) & the \code{AutonomyPolicy} gate execute + advance consult\\
+A--F (reconcile, compare, delta, candidates) & \textsc{read-only} & panel steps A--F\\
+B/C/D (plan, design, build\_catalog, bind\_mv) & \textsc{read-only} & panel steps B/C/D\\
+\code{select\_for\_launch} & \textsc{read-only} & the \code{AutonomyPolicy} gate (execute + advance consult)\\
+\code{generation\_requests} / \code{apply\_result} & reads; \textbf{writes} via native/registry handler & \code{discover requests -{}-fill}\\
 \code{build\_seeded\_study} / \code{refine\_study} & \textsc{read-only} (pure spec) & \code{-{}-write}, or autonomous \code{write\_child\_study}\\
 \code{compute\_outcomes} & \textbf{writes} \code{computed\_outcomes} & reconcile sync (CLI)\\
 \code{advance\_cycle} & dry by default; \textbf{writes} with \code{autonomous} & runs sims, promotes seeds, builds, reopens\\
-\code{persist\_cycle} & \textbf{writes} \code{cycle\_state} + \code{discoveries} + caches & CLI cycle\\
+\code{persist\_cycle} & \textbf{writes} \code{cycle\_state} + \code{model\_versions} + caches & CLI cycle\\
+\code{review\_findings} & \textbf{writes} \code{discoveries[]} & CLI \code{review-findings -{}-promote}\\
 \code{set\_verdict} / \code{record\_resolution} & \textbf{writes} verdict / resolutions & CLI, or AI-decider\\
-\code{accept\_viz} / \code{accept\_capability\_gap} & \textbf{writes} viz / gap status & CLI / panel\\
+\code{record\_*\_proposal} & \textbf{writes} proposal block & registry apply / \code{discover hypothesize}/\code{critique}\\
 \code{reconcile\_and\_reopen} & \textbf{writes} reopened spec + \code{lifecycle\_history} & CLI \code{ingest-feedback}\\
 \bottomrule
 \end{tabularx}
@@ -506,9 +649,10 @@ Epistemic \code{relation} tags & argument edges, narrative order, audit gaps\\
 \code{plan\_gates} (synthesis spine) & rolled-up gate verdicts\\
 \code{decisions\_needed} & \code{open\_decision} items, steer actions, enable score\\
 Findings \code{statement} + \code{from\_test} & verified / provisional / contradicted classification\\
+baseline / variant composites & \code{model\_versions[]} (content-addressed \code{mv:}, parent-linked)\\
 \code{required\_mechanisms} contract & capability-gap proposals + build\_process items\\
 \code{followup\_proposals} / \code{model\_change} & proposal list, candidate actions, portfolio order\\
-A \textbf{refuted} finding (its evidence) & \textbf{Discovery} records; \textbf{EvidenceUpdate} (revise-model / -hypothesis)\\
+A \textbf{refuted} finding (its evidence) & \textbf{FindingCandidate} $\rightarrow$ reviewed \textbf{Discovery}; \textbf{EvidenceUpdate} (revise-model / -hypothesis)\\
 Scientist \textbf{reopening feedback} & \code{reopen} op; re-entered spec + \code{lifecycle\_history}\\
 A decision's resolution (rationale) & frontier discharge; executive renewal\\
 The \textbf{simulation itself} (external runner) & run records $\rightarrow$ run ids, outcomes, evidence status\\
@@ -516,8 +660,8 @@ The \textbf{simulation itself} (external runner) & run records $\rightarrow$ run
 \end{tabularx}
 \end{center}
 The engine's value is that it keeps the right column consistent with --- and always re-derivable
-from --- the left (``authored wins, derived fills''), and explicitly refuses to fabricate verdicts
-or resolve human-only decisions.
+from --- the left (``authored wins, derived fills''), and explicitly refuses to fabricate verdicts,
+promote proposals, or resolve human-only decisions.
 
 % ===========================================================================
 \section{What is real vs.\ conditional vs.\ unwired}
@@ -533,37 +677,42 @@ authored. \unwired{} = engine-complete but nothing in the product calls or execu
 Inputs, Core, A, B & \real & pure readers / projection over real YAML + run data\\
 Grading (\code{compute\_outcomes}) & \real & the one run-data path; feeds the verdict computed-first\\
 F $\cdot$ Evaluate & \cond & \code{unresolved} without authored hypotheses + predictions\\
-F $\cdot$ Discovery + model-error & \real & fire on a \emph{computed} refutation; 0 discoveries if a study has no hypothesis snapshot\\
-D $\cdot$ Model build & \real & novel mechanisms route to BUILD; autonomous advance builds a real ModelVersion\\
+F $\cdot$ Candidates + model-error & \real & fire on a \emph{computed} refutation; 0 candidates without a prior snapshot\\
+Discovery (review-findings) & \real & FindingCandidate $\rightarrow$ reviewed promotion writes \code{discoveries[]}\\
+D $\cdot$ Model build + \code{model\_versions} & \real & novel mechanisms route to BUILD; arms bound to content-addressed \code{mv:} ids\\
 C $\cdot$ Design & \cond & \code{None} without $\geq 2$ disjoint-band hypotheses\\
+Generation seam & \real & emit / fill / apply; 7 kinds wired, 2 queued; honesty-gated writers\\
 Growth (propose / generative loop) & \real & a refuted finding proposes \emph{and} (if authorized) runs the next study\\
 Growth $\cdot$ select / AutonomyPolicy & \real & one policy gates every consequential op; drives promotion\\
 Growth $\cdot$ seed / refine & \real & pure spec; autonomous write-back via \code{write\_child\_study}\\
 E $\cdot$ Execute / advance & \real, dry by default & sandboxed in the panel; one AutonomyPolicy gates every op\\
 Reopen & \real & structured re-entry on staged feedback; typed, schema-validated\\
 Gate system & \real & deterministic; three blocking kinds; value-ranked next action\\
-Self-contained CLI + linkage & \real & report / lint / observations / linkage as headless \code{discover} verbs (0.4.1--0.5.0)\\
-Versioned evidence snapshot & \real & snapshot provenance + stale-Discovery gate (0.6.0)\\
+Self-contained CLI + linkage & \real & 39 headless \code{discover} verbs (0.4.1--0.5.0)\\
+Versioned evidence snapshot & \real & snapshot provenance + stale-on-version-drift gate (0.6.0)\\
 Viz loop & \real & engine + full panel wiring (propose / build / declare / accept)\\
-capability-gap bridge & \cond & engine-complete; no workbench endpoint yet\\
-viz-appropriateness & thin & items only; the relocate op has no executor yet\\
+\code{propose\_study} / \code{visualize} apply & \cond & queued at the seam; handled by the Growth seed op / viz accept path\\
+capability-gap bridge & \cond & engine-complete; no dedicated workbench endpoint yet\\
+viz-appropriateness & thin & items only; the relocate op routes to review\\
 \bottomrule
 \end{tabularx}
 \end{center}
 
-\paragraph{Honest edges.} Two things are defined-but-unwired, and worth naming rather than hiding:
-the \textbf{capability-gap bridge} is engine-complete but has no workbench endpoint (it surfaces as an
-unlabeled row), and \textbf{viz-appropriateness} emits items but its relocate op has no executor. The
-Growth autonomy gate, by contrast, is \emph{now wired} --- one \code{AutonomyPolicy} drives promotion
-in \code{execute\_action} and \code{advance\_cycle}. Everything else on the spine --- load, project,
-reconcile, grade, evaluate, record, and the explicit write-backs --- operates on real artifacts, and
-the loop closes end to end: a refuted finding proposes \emph{and runs} the next study, a
-settled+verified verdict records a discovery (re-baselined if the evidence snapshot is stale), and
-scientist feedback re-enters through reopen.
+\paragraph{Honest edges.} Two things are defined-but-partially-wired, and worth naming rather than
+hiding: the \textbf{capability-gap bridge} is engine-complete but has no dedicated workbench
+endpoint (it surfaces as an unlabeled row), and \textbf{viz-appropriateness} emits items whose
+relocate op routes to a review, not an executor. At the seam, \code{propose\_study} and
+\code{visualize} are intentionally \emph{queued} --- their real authoring happens through the
+Growth \code{seed} op and the viz-accept path, not the apply handler. Everything else on the spine
+--- load, project, reconcile, grade, evaluate, record, and the explicit write-backs --- operates on
+real artifacts, and the loop closes end to end: a refuted finding proposes \emph{and runs} the next
+study, a settled+verified verdict mints a candidate that a reviewed promotion records as a
+Discovery (re-baselined if the evaluator version changed), and scientist feedback re-enters through
+reopen.
 
 \vfill
 \begin{center}\footnotesize\color{muted}
-discovery-engine 0.6.0 \;$\cdot$\; derive-first \;$\cdot$\; one measured input \;$\cdot$\; the loop closes
+discovery-engine 0.6.0 \;$\cdot$\; derive-first \;$\cdot$\; one measured input \;$\cdot$\; one LLM seam \;$\cdot$\; the loop closes
 \end{center}
 
 \end{document}
