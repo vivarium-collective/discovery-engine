@@ -102,9 +102,21 @@ def design_discriminating_study(inv_spec: dict, study_slug: str,
     competing hypotheses. Pure; registers predictions + a committed decision rule."""
     inv_spec = inv_spec or {}
     disc = discriminating_hypotheses(inv_spec).get(study_slug)
-    if not disc or not disc.get("discriminable"):
-        return None
-    observable = disc["observable"]
+    selection: dict | None = None
+    if disc and disc.get("discriminable"):
+        observable = disc["observable"]
+        selection = {"method": "disjoint-band", "observable": observable}
+    else:
+        # No fully-disjoint pair — fall through to the expected-information scorer, which
+        # picks the most-separating regime even when the bands only partially separate.
+        from discovery_engine.phases.experiment_utility import rank_study_experiments
+        eig = rank_study_experiments(inv_spec, study_slug)
+        if eig.get("outcome") != "experiment":
+            return None
+        observable = eig["condition"]["observable"]
+        selection = {"method": "expected-information", "observable": observable,
+                     "when": eig["condition"].get("when") or {}, "score": eig["score"],
+                     "ranked": eig["ranked"]}
     hyps = [h for h in _as_list(inv_spec.get("hypotheses"))
             if isinstance(h, dict) and h.get("study") == study_slug
             and str(h.get("status", "open")).strip().lower() not in _RETIRED_STATUS]
@@ -141,6 +153,7 @@ def design_discriminating_study(inv_spec: dict, study_slug: str,
                           "and preserve controls and negative results."),
     }
     design["control_issues"] = validate_controls(design, required_controls)
+    design["selection"] = selection
     return design
 
 

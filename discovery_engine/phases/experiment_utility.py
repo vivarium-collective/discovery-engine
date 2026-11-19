@@ -69,6 +69,11 @@ def best_experiment(hypotheses, conditions, *, predict, min_score: float = 0.5) 
     stop ``{outcome: "stop", reason: "no_informative_experiment", ...}`` (the plan's legitimate
     abstention — not a failure). Pure."""
     ranked = rank_experiments(hypotheses, conditions, predict=predict)
+    return _select(ranked, min_score)
+
+
+def _select(ranked: list[dict], min_score: float) -> dict:
+    """Pick the top-ranked experiment, or a NO-EXPERIMENT stop below ``min_score``."""
     top = ranked[0] if ranked else None
     if top is None or top["score"] < min_score:
         from discovery_engine.discover._policy import NO_INFORMATIVE_EXPERIMENT, stop  # lazy: avoid cycle
@@ -77,3 +82,56 @@ def best_experiment(hypotheses, conditions, *, predict, min_score: float = 0.5) 
         return stop(NO_INFORMATIVE_EXPERIMENT, detail=detail)
     return {"outcome": "experiment", "condition": top["condition"], "score": top["score"],
             "predictions": top["predictions"], "ranked": ranked}
+
+
+def _expected_as_band(expected) -> dict | None:
+    """Coerce a hypothesis prediction's ``expected`` to the scorer's ``{low, high}``,
+    or ``None`` when it is non-numeric or one-sided/unbounded. Reuses the engine's
+    canonical interval parser so it reads the same bands the disjoint-band test does."""
+    import math
+
+    from discovery_engine.phases.hypotheses import _interval  # lazy: avoid cycle
+    iv = _interval(expected)
+    if not iv:
+        return None
+    lo, hi = iv
+    if not (math.isfinite(lo) and math.isfinite(hi)):
+        return None
+    return {"low": lo, "high": hi}
+
+
+def rank_study_experiments(inv_spec: dict, study_slug: str, *, min_score: float = 0.3) -> dict:
+    """Rank a study's candidate experiments — each a (observable, intervention ``when``)
+    regime — by how well it discriminates the study's live competing hypotheses, scoring
+    over the predicted bands the hypotheses already declare. Generalizes the disjoint-band
+    design: it chooses the MOST separating regime even when no single pair is fully disjoint,
+    and abstains (NO-EXPERIMENT) when even the best regime barely separates them.
+
+    Pure; derives entirely from ``inv_spec`` (no model/predict callable needed, since the
+    hypotheses' declared bands are the predictions). Returns ``best_experiment``'s shape:
+    ``{outcome: "experiment", condition: {observable, when}, score, ranked}`` or the typed
+    NO-EXPERIMENT stop. ``min_score`` defaults below 0.5 so partially-separating regimes —
+    which the disjoint-band path rejects outright — are still recommended, with the score
+    attached so a reviewer sees how strong the discrimination is."""
+    from discovery_engine.phases.hypotheses import _as_list, _RETIRED_STATUS  # lazy: avoid cycle
+    inv_spec = inv_spec or {}
+    hyps = [h for h in _as_list(inv_spec.get("hypotheses"))
+            if isinstance(h, dict) and h.get("study") == study_slug
+            and str(h.get("status", "open")).strip().lower() not in _RETIRED_STATUS]
+    buckets: dict = {}
+    for h in hyps:
+        for p in _as_list(h.get("predictions")):
+            if not isinstance(p, dict) or not p.get("observable"):
+                continue
+            band = _expected_as_band(p.get("expected"))
+            if band is None:
+                continue
+            when = p.get("when") or {}
+            key = (p["observable"], tuple(sorted(when.items())))
+            buckets.setdefault(key, {"observable": p["observable"], "when": dict(when), "bands": []})
+            buckets[key]["bands"].append(band)
+    ranked = [{"condition": {"observable": b["observable"], "when": b["when"]},
+               "score": discrimination_score(b["bands"]), "predictions": b["bands"]}
+              for b in buckets.values() if len(b["bands"]) >= 2]
+    ranked.sort(key=lambda r: -r["score"])
+    return _select(ranked, min_score)
