@@ -120,6 +120,24 @@ def record_resolution(inv_path: Path | str, kind: str, target: str, rationale: s
     return spec["resolutions"][-1]
 
 
+def record_decision(inv_path: Path | str, decision: dict) -> dict:
+    """Append a per-decision provenance record to ``investigation.yaml::decision_log[]``,
+    atomically. ``decision`` is a :func:`discovery_engine.discover._policy.decision_record`
+    mapping (``{policy_version, actor, input_hashes, target, consequence, rationale,
+    result}``); this stamps an ``at`` timestamp and persists it. The audit trail of *why*
+    each gated action was allowed to run, append-only. Returns the stored record."""
+    import datetime as _dt
+    path = Path(inv_path)
+    spec = load_yaml_mapping(path)
+    rec = dict(decision)
+    rec.setdefault("at", _dt.datetime.now(_dt.timezone.utc).isoformat(timespec="seconds"))
+    log = list(spec.get("decision_log") or [])
+    log.append(rec)
+    spec["decision_log"] = log
+    save_yaml_atomic(path, spec)
+    return rec
+
+
 def review_findings(inv_path: Path | str, *, promote=None, hold=None, promote_all: bool = False,
                     policy=None, reviewer: str = "human") -> dict:
     """Reviewed promotion of FindingCandidates to Discoveries.
