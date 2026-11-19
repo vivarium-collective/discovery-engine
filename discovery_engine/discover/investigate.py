@@ -53,7 +53,8 @@ def investigate(ws_root, inv_slug, *, fill, budget=None, policy=None, gates=None
         # Act on the frontier while there is auto-gated generative work — anomalies and other
         # non-blocking items count, so `closed` (no blocking kinds) does not pre-empt the loop.
         reqs = [r for r in generation_requests(de.opportunities(cyc, inv_spec),
-                                               gates=_gates_for(inv_spec, gates), inv_spec=inv_spec)
+                                               gates=_gates_for(inv_spec, gates), inv_spec=inv_spec,
+                                               discrepancies=cyc.get("discrepancies"))
                 if r.gate == "auto"]
         if not reqs:
             stop_reason = "closed" if de.closure(cyc, inv_spec).get("closed") else NO_INFORMATIVE_EXPERIMENT

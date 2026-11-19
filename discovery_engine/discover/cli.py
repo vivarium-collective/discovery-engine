@@ -1114,7 +1114,8 @@ def main(argv: list[str] | None = None) -> int:
             gc = (inv_spec.get("discovery") or {}).get("gates") if isinstance(inv_spec, dict) else None
             gates = (GateConfig(default=gc.get("default"), by_kind=gc.get("by_kind") or {})
                      if isinstance(gc, dict) else GateConfig())
-        reqs = generation_requests(opps, gates=gates, inv_spec=inv_spec)
+        reqs = generation_requests(opps, gates=gates, inv_spec=inv_spec,
+                                   discrepancies=result.get("discrepancies"))
         if getattr(args, "fill", False):
             from discovery_engine.phases.generation_apply import run_requests, subprocess_filler
             outcomes = run_requests(reqs, fill=subprocess_filler(),
@@ -1165,7 +1166,8 @@ def main(argv: list[str] | None = None) -> int:
             gc = (inv_spec.get("discovery") or {}).get("gates") if isinstance(inv_spec, dict) else None
             gates = (GateConfig(default=gc.get("default"), by_kind=gc.get("by_kind") or {})
                      if isinstance(gc, dict) else GateConfig())
-        reqs = generation_requests(opps, gates=gates, inv_spec=inv_spec)
+        reqs = generation_requests(opps, gates=gates, inv_spec=inv_spec,
+                                   discrepancies=result.get("discrepancies"))
         registry = default_registry()
         if not getattr(args, "fill", False):                       # dry-run: pure preview
             rows = []
