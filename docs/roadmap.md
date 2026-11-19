@@ -13,9 +13,9 @@ As of 2026-11-19 the **Benchmark-1 evaluation substrate** has shipped (the
 *Next Development & Scientific Benchmarks* plan, 2026-11-18): the measurement +
 governance layer plus the first passing benchmark. See the Shipped section below
 and [`cycle-map.html`](cycle-map.html) / [`discovery-engine-cycle-map.pdf`](discovery-engine-cycle-map.pdf)
-§10 for the map. The engine is still tagged `0.6.0`; a **0.7.0** bump is proposed
-to mark this layer (not yet applied). The open frontier is real LLM-backed
-reasoning at the generation seam — see **Next build steps** at the end.
+§10 for the map. This layer ships as **0.7.0** (the EIG active-design increment
+and the free-text steering goal landed on top of it). The open frontier is real
+LLM-backed reasoning at the generation seam — see **Next build steps** at the end.
 
 Status: ✅ present · ◑ partial · ⬜ missing
 
@@ -186,18 +186,23 @@ A ladder of 12 synthetic→real benchmarks (T0–T5). **1 of 12** is built:
 ## Next build steps (2026-11-19)
 
 **Deterministic, buildable now:**
-1. ✅ *Refresh this roadmap* (this update). Propose the **0.7.0** version bump to mark
-   the benchmark substrate (not yet applied — release-adjacent, pending sign-off).
-2. ⬜ **EIG / active design** (Stage 3, FR-03.02) — replace the conditional disjoint-band
-   `design_discriminating_study` (returns `None` today) with model-predicted experiment
-   utility over the held-out distributions + a NO-EXPERIMENT outcome. The single biggest
-   capability gap, **now unblocked** by the held-out EvidenceRecord. *(Recommended next.)*
+1. ✅ *Refresh this roadmap* + cut the **0.7.0** release marking the benchmark
+   substrate, the EIG active-design increment, and the free-text steering goal.
+2. ✅ **EIG / active design** (Stage 3, FR-03.02) — a model-agnostic experiment-utility
+   scorer (ranks experiments by discrimination, or abstains with a NO-EXPERIMENT stop,
+   #118) wired into `design_discriminating_study` as an expected-information fallback
+   that picks the most-separating regime when no pair of bands is fully disjoint (#119).
+   Next: feed it a study's perturbation space + the workspace model to `predict`.
 3. ⬜ **Benchmark 2 (DnaA initiation)** — a second manifest + scenario reusing the
    substrate; proves the harness generalizes beyond Benchmark 1.
 4. ⬜ **Persist EvidenceRecord in-grade** (currently derived on read) + round out
    governance (cost-ceiling / tool-allowlist beyond the generation-call budget).
 
 **The frontier (needs a real LLM filler behind `$VIVA_FILLER_CMD`):**
+   The drive is now steerable end to end — `discover investigate <inv> --goal "<text>"`
+   (#120) threads a free-text goal into every request, and viva-superpowers'
+   `/viva-drive-engine` + `/viva-fill` wrap it. What remains is the reasoning *quality*
+   behind the seam:
 5. ⬜ Run `discover investigate` against Benchmark 1 with real `hypothesize`/`critique`
    reasoning, replacing the oracle — then the full A–E baseline matrix becomes real.
 6. ⬜ The remaining plan skills: `research` (literature), `design` (EIG), `analyze`
