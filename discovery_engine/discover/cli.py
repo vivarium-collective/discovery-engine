@@ -464,6 +464,10 @@ def main(argv: list[str] | None = None) -> int:
                                help="cap on model builds for the run")
     p_investigate.add_argument("--max-iterations", type=int, default=8, dest="max_iterations",
                                help="hard cap on loop iterations (default 8)")
+    p_investigate.add_argument("--goal", default=None,
+                               help="free-text steering prompt threaded into every generation "
+                                    "request's context['goal'] (overrides the investigation's "
+                                    "durable discovery.goal)")
 
     p_prop = sub.add_parser("propose",
                             help="DiscoveryAgent coordinator: route opportunities to scientific skills (dry-run by default; --fill runs the filler, records captures, applies auto-gated proposals under policy). Unlike 'requests --fill', --fill DOES run the filler on review-gated requests (to capture them for audit) but never auto-applies them")
@@ -1143,7 +1147,8 @@ def main(argv: list[str] | None = None) -> int:
         pol = AutonomyPolicy(mode=AUTONOMOUS) if getattr(args, "autonomous", False) else None
         summary = _investigate(ws, args.investigation, fill=subprocess_filler(),
                                budget=budget, policy=pol, gates=gates,
-                               max_iterations=args.max_iterations)
+                               max_iterations=args.max_iterations,
+                               goal=getattr(args, "goal", None))
         print(_json.dumps(summary, indent=2, default=str))
         return 0
 

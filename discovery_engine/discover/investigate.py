@@ -24,13 +24,58 @@ def _gates_for(inv_spec, override=None):
     return GateConfig()
 
 
+def _steer_fill(fill, goal: str | None):
+    """Wrap a filler so every request carries the run's free-text ``goal`` in its
+    ``context["goal"]`` before it reaches the filler (the LLM behind ``$VIVA_FILLER_CMD``,
+    or a skill). The steering is the one durable lever on WHAT the engine produces: the
+    frontier/opportunities stay derived from the investigation's state, but the goal shapes
+    how each generative act (hypothesis, design, analysis, synthesis, viz) is filled. Uses
+    ``dataclasses.replace`` so the request's content-addressed ``id`` — derived from
+    ``(kind, target, provenance)``, not ``context`` — is unchanged (idempotent)."""
+    if not goal or fill is None:
+        return fill
+    import dataclasses
+
+    def steered(request):
+        return fill(dataclasses.replace(request, context={**(request.context or {}), "goal": goal}))
+
+    return steered
+
+
+def _goal_order(reqs, goal: str | None):
+    """Stable-sort auto-gated requests so those most lexically relevant to the free-text
+    ``goal`` fill first — the budget-aware half of steering (which requests run before the
+    budget is spent), complementing :func:`_steer_fill` (how each is filled). A transparent
+    overlap heuristic — goal words (≥4 chars) appearing in a request's kind/target/rationale/
+    produces — so it is general over any goal, not hardcoded to a kind; ties keep emission
+    order (``sorted`` is stable). The frontier is unchanged: this only reorders what the cycle
+    already chose to emit, so nothing is invented and no honest request is dropped."""
+    if not goal:
+        return reqs
+    import re
+    tokens = {t for t in re.findall(r"[a-z0-9]+", goal.lower()) if len(t) >= 4}
+    if not tokens:
+        return reqs
+
+    def score(r):
+        hay = " ".join(str(x) for x in (r.kind, r.target, r.rationale, r.produces)).lower()
+        return sum(1 for t in tokens if t in hay)
+
+    return sorted(reqs, key=lambda r: -score(r))
+
+
 def investigate(ws_root, inv_slug, *, fill, budget=None, policy=None, gates=None,
-                max_iterations: int = 8, actor: str = "orchestrator") -> dict:
+                max_iterations: int = 8, actor: str = "orchestrator",
+                goal: str | None = None) -> dict:
     """Run a bounded investigation loop. ``fill(request) -> GenerationResult | None`` is the
     filler seam (a ``/viva-*`` skill, ``$VIVA_FILLER_CMD``, or a test oracle); ``budget`` a
     :class:`~discovery_engine.discover.budget.Budget`; ``gates`` an optional
-    :class:`GateConfig` (default: the investigation's own ``discovery.gates``). Returns
-    ``{iterations, stop_reason, applied, decisions, inv_path}``."""
+    :class:`GateConfig` (default: the investigation's own ``discovery.gates``).
+
+    ``goal`` is a free-text steering prompt threaded into every request's ``context["goal"]``
+    (see :func:`_steer_fill`); when omitted it falls back to the investigation's durable
+    ``discovery.goal``, so a goal written onto the investigation steers every run. Returns
+    ``{iterations, stop_reason, applied, decisions, inv_path, goal}``."""
     from discovery_engine import discover
     from discovery_engine.discover._policy import (
         BUDGET_EXHAUSTED, INSUFFICIENT_EVIDENCE, NO_INFORMATIVE_EXPERIMENT,
@@ -47,8 +92,11 @@ def investigate(ws_root, inv_slug, *, fill, budget=None, policy=None, gates=None
     stop_reason = None
     inv_path = None
     i = 0
+    eff_goal = goal
     for i in range(1, max_iterations + 1):
         inv_path, inv_spec, studies = discover.load_cycle_inputs(ws_root, inv_slug)
+        # Explicit goal wins; else the investigation's durable discovery.goal.
+        eff_goal = goal or (inv_spec.get("discovery") or {}).get("goal")
         cyc = _cycle_with_evidence(ws_root, inv_slug, inv_spec, studies)
         # Act on the frontier while there is auto-gated generative work — anomalies and other
         # non-blocking items count, so `closed` (no blocking kinds) does not pre-empt the loop.
@@ -59,7 +107,9 @@ def investigate(ws_root, inv_slug, *, fill, budget=None, policy=None, gates=None
         if not reqs:
             stop_reason = "closed" if de.closure(cyc, inv_spec).get("closed") else NO_INFORMATIVE_EXPERIMENT
             break
-        outs = run_requests(reqs, fill=fill, ws_root=ws_root, inv_slug=inv_slug, budget=budget)
+        reqs = _goal_order(reqs, eff_goal)       # on-goal requests fill first under the budget
+        outs = run_requests(reqs, fill=_steer_fill(fill, eff_goal), ws_root=ws_root,
+                            inv_slug=inv_slug, budget=budget)
         applied_here = 0
         budget_hit = False
         for o in outs:
@@ -83,4 +133,5 @@ def investigate(ws_root, inv_slug, *, fill, budget=None, policy=None, gates=None
     if stop_reason is None:
         stop_reason = "max_iterations"
     return {"iterations": i, "stop_reason": stop_reason, "applied": applied_total,
-            "decisions": decisions, "inv_path": str(inv_path) if inv_path else None}
+            "decisions": decisions, "inv_path": str(inv_path) if inv_path else None,
+            "goal": eff_goal}
