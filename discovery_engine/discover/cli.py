@@ -153,9 +153,16 @@ def summarize_suggestions(suggestions: list[dict]) -> str:
 def summarize(result: dict) -> str:
     verdicts = result["knowledge"]["verdicts"]
     tally: dict[str, int] = {}
+    cand_tally: dict[str, int] = {}
     for rec in verdicts.values():
         tally[rec["verdict"]] = tally.get(rec["verdict"], 0) + 1
+        cand = rec.get("candidate")
+        if cand:
+            cand_tally[cand] = cand_tally.get(cand, 0) + 1
     verdict_line = ", ".join(f"{v}={n}" for v, n in sorted(tally.items())) or "none"
+    if cand_tally:
+        cand_line = ", ".join(f"{v}={n}" for v, n in sorted(cand_tally.items()))
+        verdict_line += (f"  (derived candidates, promote with set-verdict: {cand_line})")
     gate_line = ", ".join(f"{g['id']}:{g['verdict']}" for g in result["gates"]) or "none"
     return (
         f"verdicts: {verdict_line}\n"
