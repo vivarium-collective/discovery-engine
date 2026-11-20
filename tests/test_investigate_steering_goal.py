@@ -74,3 +74,42 @@ def test_goal_order_floats_relevant_requests_first():
     assert ordered[0].kind == "visualize"              # most goal-relevant floats first
     # no goal -> unchanged order (same objects, same order)
     assert _goal_order(reqs, None) == reqs
+
+
+def test_goal_order_kind_intent_floats_visualize_without_literal_overlap():
+    """The peer-drive case: a goal that asks for visuals in intent words ('exposition',
+    'detail') but shares NO substring with visualize/fig: targets. The kind-intent signal
+    must still float visualize above propose_study (pure target overlap scored them equal)."""
+    from types import SimpleNamespace
+
+    from discovery_engine.discover.investigate import _goal_order
+    goal = ("Make this an exposition of the ecoli baseline biology, showcasing in great "
+            "detail the various features and capabilities of the model.")
+    # emission order mirrors the real frontier: propose_study first, visualize later
+    reqs = (
+        [SimpleNamespace(kind="propose_study", target=f"study-{i}", rationale="", produces="study.yaml/v4")
+         for i in range(6)]
+        + [SimpleNamespace(kind="author_tests", target=f"t-{i}", rationale="", produces="study.yaml/v4")
+           for i in range(3)]
+        + [SimpleNamespace(kind="visualize", target=f"fig:s{i}/panel", rationale="", produces="viz_spec/v1")
+           for i in range(5)]
+    )
+    ordered = _goal_order(reqs, goal)
+    assert ordered[0].kind == "visualize"                       # floated despite zero literal overlap
+    # every visualize now precedes every propose_study
+    first_visualize = next(i for i, r in enumerate(ordered) if r.kind == "visualize")
+    first_propose = next(i for i, r in enumerate(ordered) if r.kind == "propose_study")
+    assert first_visualize < first_propose
+
+
+def test_goal_order_kind_intent_respects_a_study_goal():
+    """General, not hardcoded: a goal about proposing studies floats propose_study, not visualize."""
+    from types import SimpleNamespace
+
+    from discovery_engine.discover.investigate import _goal_order
+    goal = "Investigate new hypotheses and explore open questions in this study."
+    reqs = [
+        SimpleNamespace(kind="visualize", target="fig:s/p", rationale="", produces="viz_spec/v1"),
+        SimpleNamespace(kind="propose_study", target="study-x", rationale="", produces="study.yaml/v4"),
+    ]
+    assert _goal_order(reqs, goal)[0].kind == "propose_study"

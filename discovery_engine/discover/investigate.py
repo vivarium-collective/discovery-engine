@@ -42,24 +42,52 @@ def _steer_fill(fill, goal: str | None):
     return steered
 
 
+# Goal cue words → the request KIND they gesture at. A goal names what it WANTS
+# ("a visual exposition", "test this", "decide X") in intent words that rarely appear
+# verbatim in a request's target string — so string overlap alone misses them (a goal of
+# "exposition in great detail" shares no substring with a `visualize` / `fig:…` request).
+# This maps the intent to the kind. Substrings (stems), matched anywhere in the goal.
+_KIND_CUES: dict[str, tuple[str, ...]] = {
+    "visualize": ("visual", "figure", "fig ", "chart", "plot", "diagram", "graphic",
+                  "illustrat", "exposition", "showcase", "showcasing", "display", "render",
+                  "picture", "panel", "detail", "image"),
+    "propose_study": ("study", "studies", "hypothes", "investigat", "explore", "scenario",
+                      "question"),
+    "author_tests": ("test", "validat", "verif", "assert", "criteri", "gate", "falsif"),
+    "interpret_finding": ("interpret", "finding", "meaning", "insight", "takeaway"),
+    "explain": ("explain", "narrat", "describe", "exposition", "walkthrough"),
+    "resolve_decision": ("decid", "decision", "resolv", "adjudicat", "choose", "choice"),
+    "acquire_model": ("model", "composite", "simulat", "mechanism"),
+    "critique": ("critiqu", "scrutin", "adversar", "challenge", "stress"),
+}
+_KIND_BOOST = 2  # weight of a kind-intent match, blended with per-token target overlap
+
+
 def _goal_order(reqs, goal: str | None):
-    """Stable-sort auto-gated requests so those most lexically relevant to the free-text
-    ``goal`` fill first — the budget-aware half of steering (which requests run before the
-    budget is spent), complementing :func:`_steer_fill` (how each is filled). A transparent
-    overlap heuristic — goal words (≥4 chars) appearing in a request's kind/target/rationale/
-    produces — so it is general over any goal, not hardcoded to a kind; ties keep emission
-    order (``sorted`` is stable). The frontier is unchanged: this only reorders what the cycle
-    already chose to emit, so nothing is invented and no honest request is dropped."""
+    """Stable-sort auto-gated requests so those most relevant to the free-text ``goal`` fill
+    first — the budget-aware half of steering (which requests run before the budget is spent),
+    complementing :func:`_steer_fill` (how each is filled). Two transparent, general signals,
+    blended: (1) per-token overlap of goal words (≥4 chars) with a request's
+    kind/target/rationale/produces, and (2) a KIND-intent boost when the goal names what it
+    wants (see :data:`_KIND_CUES`) and a request is of that kind — because a goal like
+    "a visual exposition in great detail" shares no substring with a ``visualize`` / ``fig:…``
+    request, yet clearly asks for visuals. Neither is hardcoded to one kind; ties keep emission
+    order (``sorted`` is stable). The frontier is unchanged — this only reorders what the cycle
+    already emitted, so nothing is invented and no honest request is dropped."""
     if not goal:
         return reqs
     import re
-    tokens = {t for t in re.findall(r"[a-z0-9]+", goal.lower()) if len(t) >= 4}
-    if not tokens:
+    g = goal.lower()
+    tokens = {t for t in re.findall(r"[a-z0-9]+", g) if len(t) >= 4}
+    intent_kinds = {k for k, cues in _KIND_CUES.items() if any(c in g for c in cues)}
+    if not tokens and not intent_kinds:
         return reqs
 
     def score(r):
         hay = " ".join(str(x) for x in (r.kind, r.target, r.rationale, r.produces)).lower()
-        return sum(1 for t in tokens if t in hay)
+        overlap = sum(1 for t in tokens if t in hay)
+        kind_boost = _KIND_BOOST if r.kind in intent_kinds else 0
+        return overlap + kind_boost
 
     return sorted(reqs, key=lambda r: -score(r))
 
