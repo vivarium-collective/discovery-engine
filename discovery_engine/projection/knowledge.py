@@ -97,6 +97,52 @@ _EMPTY = (None, "", [], {})
 #: other inequality (incl. inconclusive-vs-supported) is still a divergence.
 _HOLDS = frozenset({"supported", "qualified"})
 
+#: finding `status` polarities for the derived-candidate rubric.
+_REFUTING_FINDING = frozenset({"refutes", "refuted", "contradicts", "disconfirms", "falsifies"})
+_CONFIRMING_FINDING = frozenset({"confirms", "confirmed", "supports", "consistent", "validated"})
+
+
+def _candidate_verdict(spec: dict) -> str:
+    """A DERIVED candidate verdict for an evidence-complete study the coded roll-up could
+    not resolve — its evidence lives in ``gate_status`` + ``findings``, not per-test outcomes.
+
+    Honesty model: this is a PROPOSAL only. It rides as ``candidate`` (``candidate_source:
+    derived``), never as the authored ``verdict`` and never closes an acceptance criterion;
+    the study stays ``unassessed``/``calibrated`` for closure. A human/agent promotes it with
+    ``set-verdict`` (→ ``verdict_source: authored``). Rubric: gate passed + a confirming
+    finding, no refutes → ``supported``; a failed gate → ``refuted``; refuting findings →
+    ``qualified`` when confirms are also present, else ``refuted``; otherwise ``inconclusive``."""
+    gate = str(spec.get("gate_status") or "").strip().lower()
+    statuses = [str(f.get("status") or "").strip().lower()
+                for f in (spec.get("findings") or []) if isinstance(f, dict)]
+    refutes = any(s in _REFUTING_FINDING for s in statuses)
+    confirms = any(s in _CONFIRMING_FINDING for s in statuses)
+    if gate == "failed":
+        return "refuted"
+    if refutes:
+        return "qualified" if confirms else "refuted"
+    if gate == "passed":
+        # calibrated ⇒ findings are present; gate passed + no refute ⇒ candidate supported.
+        # A `novel` (non-refuting) finding does NOT downgrade it — the proposal is for a human
+        # to confirm, and projection/caveat language in a rationale is not a refutation.
+        return "supported"
+    return "inconclusive"
+
+
+def _authored_from_conclusion_verdicts(block: Any) -> str | None:
+    """The authored verdict carried by the older ``conclusion_verdicts: [{claim, verdict,
+    confidence}]`` block (some studies use it instead of a top-level ``verdict``). Worst-wins
+    over its entries so a multi-claim study is not over-stated:
+    refuted > inconclusive > qualified > supported."""
+    if not isinstance(block, list):
+        return None
+    found = {str(e.get("verdict") or "").strip().lower()
+             for e in block if isinstance(e, dict)}
+    for v in ("refuted", "inconclusive", "qualified", "supported"):
+        if v in found:
+            return v
+    return None
+
 
 # ---------------------------------------------------------------------------
 # Canonical verdict (per study)
@@ -118,6 +164,8 @@ def canonical_verdict(study_spec: dict) -> dict:
     if not authored:
         cv = study_spec.get("conclusion_verdict")
         authored = cv.get("verdict") if isinstance(cv, dict) else cv
+    if not authored:
+        authored = _authored_from_conclusion_verdicts(study_spec.get("conclusion_verdicts"))
     authored = authored if authored in _AUTHORED_OK else None
 
     verdict = authored or derived
@@ -142,9 +190,11 @@ def canonical_verdict(study_spec: dict) -> dict:
     finding_ids = _finding_ids(study_spec)
     evidence_recorded = bool(finding_ids)
     calibrated = (not authored) and derived == "unassessed" and evidence_recorded
+    candidate = _candidate_verdict(study_spec) if calibrated else None
     if calibrated:
         rationale = (f"No tracked verdict yet, but {len(finding_ids)} recorded finding(s) present "
-                     f"— calibrated, pending a tracked run.")
+                     f"— calibrated, pending a tracked run. Derived candidate verdict: "
+                     f"{candidate} (source: derived — promote with set-verdict to author it).")
 
     out: dict[str, Any] = {
         "verdict": verdict,
@@ -155,6 +205,9 @@ def canonical_verdict(study_spec: dict) -> dict:
         "evidence_recorded": evidence_recorded,
         "calibrated": calibrated,
     }
+    if candidate:
+        out["candidate"] = candidate
+        out["candidate_source"] = "derived"
 
     progress = study_spec.get("execution_status")
     if progress in _PROGRESS_OK:
