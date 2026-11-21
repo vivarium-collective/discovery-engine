@@ -26,7 +26,11 @@ dependencies = [
     "viva-workspace",
     # composite spec / generator registry (composite_spec, core_introspection)
     "process-bigraph",
-    "bigraph-schema",
+    # bigraph-schema 1.8.4 refactored away the top-level `matching` module into a
+    # `methods/` subpackage, but process-bigraph (<=1.11.0) still imports
+    # `bigraph_schema.matching` (via process_bigraph.holes) — so 1.8.4 breaks import
+    # at test-collection time. Cap below 1.8.4 until process-bigraph catches up.
+    "bigraph-schema>=1.8.1,<1.8.4",
     "filelock>=3.12",
     "jinja2>=3.1",
     "jsonschema[format-nongpl]>=4.21",
