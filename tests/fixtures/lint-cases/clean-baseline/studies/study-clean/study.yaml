@@ -1,4 +1,5 @@
 name: study-clean
+claim: "v2ecoli reproduces the DnaA shortfall within the literature-anchored band."
 baseline:
   - name: b1
     composite: pkg.composites.x

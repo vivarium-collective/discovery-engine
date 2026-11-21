@@ -49,6 +49,7 @@ from discovery_engine.reporting.linter.engine import (  # noqa: F401
     set_default_rulesets,
     CHECKS,
     STUDY_COMPLETENESS_CHECKS,
+    build_json_report,
 )
 
 _SUBMODULES = (

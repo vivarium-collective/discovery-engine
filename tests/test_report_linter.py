@@ -772,8 +772,14 @@ def test_cli_json_mode_emits_valid_json(tmp_path, capsys):
     main(["--ws", str(ws), "--json"])
     out = capsys.readouterr().out
     data = json.loads(out)
-    assert isinstance(data, list)
-    assert all("level" in entry and "override_key" in entry for entry in data)
+    # --json now emits the structured CI contract: {findings, summary, exit_code}.
+    assert set(data) == {"findings", "summary", "exit_code"}
+    assert isinstance(data["findings"], list)
+    assert all("level" in e and "override_key" in e for e in data["findings"])
+    s = data["summary"]
+    assert set(s) == {"total", "by_level", "by_check", "internal_errors"}
+    assert s["total"] == len(data["findings"])
+    assert "exit_code" in data
 
 
 # ---------------------------------------------------------------------------
