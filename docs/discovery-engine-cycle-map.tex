@@ -56,9 +56,9 @@
 {\large\color{muted} A map of the derive-first discovery cycle:\\[2pt]
 the stages, the functions, the skills, and the flow into investigations, studies, and models.\par}
 \vspace{2.4cm}
-{\large discovery-engine \textbf{0.6.0} \; (\code{main})\par}
+{\large discovery-engine \textbf{0.7.2} \; (\code{main})\par}
 \vspace{0.4em}
-{\color{muted} 2026-11-19\par}
+{\color{muted} 2026-11-21\par}
 \vspace{2cm}
 {\color{muted}\small
 \begin{tabular}{@{}r@{\;\;}l@{}}
@@ -123,6 +123,20 @@ grader/resolver version} is \code{stale} and re-baselined rather than mined --- 
 reflects new science, not a grader bump. (A change in the \emph{measured inputs} under the same
 evaluator is deliberately \emph{not} stale: that is the normal path to a genuine finding. The
 \code{inputs\_hash} is kept for provenance, not as a staleness gate.)
+
+\paragraph{Informative design, derived judgment, and steering (0.7.x).} Three increments sharpen
+the loop without loosening the honesty rules. \textbf{Design} gained an \emph{expected-information}
+fallback: when no fully-disjoint numeric-band pair exists, \code{rank\_study\_experiments}
+(\code{phases/experiment\_utility.py}) scores the candidate regimes by how much they would separate
+the live hypotheses and picks the most-informative one --- or abstains when none is informative,
+rather than forcing a design. \textbf{Judgment} gained a \emph{derived candidate verdict}: for an
+evidence-complete study whose coded roll-up leaves the verdict unassessed, the knowledge projection
+attaches a \code{candidate\_source: derived} verdict from \code{gate\_status} + \code{findings} --- a
+proposal \emph{surfaced in status}, never the authored verdict and never closing a criterion; a human
+promotes it with \code{set-verdict}. \textbf{Execution} gained one durable lever on \emph{what} the
+engine produces: a free-text \emph{steering goal} on \code{discover investigate} that rides in every
+generation request's context and floats on-goal work first (token overlap + kind-intent), while the
+frontier stays derived from state, never from the prompt.
 
 % ===========================================================================
 \section{The cycle at a glance}
@@ -252,7 +266,7 @@ read ``met'' through a gate.
 \section{Field-level information flow --- what each stage reads and writes}
 
 The substrate above names the artifact classes; this table names the \emph{specific
-fields} each stage touches, verified against the 0.6.0 source. Reads/writes are split by
+fields} each stage touches, verified against the 0.7.2 source. Reads/writes are split by
 artifact: \textbf{inv} = \code{investigation.yaml}, \textbf{st} = \code{study.yaml},
 \textbf{db} = \code{runs.db}. A dash is ``nothing direct --- it arrives through the
 in-memory cycle bundle.'' Every write is atomic and comment-preserving; a derive-first
@@ -342,12 +356,15 @@ heuristic value score; \code{select\_portfolio} orders them (repair prereqs firs
 by discrimination, then extend). \real, entirely frontier-driven --- with no hypotheses nothing
 is discriminable, so the plan is all repair/extend.
 
-\stage{C --- design\_discriminating\_study}{pure}
-Returns \code{None} unless a study has a \emph{discriminable} hypothesis set ($\geq 2$ live
-hypotheses predicting the same observable with \textbf{disjoint numeric bands}). Otherwise
-packages the authored hypotheses into an ExperimentDesign (one arm per prediction, control arms
-by naming heuristic, a pre-committed decision rule). \cond{} --- all scientific content is
-authored; the function only reformats + adds control detection.
+\stage{C --- design\_discriminating\_study {\normalfont+} rank\_study\_experiments}{pure}
+Discriminates a study's competing hypotheses. It first tries a fully-\textbf{disjoint numeric-band}
+pair ($\geq 2$ live hypotheses predicting the same observable with non-overlapping bands); with none,
+it falls through to the \textbf{expected-information (EIG)} scorer (\code{rank\_study\_experiments},
+\code{phases/experiment\_utility.py}), which ranks the candidate regimes by how much they would
+separate the hypotheses and picks the most-separating one --- or returns \code{None} when no
+experiment is informative. The result is an ExperimentDesign (one arm per prediction, control arms
+by naming heuristic, a pre-committed decision rule). \cond{} --- the scientific content is authored;
+the function reformats it, adds control detection, and commits a decision rule.
 
 \stage{D --- build\_catalog / bind\_model\_versions}{pure}
 Walks every study's baseline + variant arms, groups composites by path, and builds one
@@ -701,7 +718,10 @@ non-identical snapshot replay), and a CI matrix compares against the \code{full}
 \code{deterministic\_only} / \code{no\_critique} / \code{no\_build} baselines.
 \item \textbf{\code{discover investigate}} (\code{discover/investigate.py}). One bounded loop over
 the existing verbs --- project $\rightarrow$ emit $\rightarrow$ fill $\rightarrow$ apply under the
-budget, logging each decision --- halting on closure / budget / no-informative-move. It adds no new
+budget, logging each decision --- halting on closure / budget / no-informative-move. It takes an
+optional free-text \textbf{steering goal}: the one durable lever on \emph{what} the engine produces,
+threaded into every generation request's \code{context} so on-goal work fills first (token overlap +
+kind-intent), while the frontier stays derived from state, never from the prompt. It adds no new
 phase logic; every write goes through the existing apply ops.
 \end{itemize}
 
@@ -794,7 +814,7 @@ F $\cdot$ Evaluate & \cond & \code{unresolved} without authored hypotheses + pre
 F $\cdot$ Candidates + model-error & \real & fire on a \emph{computed} refutation; 0 candidates without a prior snapshot\\
 Discovery (review-findings) & \real & FindingCandidate $\rightarrow$ reviewed promotion writes \code{discoveries[]}\\
 D $\cdot$ Model build + \code{model\_versions} & \real & novel mechanisms route to BUILD; arms bound to content-addressed \code{mv:} ids\\
-C $\cdot$ Design & \cond & \code{None} without $\geq 2$ disjoint-band hypotheses\\
+C $\cdot$ Design & \cond & disjoint-band pair, else expected-information (EIG) scorer; \code{None} when no experiment is informative\\
 Generation seam & \real & emit / fill / apply; 7 kinds wired, 2 queued; honesty-gated writers\\
 Growth (propose / generative loop) & \real & a refuted finding proposes \emph{and} (if authorized) runs the next study\\
 Growth $\cdot$ select / AutonomyPolicy & \real & one policy gates every consequential op; drives promotion\\
@@ -828,7 +848,7 @@ reopen.
 
 \vfill
 \begin{center}\footnotesize\color{muted}
-discovery-engine 0.6.0 \;$\cdot$\; derive-first \;$\cdot$\; one measured input \;$\cdot$\; one LLM seam \;$\cdot$\; the loop closes
+discovery-engine 0.7.2 \;$\cdot$\; derive-first \;$\cdot$\; one measured input \;$\cdot$\; one LLM seam \;$\cdot$\; the loop closes
 \end{center}
 
 \end{document}

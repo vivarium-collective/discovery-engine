@@ -1,7 +1,7 @@
 # Discovery Engine — Interactive Map Specification
 
 > Spec for the clickable cycle-diagram realization of `discovery-engine-cycle-map.pdf`.
-> Ground-truth: `discovery-engine` 0.6.0 (`main`, HEAD `50dbfad`). Verified against the
+> Ground-truth: `discovery-engine` 0.7.2 (`main`, HEAD `a720eff`). Verified against the
 > live codebase 2026-11-18. This document is the single source of truth for the HTML
 > artifact's data model, layout, and interaction.
 
@@ -89,7 +89,7 @@ ArtifactId = "investigation" | "study" | "runs" | "modelversions"
 ### 2.3 Field-level I/O (the `IO` map)
 
 Each node also carries the **exact `investigation.yaml` / `study.yaml` / `runs.db` fields**
-it reads and writes, verified against 0.6.0 HEAD `50dbfad`. The HTML embeds this as a
+it reads and writes, verified against 0.7.2 HEAD `a720eff`. The HTML embeds this as a
 separate `const IO = { <node-id>: { r:{inv:[],study:[],runs:[]}, w:{…} } }` map and
 renders it in the detail panel under **"Information flow — by field"**; the PDF carries
 the same data as its §4 field-flow table. Keep the two in sync — both regenerate from the
@@ -283,7 +283,7 @@ Keyboard: arrow keys move selection along the ring; Esc closes the panel; `/` fo
 ## 7. Content fidelity rules
 
 - Every function name and module path must match the live code (the tables in §2 are the
-  verified set as of 0.6.0 HEAD `50dbfad`). If the engine moves, regenerate from the three
+  verified set as of 0.7.2 HEAD `a720eff`). If the engine moves, regenerate from the three
   inventory passes, do not hand-patch.
 - **Do not** describe `detect_discoveries` as live — it is retired; the path is
   `detect_finding_candidates` → `review-findings --promote`.
@@ -302,6 +302,6 @@ Keyboard: arrow keys move selection along the ring; Esc closes the panel; `/` fo
   node/edge arrays as a `const DATA = {…}` block near the top.
 - Title (2–4 words): "Discovery Engine Map". Explanation goes in `<meta name=description>`.
 - Works at phone width; both light and dark mode; `body` has an explicit background.
-- Footer line mirrors the PDF: `discovery-engine 0.6.0 · derive-first · one measured input
+- Footer line mirrors the PDF: `discovery-engine 0.7.2 · derive-first · one measured input
   · one LLM seam · the loop closes`.
 ```
