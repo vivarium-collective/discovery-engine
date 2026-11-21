@@ -1,0 +1,100 @@
+name: 'Discovery-engine gap report'
+description: >-
+  Run the discovery-engine study-completeness gap-check on a workspace and report
+  the gaps as inline GitHub annotations + a job-summary / PR comment. A workspace
+  repo references this in one `uses:` line; all the gap→annotation rendering lives
+  in discovery_engine.integration.ci, so every repo reports gaps the same way.
+
+inputs:
+  workspace:
+    description: 'Path to the workspace root (the dir with workspace.yaml).'
+    required: false
+    default: '.'
+  version:
+    description: >-
+      viva-discovery-engine version spec to install (e.g. "0.7.3" or ">=0.7,<0.8").
+      Empty installs the latest.
+    required: false
+    default: ''
+  strict:
+    description: 'Promote opt-in warnings to blocking errors ("true"/"false").'
+    required: false
+    default: 'false'
+  ruleset:
+    description: 'Enable an opt-in ruleset (e.g. "campaign"). Empty = default rulesets.'
+    required: false
+    default: ''
+  warn_only:
+    description: >-
+      Report-only: emit annotations + the summary but never fail the job (exit 0).
+      Set "false" once a repo is ready to BLOCK on gaps.
+    required: false
+    default: 'true'
+  fail_on_internal_errors:
+    description: >-
+      Fail the job if a gap-check crashed (a blind spot). Only applies when
+      warn_only is "false".
+    required: false
+    default: 'true'
+  comment:
+    description: 'Post the gap summary as a PR comment ("true"/"false").'
+    required: false
+    default: 'true'
+  studies_dir:
+    description: 'Path prefix for study files in annotations.'
+    required: false
+    default: 'workspace/studies'
+
+runs:
+  using: composite
+  steps:
+    - name: Set up uv
+      uses: astral-sh/setup-uv@v5
+
+    - name: Install viva-discovery-engine
+      shell: bash
+      run: |
+        spec="viva-discovery-engine"
+        if [ -n "${{ inputs.version }}" ]; then
+          case "${{ inputs.version }}" in
+            [0-9]*) spec="viva-discovery-engine==${{ inputs.version }}" ;;
+            *)      spec="viva-discovery-engine${{ inputs.version }}" ;;
+          esac
+        fi
+        uv pip install --system "$spec"
+
+    - name: Run gap report
+      id: gap
+      shell: bash
+      run: |
+        set +e
+        args=(--ws "${{ inputs.workspace }}" --annotate \
+              --studies-dir "${{ inputs.studies_dir }}" \
+              --summary-file "$GITHUB_STEP_SUMMARY")
+        [ "${{ inputs.strict }}" = "true" ] && args+=(--strict)
+        [ "${{ inputs.warn_only }}" = "true" ] && args+=(--warn-only)
+        [ "${{ inputs.fail_on_internal_errors }}" = "false" ] && args+=(--allow-internal-errors)
+        [ -n "${{ inputs.ruleset }}" ] && args+=(--ruleset "${{ inputs.ruleset }}")
+        python -m discovery_engine.integration.ci "${args[@]}" > gap-summary.md
+        code=$?
+        cat gap-summary.md
+        echo "exit_code=$code" >> "$GITHUB_OUTPUT"
+        exit 0
+
+    - name: Comment the gap summary on the PR
+      if: ${{ inputs.comment == 'true' && github.event_name == 'pull_request' }}
+      shell: bash
+      env:
+        GH_TOKEN: ${{ github.token }}
+      run: |
+        gh pr comment "${{ github.event.pull_request.number }}" \
+          --repo "${{ github.repository }}" \
+          --body-file gap-summary.md || echo "::notice::could not post PR comment (token scope?)"
+
+    - name: Fail the job if the gate is blocking
+      shell: bash
+      run: |
+        if [ "${{ steps.gap.outputs.exit_code }}" != "0" ]; then
+          echo "::error::discovery-engine gap-check gate is blocking (exit ${{ steps.gap.outputs.exit_code }})."
+          exit 1
+        fi
