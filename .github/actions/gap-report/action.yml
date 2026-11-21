@@ -51,9 +51,16 @@ runs:
     - name: Set up uv
       uses: astral-sh/setup-uv@v5
 
-    - name: Install viva-discovery-engine
+    - name: Run gap report
+      id: gap
       shell: bash
       run: |
+        set +e
+        # Resolve the engine spec, then run via an EPHEMERAL uv env — never a
+        # system `uv pip install`, which hits PEP 668 ("externally managed
+        # environment") on standard runners (ubuntu-latest's /usr Python) and
+        # fails the Action before the linter runs. `uv run --no-project --with`
+        # provisions an isolated env for just this invocation.
         spec="viva-discovery-engine"
         if [ -n "${{ inputs.version }}" ]; then
           case "${{ inputs.version }}" in
@@ -61,13 +68,6 @@ runs:
             *)      spec="viva-discovery-engine${{ inputs.version }}" ;;
           esac
         fi
-        uv pip install --system "$spec"
-
-    - name: Run gap report
-      id: gap
-      shell: bash
-      run: |
-        set +e
         args=(--ws "${{ inputs.workspace }}" --annotate \
               --studies-dir "${{ inputs.studies_dir }}" \
               --summary-file "$GITHUB_STEP_SUMMARY")
@@ -75,7 +75,8 @@ runs:
         [ "${{ inputs.warn_only }}" = "true" ] && args+=(--warn-only)
         [ "${{ inputs.fail_on_internal_errors }}" = "false" ] && args+=(--allow-internal-errors)
         [ -n "${{ inputs.ruleset }}" ] && args+=(--ruleset "${{ inputs.ruleset }}")
-        python -m discovery_engine.integration.ci "${args[@]}" > gap-summary.md
+        uv run --no-project --with "$spec" \
+          python -m discovery_engine.integration.ci "${args[@]}" > gap-summary.md
         code=$?
         cat gap-summary.md
         echo "exit_code=$code" >> "$GITHUB_OUTPUT"
