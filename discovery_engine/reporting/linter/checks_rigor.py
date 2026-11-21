@@ -607,15 +607,33 @@ def _check_baseline_config_carry(ctx: _LintContext) -> None:
     Silent when there is no baseline at all (``missing_baseline`` owns that).
     Handles the v4 ``conditions.baseline`` mapping and the legacy ``baseline[]``
     list shape (mirrors ``_check_missing_baseline``).
+
+    Also silent when the baseline's composite ref resolves to a COMMITTED spec
+    file (the file carries the full param set, so running it at defaults is a
+    reproducible spec), or when the study sets ``baseline_config_skip: true``
+    (the explicit opt-out for registry-id / Python composites run at their
+    committed canonical defaults, consistent with ``adversarial_coverage_skip``).
     """
     if ctx.slug == "<workspace>":
         return
     cond = _read_baseline_condition(ctx.spec)
     if cond is None:
         return  # no baseline declared — missing_baseline handles that gap
+    # Explicit opt-out: a study that deliberately runs a composite at its
+    # committed canonical defaults IS a reproducible spec by that intent.
+    # Mirrors the narrative_spine_skip / adversarial_coverage_skip pattern.
+    if ctx.spec.get("baseline_config_skip") is True:
+        return
     if _baseline_params_are_rich(cond.get("params")):
         return
     if _resolve_baseline_config_file(ctx, cond.get("config_file")) is not None:
+        return
+    # A composite ref that resolves to a COMMITTED spec file carries the full
+    # param set on disk — running it at defaults IS reproducible (the file is
+    # the spec), so "no inline override" is not a reproducibility gap here.
+    # (Registry-id / Python composites don't resolve to a file → still checked;
+    # use baseline_config_skip for those when the defaults are the intent.)
+    if _resolve_composite_file(ctx, cond.get("composite")) is not None:
         return
     if _runtime_carries_run_config(ctx.spec.get("runtime")):
         return
@@ -625,7 +643,9 @@ def _check_baseline_config_carry(ctx: _LintContext) -> None:
         message=(
             "the viewer shows composite defaults, not a reproducible spec; "
             "Run will not reproduce this study — add "
-            "conditions.baseline.config_file or fill conditions.baseline.params"
+            "conditions.baseline.config_file, fill conditions.baseline.params, "
+            "or (if running the committed composite defaults is intended) set "
+            "baseline_config_skip: true with a baseline_config_skip_reason"
         ),
         check="baseline_config_carry",
     )

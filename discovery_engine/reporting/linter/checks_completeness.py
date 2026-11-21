@@ -181,6 +181,11 @@ def _check_missing_variants(ctx: _LintContext) -> None:
     Variants are the planned perturbations / configurations the study
     will run. A study with no variants reads to the expert as "design
     incomplete — no specific experimental conditions yet."
+
+    Silent when the study encodes its experimental variation as ≥2 baseline
+    arms (a multi-baseline comparison — e.g. composite-A vs -B vs -control —
+    IS experimental variation, just placed in ``baseline[]`` /
+    ``conditions.baselines`` rather than ``variants[]``).
     """
     if ctx.slug == "<workspace>":
         return
@@ -190,6 +195,18 @@ def _check_missing_variants(ctx: _LintContext) -> None:
     v4_variants = conditions.get("variants") if isinstance(conditions, dict) else []
     if (isinstance(variants, list) and len(variants) > 0) or \
        (isinstance(v4_variants, list) and len(v4_variants) > 0):
+        return
+    # A multi-baseline comparison (≥2 baseline arms) IS experimental variation,
+    # just carried in baseline[] rather than variants[] — not "design incomplete".
+    baseline = ctx.spec.get("baseline")
+    baseline_arms = (
+        sum(1 for b in baseline if isinstance(b, dict))
+        if isinstance(baseline, list) else 0
+    )
+    v4_baselines = conditions.get("baselines") if isinstance(conditions, dict) else None
+    if isinstance(v4_baselines, list):
+        baseline_arms += sum(1 for b in v4_baselines if isinstance(b, dict))
+    if baseline_arms >= 2:
         return
     ctx.add(
         level=_completeness_level(ctx.spec, warn_at="Build"),
