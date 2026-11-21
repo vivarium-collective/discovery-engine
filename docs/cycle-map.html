@@ -1,6 +1,6 @@
 <title>Discovery Engine Map</title>
 <meta name="claude:viewport-fit-sides" content="cover">
-<meta name="description" content="An interactive map of the discovery-engine 0.6.0 cycle: stages, functions, skills, and the flow into investigations, studies, and models.">
+<meta name="description" content="An interactive map of the discovery-engine 0.7.2 cycle: stages, functions, skills, and the flow into investigations, studies, and models.">
 <style>
 /* Layout: a clockwise racetrack loop of the cycle's stages around a central engine core
    (the four substrate artifacts). Every edge runs along the perimeter — no crossings. */
@@ -229,7 +229,7 @@ footer{color:var(--faint);font-size:.72rem;text-align:center;padding:4px 0 26px;
 <div class="wrap">
   <header class="top">
     <h1>The Discovery Engine</h1>
-    <p class="sub">A clickable map of the derive-first cycle — click any stage for its functions, skills &amp; I/O. <span class="mono" style="color:var(--muted)">discovery-engine 0.6.0</span> &nbsp;·&nbsp; <button class="linkbtn" data-pop="intro">How to read this ⌄</button></p>
+    <p class="sub">A clickable map of the derive-first cycle — click any stage for its functions, skills &amp; I/O. <span class="mono" style="color:var(--muted)">discovery-engine 0.7.2</span> &nbsp;·&nbsp; <button class="linkbtn" data-pop="intro">How to read this ⌄</button></p>
     <div class="toolbar">
       <div class="search"><span style="color:var(--faint);font-size:.8rem">⌕</span><input id="q" placeholder="Search stages, functions, skills…" aria-label="Search" autocomplete="off"></div>
       <button class="iconbtn" id="play" aria-pressed="false">▶ Play the cycle</button>
@@ -300,7 +300,7 @@ footer{color:var(--faint);font-size:.72rem;text-align:center;padding:4px 0 26px;
     <span class="lk"><span class="sw" style="background:var(--b-discovery)"></span> discovery</span>
   </div>
 
-  <footer>discovery-engine 0.6.0 · derive-first · one measured input · one LLM seam · the loop closes</footer>
+  <footer>discovery-engine 0.7.2 · derive-first · one measured input · one LLM seam · the loop closes</footer>
 </div>
 
 <div class="scrim" id="scrim"></div>
@@ -337,7 +337,7 @@ const NODES = [
   reads:["investigation","study"], writes:[],
   consumes:"authored knowledge/argument (H/AI) merged over derived (D); runs[].outcomes; behavior_tests; relation edges",
   produces:"the bundle: knowledge, argument, narrative, audit, gates, open_calls, validations, suggestions, signals, revision_proposals, viz_proposals, capability_gaps",
-  blurb:"The pure core. Projects one full cycle under the merge rule — authored wins, derived fills. The validators leave scientific_judgment null: the engine asserts no scientific truth, only consistency."},
+  blurb:"The pure core. Projects one full cycle under the merge rule — authored wins, derived fills. The validators leave scientific_judgment null: the engine asserts no scientific truth, only consistency. For an evidence-complete study the coded roll-up leaves unassessed, the knowledge projection attaches a derived candidate verdict (candidate_source: derived) from gate_status + findings — a proposal surfaced in status, never the authored verdict and never closing a criterion; a human promotes it with set-verdict."},
  {id:"reconcile",label:"A · Reconcile",band:"phase",grade:"real",purity:"pure",prov:["D"],
   fns:[["reconcile_evidence_state","phases/evidence_integrity.py"]], skills:[],
   reads:["study","runs"], writes:[],
@@ -351,11 +351,11 @@ const NODES = [
   produces:"classified CandidateActions (REPAIR / RESOLVE / REVISE / EXTEND), dependency-ordered",
   blurb:"Recasts the frontier into a scored, ordered portfolio: repair prerequisites first, then resolve by discrimination, then extend. Entirely frontier-driven — with no hypotheses nothing is discriminable."},
  {id:"design",label:"C · Design",band:"phase",grade:"conditional",purity:"pure",prov:["H"],
-  fns:[["design_discriminating_study","phases/experiment_design.py"]], skills:[],
+  fns:[["design_discriminating_study","phases/experiment_design.py"],["rank_study_experiments","phases/experiment_utility.py"]], skills:[],
   reads:["investigation"], writes:[],
   consumes:"a study's hypothesis set",
-  produces:"an ExperimentDesign — or None",
-  blurb:"Returns None unless a study has ≥2 live hypotheses predicting the same observable with disjoint numeric bands. Conditional: all the scientific content is authored; the function only reformats and adds control detection."},
+  produces:"an ExperimentDesign (disjoint-band or expected-information) — or None",
+  blurb:"Discriminates a study's competing hypotheses. First tries a fully-disjoint numeric-band pair; with none, it falls through to the expected-information (EIG) scorer, which ranks the candidate regimes and picks the most-separating one — or abstains (None) when no experiment is informative. Conditional: the scientific content is authored; the function reformats it, adds control detection, and commits a decision rule."},
  {id:"build",label:"D · Build",band:"phase",grade:"real",purity:"pure",prov:["D","AI"],
   fns:[["build_catalog","phases/model_architect.py"],["bind_model_versions","phases/model_architect.py"],["model_version","phases/model_architect.py"]], skills:["/viva-expert"],
   reads:["study"], writes:["modelversions"],
@@ -429,7 +429,7 @@ const NODES = [
   reads:["investigation","study"], writes:["runs","investigation","modelversions"],
   consumes:"the execute_plan + one AutonomyPolicy",
   produces:"{runs, needs_build, designed, frontier_before, frontier_after}",
-  blurb:"The one phase that changes real state. Picks the first run-ready op, checks readiness, dispatches — or records a 'would-run' and stops when not autonomous. Besides running a study it materializes a design, promotes a seed, builds a missing mechanism, and reopens on feedback. A bounded run (discover investigate) caps it with a Budget (simulation_runs / model_builds / generation_calls), halts on a typed stop (budget_exhausted / no_informative_experiment / …), and appends every gated action to decision_log[]. Dry by default: in the panel it runs sandboxed on a throwaway copy; with no runner it reports needs_build rather than faking a run."},
+  blurb:"The one phase that changes real state. Picks the first run-ready op, checks readiness, dispatches — or records a 'would-run' and stops when not autonomous. Besides running a study it materializes a design, promotes a seed, builds a missing mechanism, and reopens on feedback. A bounded run (discover investigate) caps it with a Budget (simulation_runs / model_builds / generation_calls) and takes an optional free-text steering goal — the one durable lever on WHAT the engine produces: it rides in every generation request's context and floats on-goal work first (token overlap + kind-intent), while the frontier stays derived from state, never from the prompt. It halts on a typed stop (budget_exhausted / no_informative_experiment / …) and appends every gated action to decision_log[]. Dry by default: in the panel it runs sandboxed on a throwaway copy; with no runner it reports needs_build rather than faking a run."},
  {id:"discovery",label:"Discovery",band:"discovery",grade:"real",purity:"mutating",prov:["D"],
   fns:[["detect_finding_candidates","phases/discovery_record.py"],["review_findings","discover/actions.py"],["promote_finding_candidate","discover/actions.py"]], skills:[],
   reads:["investigation"], writes:["investigation"],
@@ -476,7 +476,7 @@ const byId = Object.fromEntries(NODES.map(n=>[n.id,n]));
 const esc = s => s.replace(/[&<>]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;"}[c]));
 
 /* exact investigation.yaml / study.yaml / runs.db fields each stage reads (r) & writes (w),
-   verified against discovery-engine 0.6.0 HEAD 50dbfad. keys: inv=investigation.yaml, study=study.yaml, runs=runs.db */
+   verified against discovery-engine 0.7.2 HEAD a720eff. keys: inv=investigation.yaml, study=study.yaml, runs=runs.db */
 const IO = {
  inputs:{r:{inv:["studies[] / members[]"],study:["— the whole study.yaml is loaded","investigation (back-ref, fallback)"],runs:["run_id, completed_at (via runs.db)"]},w:{}},
  core:{r:{inv:["knowledge, argument (authored blocks)","question, audience","plan_gates[]","executive.decisions_needed[]","hypotheses[].predictions[]","model_versions[]","validation_snapshot"],study:["verdict / conclusion_verdict","findings[].{id,status,statement}","behavior_tests[] / tests[]","runs[].outcomes / computed_outcomes","claim, title, question","parent_studies[].relation","baseline[] / variants[]"]},w:{}},
