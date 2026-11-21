@@ -84,6 +84,10 @@ CHECKS = (
     # verdict is still pending (has runs, every test pending → gate undecided).
     # warning by default; error under --strict (publish REFUSE).
     "completed_but_verdict_pending",
+    # Study-completeness: a study past Design with NO behaviour tests (nothing to
+    # grade), and an evidence-bearing study with an empty one-line claim.
+    "study_missing_tests",
+    "study_claim_empty",
     # Chart's stamped source run != the study's latest run (or unrendered /
     # untracked-on-disk). Supersedes the mtime-based figure_stale_vs_run.
     # warning by default; error under --strict.
@@ -165,16 +169,20 @@ CHECKS = (
 )
 
 
-# The "study-completeness" gate: three detections of a study that LOOKS done but
-# is internally inconsistent, so an investigation should not read as complete
-# over it. Consumers (the vivarium-workbench publish path) filter the lint
-# findings by these check ids to render ONE study-completeness banner / CI
+# The "study-completeness" gate: detections of a study that LOOKS done but is
+# incomplete or internally inconsistent, so an investigation should not read as
+# complete over it. Consumers (the vivarium-workbench publish path) filter the
+# lint findings by these check ids to render ONE study-completeness banner / CI
 # annotation, and to REFUSE a --strict publish.
 #
 #   1. status_claims_done_no_runs_recorded — claims done but NO runs recorded.
 #   2. completed_but_verdict_pending       — completed but verdict still pending
 #                                            (has runs, every test pending).
-#   3. declared_composite_unresolved       — declares a Model composite that does
+#   3. study_missing_tests                 — past Design with NO behaviour tests
+#                                            (nothing to grade).
+#   4. study_claim_empty                   — evidence produced but the one-line
+#                                            `claim:` headline is empty.
+#   5. declared_composite_unresolved       — declares a Model composite that does
 #                                            NOT resolve to a real payload. Emitted
 #                                            PUBLISH-SIDE (the workbench owns the
 #                                            composite registry / resolver that the
@@ -184,6 +192,8 @@ CHECKS = (
 STUDY_COMPLETENESS_CHECKS = frozenset({
     "status_claims_done_no_runs_recorded",
     "completed_but_verdict_pending",
+    "study_missing_tests",
+    "study_claim_empty",
     "declared_composite_unresolved",
 })
 
@@ -218,6 +228,8 @@ _CHECK_FUNCTIONS = (
     _check_stale_computed_grades,
     _check_status_claims_done_but_no_runs_recorded,
     _check_completed_but_verdict_pending,
+    _check_study_missing_tests,
+    _check_study_claim_empty,
     _check_runs_without_emitter,
     _check_reviewer_clarity_ambiguities,
     _check_viz_stale_vs_latest_run,
@@ -349,6 +361,12 @@ def lint_workspace_report(
     fresh one every time ``lint_workspace_report()`` runs — so it can
     never serve stale data across two separate lint runs.
     """
+    # Robustness: many checks do ``ctx.ws_root / <path>`` or ``.iterdir()``. A str
+    # ws_root makes those raise ``TypeError: str / str`` / ``'str' has no iterdir``,
+    # which the per-check guard below demotes to a ``linter_internal_error`` — i.e.
+    # the check silently does not run and its real gaps go UNDETECTED. Coerce once
+    # here so every check sees a Path regardless of how the caller passed it.
+    ws_root = Path(ws_root)
     out: list[LintFinding] = []
     ws_cache: dict = {}
     if rulesets is None:
@@ -423,6 +441,44 @@ def format_findings(findings: Iterable[LintFinding]) -> str:
     return "\n".join(lines) + "\n"
 
 
+def build_json_report(findings, *, exit_code: int = 0) -> dict:
+    """The machine-readable gap report for CI (the ``--json`` payload).
+
+    A stable contract that a CI workflow (viva-template's gap-report) can pin:
+
+        {
+          "findings": [ {level, check, study_slug, field_path, message, override_key}, ... ],
+          "summary": {
+            "total": int,
+            "by_level": {error|warning|info: int},
+            "by_check": {check: int},
+            "internal_errors": int,   # checks that CRASHED — gaps are UNKNOWN, not absent
+          },
+          "exit_code": int,           # 0 clean, 1 blocking errors remain
+        }
+
+    ``internal_errors`` is surfaced on its own because a crashed check is a blind
+    spot: its real gaps were never computed. A clean cycle has zero.
+    """
+    findings = list(findings)
+    by_level: dict[str, int] = {}
+    by_check: dict[str, int] = {}
+    for f in findings:
+        d = f.to_dict() if hasattr(f, "to_dict") else dict(f)
+        by_level[d["level"]] = by_level.get(d["level"], 0) + 1
+        by_check[d["check"]] = by_check.get(d["check"], 0) + 1
+    return {
+        "findings": [f.to_dict() if hasattr(f, "to_dict") else dict(f) for f in findings],
+        "summary": {
+            "total": len(findings),
+            "by_level": by_level,
+            "by_check": by_check,
+            "internal_errors": by_check.get("linter_internal_error", 0),
+        },
+        "exit_code": exit_code,
+    }
+
+
 # ---------------------------------------------------------------------------
 # CLI: python -m discovery_engine.reporting.linter
 # ---------------------------------------------------------------------------
@@ -481,12 +537,26 @@ def main(argv: list[str] | None = None) -> int:
     overrides = load_overrides(ws_root)
     visible = apply_overrides(findings, overrides)
 
+    blocking = [f for f in findings if f.level == "error" and f.override_key not in overrides]
+    # exit_code the JSON advertises AND the process returns: 0 unless un-overridden
+    # blocking errors remain and --force was not passed.
+    exit_code = 0 if (not blocking or args.force) else 1
+
+    # A crashed check is a blind spot — its gaps were never computed. Surface it
+    # on stderr even in --json mode so a quiet run can't hide it.
+    n_internal = sum(1 for f in visible if f.check == "linter_internal_error")
+    if n_internal:
+        print(
+            f"WARNING: {n_internal} linter check(s) crashed (linter_internal_error) "
+            "— those gaps were NOT evaluated. See the findings for which checks.",
+            file=sys.stderr,
+        )
+
     if args.json:
-        print(json.dumps([f.to_dict() for f in visible], indent=2))
+        print(json.dumps(build_json_report(visible, exit_code=exit_code), indent=2))
     else:
         print(format_findings(visible))
 
-    blocking = [f for f in findings if f.level == "error" and f.override_key not in overrides]
     if not blocking:
         return 0
     if args.force:
@@ -523,5 +593,7 @@ __all__ = [
     '_workspace_rulesets',
     'lint_workspace_report',
     'format_findings',
+    'build_json_report',
+    'STUDY_COMPLETENESS_CHECKS',
     'main',
 ]

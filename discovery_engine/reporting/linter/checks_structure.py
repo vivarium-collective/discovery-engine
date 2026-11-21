@@ -628,6 +628,89 @@ def _check_completed_but_verdict_pending(ctx: _LintContext) -> None:
     )
 
 
+def _study_has_evidence(spec: dict) -> bool:
+    """The study has moved past Design — it has run, been evaluated, had its gate
+    decided, or recorded findings. Used to phase-gate the completeness checks so a
+    legitimately-sparse Design-stage study is not flagged for what it cannot have
+    yet."""
+    return (
+        bool(spec.get("runs"))
+        or spec.get("evaluation_status") == "evaluated"
+        or spec.get("gate_status") in {"passed", "failed", "failed_evaluation"}
+        or bool(spec.get("findings"))
+    )
+
+
+def _check_study_missing_tests(ctx: _LintContext) -> None:
+    """A study that has advanced past Design records NO behaviour tests at all.
+
+    Study-completeness gate: with no ``behavior_tests`` / ``tests`` /
+    ``expected_behavior``, the study grades NOTHING — its gate can never be earned
+    and it reads as "ran" with an empty report card (the mosaic-compose studies
+    that shipped thin). Phase-gated: a fresh Design-stage study legitimately has no
+    tests yet and is not flagged; the warning fires once the study has run / been
+    evaluated / had its gate decided / recorded findings. warning-level
+    (non-blocking); the publish gate escalates it under --strict.
+    """
+    spec = ctx.spec
+    try:
+        from discovery_engine.study.status import _study_tests
+    except ImportError:
+        return
+    if _study_tests(spec):
+        return
+    if not _study_has_evidence(spec):
+        return  # Design-stage: no tests yet is correct, not a gap
+    ctx.add(
+        level="warning",
+        field_path="behavior_tests",
+        message=(
+            "study has run / been evaluated but declares NO behaviour tests "
+            "(`behavior_tests` / `tests` / `expected_behavior` all empty) — there "
+            "is nothing to grade, so its gate can never be earned and the report "
+            "card is empty. Author at least one test with a cited acceptance band, "
+            "or move the study back to Design until it has one."
+        ),
+        check="study_missing_tests",
+    )
+
+
+def _check_study_claim_empty(ctx: _LintContext) -> None:
+    """A study that has produced evidence has no one-line ``claim:``.
+
+    Study-completeness gate: the ``claim`` is the study node's "Finds:" headline
+    (what we now believe) in the investigation graph. An evidence-bearing study
+    (findings recorded, or its gate decided / evaluated) with an empty claim
+    renders a blank headline — the reader can't tell what it concluded. Phase-gated
+    so a planned / Design-stage study (no evidence yet, legitimately no claim) is
+    not flagged. warning-level; escalated under --strict by the publish gate.
+    """
+    spec = ctx.spec
+    if str(spec.get("claim") or "").strip():
+        return
+    # Only a gap once there is evidence to headline. Runs alone don't require a
+    # claim yet (the study may be mid-evaluation); a decided gate / evaluation /
+    # recorded findings do.
+    has_result = (
+        bool(spec.get("findings"))
+        or spec.get("evaluation_status") == "evaluated"
+        or spec.get("gate_status") in {"passed", "failed", "failed_evaluation"}
+    )
+    if not has_result:
+        return
+    ctx.add(
+        level="warning",
+        field_path="claim",
+        message=(
+            "study has produced evidence (findings recorded / a decided gate) but "
+            "its one-line `claim:` is empty — the investigation-graph 'Finds:' "
+            "headline renders blank, so a reader can't see what the study "
+            "concluded. Author the claim (the one-line result)."
+        ),
+        check="study_claim_empty",
+    )
+
+
 def _check_reviewer_clarity_ambiguities(ctx: _LintContext) -> None:
     """Surface anything that would render ambiguously on the reviewer-facing
     run/test/verdict strip — single-sourced from
@@ -835,6 +918,8 @@ __all__ = [
     '_check_status_out_of_date_vs_runs',
     '_check_status_claims_done_but_no_runs_recorded',
     '_check_completed_but_verdict_pending',
+    '_check_study_missing_tests',
+    '_check_study_claim_empty',
     '_check_reviewer_clarity_ambiguities',
     '_check_viz_stale_vs_latest_run',
     '_check_runs_yaml_vs_db_drift',
