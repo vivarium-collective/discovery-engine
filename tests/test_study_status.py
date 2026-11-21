@@ -166,3 +166,35 @@ def test_no_flag_when_stored_more_advanced_than_evidence():
     assert status_disagreements(spec, []) == []
     spec2 = {"evaluation_status": "evaluated"}
     assert status_disagreements(spec2, []) == []
+
+
+def test_count_test_outcomes_prefers_computed_outcomes():
+    """A CLI-graded run (grades in computed_outcomes, not authored outcomes) must
+    count as graded — reading only `outcomes` made every test render 'pending',
+    which false-fired reviewer_clarity_ambiguity on a study whose gate passed.
+    Same per-test precedence as canonical_graded_outcomes: computed wins."""
+    from discovery_engine.study.status import count_test_outcomes, study_clarity_summary
+    spec = {
+        "behavior_tests": [{"name": "t1"}, {"name": "t2"}],
+        "runs": [{"name": "r", "status": "completed",
+                  "computed_outcomes": {"t1": {"result": "pass"},
+                                        "t2": {"result": "pass"},
+                                        "_grader": {"version": "3"}}}],
+    }
+    c = count_test_outcomes(spec, spec["runs"])
+    assert c["pass"] == 2 and c["pending"] == 0
+    # and the clarity strip no longer flags a false "ran but pending"
+    cs = study_clarity_summary(spec, spec["runs"])
+    assert cs["verdict"]["value"] == "passed"
+    assert not any("pending" in a for a in cs["ambiguities"])
+
+
+def test_count_test_outcomes_computed_wins_over_authored():
+    from discovery_engine.study.status import count_test_outcomes
+    spec = {
+        "behavior_tests": [{"name": "t1"}],
+        "runs": [{"name": "r", "outcomes": {"t1": {"result": "fail"}},       # stale authored
+                  "computed_outcomes": {"t1": {"result": "pass"}}}],         # fresh — wins
+    }
+    assert count_test_outcomes(spec, spec["runs"]) == {
+        "total": 1, "pass": 1, "fail": 0, "skip": 0, "pending": 0}
