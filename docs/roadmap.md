@@ -1,5 +1,13 @@
 # discovery-engine roadmap — the eight-stage scientific cycle
 
+> **Public vocabulary:** the user-facing discovery cycle is the six stages
+> **Question → Hypothesize → Model → Experiment → Evaluate → Synthesize** with
+> four services (Orchestrator · Reasoner · Strategist · Knowledge Base) — see
+> [`glossary.md`](glossary.md). The eight-stage breakdown this roadmap tracks is
+> the finer internal decomposition; reconciling the two framings is a pending
+> editorial decision.
+
+
 DE2.0 shipped Phases A–F + N+2, and the 2026-11-11 generative-cycle work (v0.4.0)
 closed the loop from proposal to discovery and back to a human — seed → run →
 model-build, first-class Discovery records, model-error diagnosis, and a

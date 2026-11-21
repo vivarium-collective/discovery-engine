@@ -55,6 +55,8 @@
 \vspace{0.8em}
 {\large\color{muted} A map of the derive-first discovery cycle:\\[2pt]
 the stages, the functions, the skills, and the flow into investigations, studies, and models.\par}
+\vspace{1.1em}
+{\large\color{ink}\textbf{Question \,$\rightarrow$\, Hypothesize \,$\rightarrow$\, Model \,$\rightarrow$\, Experiment \,$\rightarrow$\, Evaluate \,$\rightarrow$\, Synthesize}\par}
 \vspace{2.4cm}
 {\large discovery-engine \textbf{0.7.2} \; (\code{main})\par}
 \vspace{0.4em}
@@ -90,6 +92,20 @@ needed it \emph{emits} a typed \code{GenerationRequest}, an external filler retu
 \code{GenerationResult}, and the engine \emph{applies} it through a deterministic, honesty-gated
 writer. The LLM runs in exactly one place; everything around it is mechanical.
 \end{itemize}
+
+\paragraph{The public cycle --- six stages, four services.} The engine's operational phases
+(the A--F functions mapped below) realize a scientist-readable cycle of six stages:
+\textbf{Question} $\rightarrow$ \textbf{Hypothesize} $\rightarrow$ \textbf{Model} $\rightarrow$
+\textbf{Experiment} $\rightarrow$ \textbf{Evaluate} $\rightarrow$ \textbf{Synthesize} ---
+identify anomalies and gaps; propose competing mechanistic explanations; formalize them as
+executable models; design and run discriminating tests; compare predicted and observed; integrate
+evidence and expose new questions. Four services operate \emph{across} all six: the
+\textbf{Orchestrator} (coordinates the cycle, dependencies, and execution), the \textbf{Reasoner}
+(the typed generation seam), the \textbf{Strategist} (ranks opportunities and discriminating
+studies by heuristic value), and the \textbf{Knowledge Base} (preserves investigations, studies,
+model lineage, observations, candidate discoveries, and decisions). The stage names are the public
+vocabulary; the A--F phase functions below are the low-level operations that realize them and remain
+the unit of implementation. Full glossary: \code{docs/glossary.md}.
 
 The engine \textbf{performs no science itself}. It reconciles, plans, designs, routes model
 acquisition, evaluates, and composes; the actual simulation runs happen in the workspace
