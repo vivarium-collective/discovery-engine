@@ -212,3 +212,57 @@ def test_no_baseline_is_silent(tmp_path):
 def test_workspace_pseudo_study_is_silent(tmp_path):
     spec = {"conditions": {"baseline": {"composite": "c", "params": {}}}}
     assert _by_check(_run(tmp_path, spec, slug="<workspace>")) == []
+
+
+# ---------------------------------------------------------------------------
+# Silent when the committed composite file carries the config, or opted out
+# ---------------------------------------------------------------------------
+
+
+def test_committed_composite_file_is_silent(tmp_path):
+    # The composite ref resolves to a committed spec FILE on disk → the file
+    # carries the full param set, so running it at defaults is a reproducible
+    # spec and "no inline override" is not a reproducibility gap.
+    (tmp_path / "composites").mkdir()
+    (tmp_path / "composites" / "c.json").write_text('{"name": "c", "state": {}}')
+    spec = {
+        "phase": "Build",
+        "conditions": {"baseline": {
+            "composite": "composites/c.json",
+            "params": {"seed": 0, "cache_dir": "/tmp/c"},
+        }},
+    }
+    assert _by_check(_run(tmp_path, spec)) == []
+
+
+def test_committed_composite_file_v3_baseline_is_silent(tmp_path):
+    (tmp_path / "composites").mkdir()
+    (tmp_path / "composites" / "c.json").write_text('{"name": "c", "state": {}}')
+    spec = {
+        "phase": "Build",
+        "baseline": [{"name": "b", "composite": "composites/c.json",
+                      "params": {"seed": 0}}],
+    }
+    assert _by_check(_run(tmp_path, spec)) == []
+
+
+def test_baseline_config_skip_opt_out_is_silent(tmp_path):
+    # Explicit opt-out for registry-id / Python composites run at their
+    # committed canonical defaults — mirrors adversarial_coverage_skip.
+    spec = {
+        "phase": "Build",
+        "baseline_config_skip": True,
+        "baseline_config_skip_reason": "runs the registered composite at its canonical defaults",
+        "conditions": {"baseline": {"composite": "registry:c", "params": {"seed": 0}}},
+    }
+    assert _by_check(_run(tmp_path, spec)) == []
+
+
+def test_baseline_config_skip_false_still_flags(tmp_path):
+    # Only the explicit True opts out; a bare unresolvable composite still fires.
+    spec = {
+        "phase": "Build",
+        "baseline_config_skip": False,
+        "conditions": {"baseline": {"composite": "registry:c", "params": {"seed": 0}}},
+    }
+    assert len(_by_check(_run(tmp_path, spec))) == 1
