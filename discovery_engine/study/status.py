@@ -179,8 +179,21 @@ def count_test_outcomes(spec: dict, runs: list[dict] | None) -> dict:
     ``{total, pass, fail, skip, pending}``.
     """
     tests = _study_tests(spec)
-    chosen = canonical_run(runs if runs is not None else spec.get("runs"))
-    outcomes = (chosen or {}).get("outcomes") or {}
+    chosen = canonical_run(runs if runs is not None else spec.get("runs")) or {}
+    # Prefer the run's ``computed_outcomes[T]`` over authored ``outcomes[T]`` —
+    # the same per-test precedence as ``canonical_graded_outcomes``. The
+    # ``vwb run study`` CLI grader writes grades to ``computed_outcomes`` (with a
+    # ``_grader`` stamp); ``vwb serve`` / authored results use ``outcomes``.
+    # Reading only ``outcomes`` made a CLI-graded study render EVERY test
+    # ``pending`` here (so ``study_clarity_summary`` emitted "ran, but every test
+    # renders pending" and ``reviewer_clarity_ambiguity`` false-fired) even though
+    # its gate — which reads computed_outcomes — passed.
+    authored = chosen.get("outcomes")
+    computed = chosen.get("computed_outcomes")
+    outcomes = {
+        **(authored if isinstance(authored, dict) else {}),
+        **(computed if isinstance(computed, dict) else {}),
+    }
     buckets = bucket_tests(tests, outcomes)
     return {
         "total": len(tests),
