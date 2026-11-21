@@ -348,3 +348,62 @@ def test_applied_to_is_a_list_for_every_wired_kind(tmp_path):
                            ws_root=ws, inv_slug="demo")
         assert out["status"] == "applied"
         assert isinstance(out["applied_to"], list) and out["applied_to"]
+
+
+# --- CLI-verb kinds: honest "queued for the skill", not a "not wired" TODO ----
+# visualize / propose_study are DELIBERATELY authored via /viva-* skills (which
+# render a figure / seed a study — things the pure engine does not do), not
+# apply_result. The queued outcome must SAY that (naming the skill), and a bounded
+# drive must NOT spend its generation budget filling them (that starved the wired
+# kinds — a viz-heavy goal consumed the budget before interpret_finding ran).
+
+def test_cli_verb_apply_result_names_the_skill_not_a_todo():
+    for kind in ("visualize", "propose_study"):
+        req = GenerationRequest(kind=kind, target="s1", produces=f"{kind}/v1", gate="auto")
+        out = apply_result(req, GenerationResult(request_id=req.id, artifact={"title": "x"}),
+                           ws_root="/x", inv_slug="demo")
+        assert out["status"] == "queued_for_review"
+        assert "not wired" not in out["reason"] and "yet" not in out["reason"]
+        assert "/" in out["reason"]                       # names the /viva-* skill
+        assert out["next_action"]["type"] == "skill"
+        assert out["next_action"]["skill"] and out["next_action"]["kind"] == kind
+
+
+def test_unknown_kind_apply_result_is_a_real_gap():
+    req = GenerationRequest(kind="resolve_decision", target="Q?", produces="d/v1", gate="auto")
+    object.__setattr__(req, "kind", "no_such_kind")      # a genuinely unknown kind
+    out = apply_result(req, GenerationResult(request_id=req.id, artifact={}),
+                       ws_root="/x", inv_slug="demo")
+    assert out["status"] == "queued_for_review"
+    assert "unknown kind" in out["reason"]
+    assert "next_action" not in out                       # no skill to point at
+
+
+def test_run_requests_reserves_budget_from_cli_verb_kinds(tmp_path):
+    ws = _ws(tmp_path)
+    reqs = [
+        GenerationRequest(kind="visualize", target="s1", produces="viz/v1", gate="auto"),
+        GenerationRequest(kind="propose_study", target="s1", produces="study/v1", gate="auto"),
+        GenerationRequest(kind="resolve_decision", target="Q?", produces="d/v1", gate="auto"),
+    ]
+    filled: list[str] = []
+
+    def fill(req):
+        filled.append(req.kind)
+        return GenerationResult(request_id=req.id, artifact={"rationale": "ok"})
+
+    class _Budget:
+        def __init__(self): self.charged = 0
+        def charge(self, _k): self.charged += 1; return True
+
+    budget = _Budget()
+    outcomes = run_requests(reqs, fill=fill, ws_root=ws, inv_slug="demo", budget=budget)
+    # the two CLI-verb kinds were queued WITHOUT filling or charging the budget;
+    # only the wired resolve_decision filled + charged.
+    assert filled == ["resolve_decision"]
+    assert budget.charged == 1
+    by_kind = {o["kind"]: o for o in outcomes}
+    assert by_kind["visualize"]["outcome"] == "queued_for_review"
+    assert by_kind["visualize"]["next_action"]["skill"]
+    assert by_kind["propose_study"]["outcome"] == "queued_for_review"
+    assert by_kind["resolve_decision"]["outcome"] == "applied"

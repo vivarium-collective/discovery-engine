@@ -232,6 +232,30 @@ def _handler_for(kind: str):
     return None
 
 
+def _no_handler_outcome(kind: str) -> dict:
+    """The ``queued_for_review`` outcome for a kind with no apply handler.
+
+    A KNOWN generation kind with no handler is a DELIBERATE *CLI-verb* kind
+    (``visualize`` / ``propose_study``): it is authored through its ``/viva-*``
+    skill — which renders a figure / seeds a study, things the pure engine does
+    not do — not auto-applied here. Say so and name the skill (``next_action``),
+    so a drive's "queued" outcome reads as "ready to apply with /viva:viz", not a
+    missing-feature TODO (the "...not wired yet" wording that misled a reviewer
+    into thinking apply was an unimplemented stub). An UNKNOWN kind is a real gap.
+    """
+    from discovery_engine.phases.generation import KINDS, skill_for
+    if kind in KINDS:
+        skill = skill_for(kind)
+        return {
+            "status": "queued_for_review", "applied_to": [],
+            "reason": (f"kind {kind!r} is authored via its /{skill} skill, not "
+                       f"auto-applied by the engine — apply it with /{skill}"),
+            "next_action": {"type": "skill", "skill": skill, "kind": kind},
+        }
+    return {"status": "queued_for_review", "applied_to": [],
+            "reason": f"no apply handler for unknown kind {kind!r}"}
+
+
 # Kinds whose apply op writes a study.yaml — guarded for evidence-authority leaks.
 _STUDY_WRITING_KINDS = ("interpret_finding", "explain", "author_tests")
 
@@ -265,8 +289,7 @@ def apply_result(request: GenerationRequest, result: GenerationResult, *,
     ``computed_outcomes`` (a leak raises ``ValueError`` → recorded as an apply error)."""
     handler = _handler_for(request.kind)
     if handler is None:
-        return {"status": "queued_for_review", "applied_to": [],
-                "reason": f"apply not wired for kind {request.kind!r} yet"}
+        return _no_handler_outcome(request.kind)
     art = result.artifact or {}
     guard = _target_study(ws_root, inv_slug, art) if request.kind in _STUDY_WRITING_KINDS else None
     out = handler(art, ws_root=ws_root, inv_slug=inv_slug, request=request, result=result)
@@ -301,6 +324,22 @@ def run_requests(requests, *, fill, ws_root, inv_slug: str, budget=None) -> list
         base = {"request_id": req.id, "kind": req.kind, "gate": req.gate}
         if req.gate != "auto":
             outcomes.append({**base, "outcome": "queued_for_review"})
+            continue
+        if _handler_for(req.kind) is None:
+            # A kind with no apply handler can't be auto-applied — it is a CLI-verb
+            # kind authored via its /viva-* skill (visualize -> /viva:viz,
+            # propose_study -> /viva:study), or an unknown kind. Queue it WITHOUT
+            # spending a generation_call filling a result that would only queue
+            # anyway: that reserves the budget for kinds that actually apply, so a
+            # viz-heavy steering goal no longer starves the wired kinds (the bug a
+            # driver hit — a budget of 13 consumed by 7 visualize + 6 propose_study
+            # before one interpret_finding got a turn -> applied: 0). The named
+            # skill fills + applies it.
+            nho = _no_handler_outcome(req.kind)
+            out = {**base, "outcome": "queued_for_review", "reason": nho["reason"]}
+            if "next_action" in nho:
+                out["next_action"] = nho["next_action"]
+            outcomes.append(out)
             continue
         if budget is not None and not budget.charge("generation_calls"):
             # Bounded run: out of generation budget -> a typed stop, and halt the drain.
