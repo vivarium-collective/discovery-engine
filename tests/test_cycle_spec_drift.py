@@ -20,13 +20,15 @@ _DOCS = Path(__file__).resolve().parent.parent / "docs"
 _SPEC_PATH = _DOCS / "cycle-spec.json"
 _HTML_PATH = _DOCS / "cycle-map.html"
 
-# Current viva plugin skills (viva-superpowers/skills/, 0.28). Kept here because
-# the engine CI cannot import the sibling plugin repo. UPDATE IN LOCKSTEP when a
-# skill is added/removed/renamed (the Phase-2 skill rename touches this list).
+# Current viva plugin skills (viva-superpowers/skills/, 0.29 — Phase-2 renames:
+# investigation→investigate, fill→reason, expert→model,
+# harden-investigation→validate, navigate→explore, drive-engine→discover). Kept
+# here because the engine CI cannot import the sibling plugin repo. UPDATE IN
+# LOCKSTEP when a skill is added/removed/renamed.
 _KNOWN_SKILLS = {
-    "apply-cli-verb", "benchmark", "catalog", "consolidate", "drive-engine",
-    "expert", "fill", "harden-investigation", "init", "investigation",
-    "model-build", "navigate", "orient", "remote-run", "report", "run",
+    "apply-cli-verb", "benchmark", "catalog", "consolidate", "discover",
+    "model", "reason", "validate", "init", "investigate",
+    "model-build", "explore", "orient", "remote-run", "report", "run",
     "study", "suggest", "tests", "viz", "workbench", "workspace",
 }
 
