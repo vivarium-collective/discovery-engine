@@ -302,12 +302,26 @@ def apply_result(request: GenerationRequest, result: GenerationResult, *,
     return out
 
 
-def run_requests(requests, *, fill, ws_root, inv_slug: str, budget=None) -> list[dict]:
+def run_requests(requests, *, fill, ws_root, inv_slug: str, budget=None,
+                 apply_cli_verb=None) -> list[dict]:
     """Dispatch typed GenerationRequests to a filler and apply the auto-gated ones.
 
     ``fill`` is the injected filler seam — ``fill(request) -> GenerationResult | None``
     (a ``/viva-*`` skill wrapper, the ``$VIVA_FILLER_CMD`` subprocess, or a test
     stub). It is the ONLY place generation (an LLM) runs; the engine stays pure.
+
+    ``apply_cli_verb`` is an OPTIONAL second seam for the CLI-verb kinds
+    (``visualize`` / ``propose_study``) that have no native apply handler because
+    applying them renders a figure / seeds a study — things the pure engine does
+    not do. ``apply_cli_verb(request) -> {status, applied_to} | None`` shells out
+    to the kind's ``/viva-*`` skill (e.g. ``$VIVA_CLI_APPLIER_CMD`` →
+    ``claude -p /viva:viz``), which does that impure work and reports what it
+    landed; returning ``None`` declines (the request falls back to queued). When
+    it is omitted (the default), a CLI-verb kind is queued, NOT filled — so a
+    ``--free-run`` drive without an applier never starves its budget on kinds it
+    cannot auto-apply. With it, a drive lands rendered viz + seeded studies
+    end-to-end. The engine stays pure either way: the impure work lives in the
+    injected command, exactly like ``fill``.
 
     Gate discipline (spec §3 / review-focus): a ``review``-gated request is QUEUED,
     never auto-filled; an ``auto`` request is filled and applied via
@@ -326,15 +340,34 @@ def run_requests(requests, *, fill, ws_root, inv_slug: str, budget=None) -> list
             outcomes.append({**base, "outcome": "queued_for_review"})
             continue
         if _handler_for(req.kind) is None:
-            # A kind with no apply handler can't be auto-applied — it is a CLI-verb
-            # kind authored via its /viva-* skill (visualize -> /viva:viz,
-            # propose_study -> /viva:study), or an unknown kind. Queue it WITHOUT
-            # spending a generation_call filling a result that would only queue
-            # anyway: that reserves the budget for kinds that actually apply, so a
-            # viz-heavy steering goal no longer starves the wired kinds (the bug a
-            # driver hit — a budget of 13 consumed by 7 visualize + 6 propose_study
-            # before one interpret_finding got a turn -> applied: 0). The named
-            # skill fills + applies it.
+            # A kind with no apply handler is a CLI-verb kind authored via its
+            # /viva-* skill (visualize -> /viva:viz, propose_study -> /viva:study),
+            # or an unknown kind.
+            if apply_cli_verb is not None:
+                # ORCHESTRATE: invoke the skill seam, which renders / seeds and
+                # reports what it applied. Charges one generation_call (the skill
+                # generates + applies, like a fill).
+                if budget is not None and not budget.charge("generation_calls"):
+                    from discovery_engine.discover._policy import BUDGET_EXHAUSTED, stop as _stop
+                    outcomes.append({**base, **_stop(BUDGET_EXHAUSTED,
+                                                     detail="generation_calls budget exhausted")})
+                    break
+                try:
+                    res = apply_cli_verb(req)
+                except Exception as e:  # noqa: BLE001 — never crash the drain
+                    outcomes.append({**base, "outcome": "error",
+                                     "reason": f"cli-verb applier raised: {e}"})
+                    continue
+                if res:
+                    outcomes.append({**base, "outcome": res.get("status", "applied"),
+                                     "applied_to": res.get("applied_to", [])})
+                    continue
+                # the applier declined (None) -> fall through to the queued outcome
+            # No applier (or it declined): queue WITHOUT filling — reserves the
+            # budget for kinds that actually apply, so a viz-heavy steering goal no
+            # longer starves the wired kinds (the bug a driver hit — a budget of 13
+            # consumed by 7 visualize + 6 propose_study before one interpret_finding
+            # got a turn -> applied: 0). The named skill applies it.
             nho = _no_handler_outcome(req.kind)
             out = {**base, "outcome": "queued_for_review", "reason": nho["reason"]}
             if "next_action" in nho:
@@ -406,3 +439,42 @@ def subprocess_filler(cmd: str | None = None, *, timeout: float = 1800):
         )
 
     return fill
+
+
+def subprocess_cli_applier(cmd: str | None = None, *, timeout: float = 1800):
+    """An ``apply_cli_verb`` seam that shells out to ``$VIVA_CLI_APPLIER_CMD``.
+
+    The counterpart to :func:`subprocess_filler` for the CLI-verb kinds
+    (``visualize`` / ``propose_study``): the command receives a
+    :class:`GenerationRequest` as JSON on stdin, runs the kind's ``/viva-*`` skill
+    — which RENDERS a figure / SEEDS a study and writes it into the workspace
+    (things the pure engine does not do) — and prints an outcome JSON
+    ``{"status": "applied", "applied_to": [...]}`` on stdout. Returns an
+    ``apply_cli_verb(request) -> dict | None`` for :func:`run_requests`. With no
+    command configured it returns ``None`` (declines → the request is queued), so
+    a drive without an applier keeps today's queue-only behaviour; a command that
+    produces no/empty output also declines. The engine stays LLM-free — the skill
+    (and its render/seed) lives entirely in that command."""
+    import json
+    import os
+    import subprocess
+
+    command = cmd or os.environ.get("VIVA_CLI_APPLIER_CMD")
+
+    def apply_cli_verb(request):
+        if not command:
+            return None
+        proc = subprocess.run(command, shell=True, check=False,
+                              input=json.dumps(request.to_dict(), default=str),
+                              capture_output=True, text=True, timeout=timeout)
+        out = (proc.stdout or "").strip()
+        if not out:
+            return None
+        doc = json.loads(out)
+        applied_to = doc.get("applied_to") or []
+        return {
+            "status": doc.get("status") or "applied",
+            "applied_to": applied_to if isinstance(applied_to, list) else [applied_to],
+        }
+
+    return apply_cli_verb

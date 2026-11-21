@@ -407,3 +407,81 @@ def test_run_requests_reserves_budget_from_cli_verb_kinds(tmp_path):
     assert by_kind["visualize"]["next_action"]["skill"]
     assert by_kind["propose_study"]["outcome"] == "queued_for_review"
     assert by_kind["resolve_decision"]["outcome"] == "applied"
+
+
+# --- optional drive orchestration of the CLI-verb kinds (apply_cli_verb seam) --
+# With an apply_cli_verb seam injected, run_requests ALSO lands visualize /
+# propose_study end-to-end by invoking their skill (which renders a figure /
+# seeds a study — things the pure engine does not do). The engine stays pure: the
+# impure work lives in the injected command, exactly like `fill`.
+
+def test_apply_cli_verb_orchestrates_cli_verb_kinds(tmp_path):
+    ws = _ws(tmp_path)
+    reqs = [
+        GenerationRequest(kind="visualize", target="s1", produces="viz/v1", gate="auto"),
+        GenerationRequest(kind="propose_study", target="s1", produces="study/v1", gate="auto"),
+    ]
+    seen = []
+
+    def applier(req):
+        seen.append(req.kind)
+        return {"status": "applied", "applied_to": [f"{req.target}/{req.kind}"]}
+
+    class _Budget:
+        def __init__(self): self.charged = 0
+        def charge(self, _k): self.charged += 1; return True
+
+    b = _Budget()
+    outs = run_requests(reqs, fill=lambda r: None, ws_root=ws, inv_slug="demo",
+                        budget=b, apply_cli_verb=applier)
+    assert seen == ["visualize", "propose_study"]
+    assert b.charged == 2                          # orchestration charges like a fill
+    assert [o["outcome"] for o in outs] == ["applied", "applied"]
+    assert outs[0]["applied_to"] == ["s1/visualize"]
+
+
+def test_apply_cli_verb_declining_falls_back_to_queued(tmp_path):
+    ws = _ws(tmp_path)
+    req = GenerationRequest(kind="visualize", target="s1", produces="viz/v1", gate="auto")
+    out = run_requests([req], fill=lambda r: None, ws_root=ws, inv_slug="demo",
+                       apply_cli_verb=lambda r: None)[0]          # applier declines
+    assert out["outcome"] == "queued_for_review"
+    assert out["next_action"]["skill"]             # still names the skill to apply with
+
+
+def test_apply_cli_verb_raising_is_an_error_not_a_crash(tmp_path):
+    ws = _ws(tmp_path)
+    reqs = [
+        GenerationRequest(kind="visualize", target="s1", produces="viz/v1", gate="auto"),
+        GenerationRequest(kind="resolve_decision", target="Q?", produces="d/v1", gate="auto"),
+    ]
+
+    def boom(req):
+        raise RuntimeError("skill blew up")
+
+    outs = run_requests(reqs, fill=lambda r: GenerationResult(request_id=r.id, artifact={"rationale": "ok"}),
+                        ws_root=ws, inv_slug="demo", apply_cli_verb=boom)
+    # the raising applier becomes an error, and never blocks the wired kind after it
+    assert outs[0]["outcome"] == "error" and "skill blew up" in outs[0]["reason"]
+    assert outs[1]["outcome"] == "applied"
+
+
+def test_without_apply_cli_verb_cli_verb_kinds_stay_queued(tmp_path):
+    ws = _ws(tmp_path)
+    req = GenerationRequest(kind="visualize", target="s1", produces="viz/v1", gate="auto")
+    filled = []
+    out = run_requests([req], fill=lambda r: filled.append(r) or None,
+                       ws_root=ws, inv_slug="demo")[0]            # no applier
+    assert out["outcome"] == "queued_for_review"
+    assert filled == []                            # and still not filled (budget reserved)
+
+
+def test_subprocess_cli_applier_parses_outcome_and_declines_without_cmd(monkeypatch):
+    from discovery_engine.phases.generation_apply import subprocess_cli_applier
+    req = GenerationRequest(kind="visualize", target="s1", produces="viz/v1", gate="auto")
+    # no command -> declines (None)
+    monkeypatch.delenv("VIVA_CLI_APPLIER_CMD", raising=False)
+    assert subprocess_cli_applier()(req) is None
+    # a command that prints an outcome JSON -> parsed
+    applier = subprocess_cli_applier(cmd="printf '{\"status\":\"applied\",\"applied_to\":[\"s1/viz\"]}'")
+    assert applier(req) == {"status": "applied", "applied_to": ["s1/viz"]}

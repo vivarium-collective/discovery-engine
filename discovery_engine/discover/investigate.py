@@ -94,11 +94,16 @@ def _goal_order(reqs, goal: str | None):
 
 def investigate(ws_root, inv_slug, *, fill, budget=None, policy=None, gates=None,
                 max_iterations: int = 8, actor: str = "orchestrator",
-                goal: str | None = None) -> dict:
+                goal: str | None = None, apply_cli_verb=None) -> dict:
     """Run a bounded investigation loop. ``fill(request) -> GenerationResult | None`` is the
     filler seam (a ``/viva-*`` skill, ``$VIVA_FILLER_CMD``, or a test oracle); ``budget`` a
     :class:`~discovery_engine.discover.budget.Budget`; ``gates`` an optional
     :class:`GateConfig` (default: the investigation's own ``discovery.gates``).
+
+    ``apply_cli_verb`` (optional) lets the drive ALSO land the CLI-verb kinds
+    (``visualize`` / ``propose_study``) end-to-end by invoking their ``/viva-*``
+    skill — see :func:`~discovery_engine.phases.generation_apply.run_requests`.
+    Omitted, those kinds are queued (today's behaviour).
 
     ``goal`` is a free-text steering prompt threaded into every request's ``context["goal"]``
     (see :func:`_steer_fill`); when omitted it falls back to the investigation's durable
@@ -137,7 +142,7 @@ def investigate(ws_root, inv_slug, *, fill, budget=None, policy=None, gates=None
             break
         reqs = _goal_order(reqs, eff_goal)       # on-goal requests fill first under the budget
         outs = run_requests(reqs, fill=_steer_fill(fill, eff_goal), ws_root=ws_root,
-                            inv_slug=inv_slug, budget=budget)
+                            inv_slug=inv_slug, budget=budget, apply_cli_verb=apply_cli_verb)
         applied_here = 0
         budget_hit = False
         for o in outs:
