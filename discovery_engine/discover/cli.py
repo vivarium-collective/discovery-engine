@@ -404,6 +404,57 @@ def _summarize_seeded_study(study: dict, gaps: list, autonomy: str) -> str:
     lines.append("  run-ready: YES" if not gaps else "  run-ready gaps: " + "; ".join(gaps))
     return "\n".join(lines)
 
+# Six-stage public cycle (docs/glossary.md). Each stage is a READ-ONLY umbrella
+# view: it projects the cycle (no writes) and prints the slice relevant to the
+# stage, reusing the summarize_* helpers. Mutating work stays under the explicit
+# verbs listed in `acts` — a stage view never runs a consequential action.
+# (num, Name, meaning, read-only sub-verbs, explicit action verbs)
+_STAGES: dict[str, tuple] = {
+    "question":    ("1", "Question", "Assess knowledge and identify which questions deserve attention.",
+                    ["status", "diagnose", "opportunities"], ["crank"]),
+    "hypothesize": ("2", "Hypothesize", "Generate alternatives tied to observed surprises.",
+                    ["hypotheses", "requests"], ["propose"]),
+    "model":       ("3", "Model", "Find, build, wrap, and version executable representations.",
+                    ["gap"], ["build-model", "revise"]),
+    "experiment":  ("4", "Experiment", "Choose interventions, run studies, and collect measured outcomes.",
+                    ["plan", "design"], ["advance", "execute"]),
+    "evaluate":    ("5", "Evaluate", "Assess evidence integrity and competing claims.",
+                    ["reconcile-evidence", "delta", "review-findings"], []),
+    "synthesize":  ("6", "Synthesize", "Integrate knowledge and start the next round of inquiry.",
+                    ["suggest", "report"], ["seed-study", "refine-study"]),
+}
+
+
+def _stage_view(cmd: str, result: dict, inv_spec: dict, studies: dict) -> str:
+    """Render the read-only view for one public stage from a projected cycle."""
+    num, name, meaning, reads, acts = _STAGES[cmd]
+    import discovery_engine as _de
+    out = [f"{num} · {name} — {meaning}", ""]
+    if cmd == "question":
+        fr = _de.frontier(result, inv_spec)
+        opps = _de.opportunities(result, inv_spec)
+        discs = result.get("discrepancies") or []
+        out.append(f"open frontier items: {len(fr)}  ·  ranked opportunities: {len(opps)}"
+                   f"  ·  discrepancies: {len(discs)}")
+    elif cmd == "hypothesize":
+        out.append(_summarize_hypotheses(inv_spec, list(studies.values())))
+    elif cmd == "model":
+        gaps = result.get("capability_gaps") or []
+        out.append(f"capability gaps (mechanisms to acquire/build): {len(gaps)}")
+    elif cmd == "experiment":
+        fr = _de.frontier(result, inv_spec)
+        out.append(f"open frontier items: {len(fr)}. Inspect with `discover plan` / "
+                   f"`discover design`; act with `discover advance` / `discover execute`.")
+    elif cmd == "evaluate":
+        out.append(_summarize_evidence_reconciliation(result))
+    elif cmd == "synthesize":
+        out.append(summarize_suggestions(result.get("suggestions") or []))
+    out += ["", "read-only views:  " + ", ".join(f"discover {v}" for v in reads)]
+    if acts:
+        out.append("actions (explicit): " + ", ".join(f"discover {v}" for v in acts))
+    return "\n".join(out)
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         prog="viva-discover",
@@ -418,6 +469,16 @@ def main(argv: list[str] | None = None) -> int:
 
     p_status = sub.add_parser("status", help="project one cycle and print the summary (no write)")
     p_status.add_argument("investigation", help="investigation slug")
+
+    # Six-stage public cycle — one read-only umbrella: `discover stage <name>`.
+    # (A single `stage` command rather than six direct ones, because `evaluate`
+    # and `hypothesize` already exist as low-level verbs; this adds the public
+    # stage views without shadowing them.)
+    p_stage = sub.add_parser("stage",
+                             help="read-only view of one public cycle stage "
+                                  "(question|hypothesize|model|experiment|evaluate|synthesize)")
+    p_stage.add_argument("stage", choices=list(_STAGES), help="the public cycle stage")
+    p_stage.add_argument("investigation", help="investigation slug")
 
     p_bm = sub.add_parser("benchmark",
                           help="run the DE-13 ablation benchmark in a temp dir (read-only)")
@@ -727,6 +788,12 @@ def main(argv: list[str] | None = None) -> int:
             persist_cycle(inv_path, inv_spec, result, studies=studies, evidence_state=ev_state,
                           viz_state=viz_inventory(ws, args.investigation, studies))
             print(f"persisted cycle_state -> {inv_path}")
+        return 0
+
+    if args.cmd == "stage":
+        _, inv_spec, studies = load_cycle_inputs(ws, args.investigation)
+        result = _cycle_with_evidence(ws, args.investigation, inv_spec, studies)
+        print(_stage_view(args.stage, result, inv_spec, studies))
         return 0
 
     if args.cmd == "benchmark":
