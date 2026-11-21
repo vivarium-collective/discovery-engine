@@ -2,6 +2,12 @@
 
 How the engine is organized, what it produces, and the line it does not cross.
 
+> **Vocabulary:** the public discovery cycle is **Question → Hypothesize → Model →
+> Experiment → Evaluate → Synthesize**, coordinated by four services (Orchestrator ·
+> Reasoner · Strategist · Knowledge Base). See [`glossary.md`](glossary.md) for the
+> canonical terms and the [interactive cycle map](cycle-map.html) (rendered from
+> [`cycle-spec.json`](cycle-spec.json)) for how they map onto the A–F phase functions.
+
 The engine turns an **investigation** (an `investigation.yaml` + its member
 `study.yaml` files, plus each study's registered runs) into a reproducible view
 of what is known and what to do next — and drives the cycle that advances it. It

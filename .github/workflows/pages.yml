@@ -29,6 +29,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+      - name: Verify the cycle map is in sync with cycle-spec.json
+        run: python docs/build_cycle_map.py --check
       - name: Configure Pages
         uses: actions/configure-pages@v5
         with:
