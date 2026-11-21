@@ -158,6 +158,32 @@ class TestDivergesFromAuthored:
         spec["gate_status"] = "whatever"
         assert diverges_from_authored(spec) is False
 
+    def test_blocked_agent_graded_only_is_not_divergent(self):
+        # A run is present but grades ZERO outcomes, and every test is
+        # AGENT-GRADED (no committed/code-gradable field) → roll_up_verdict is
+        # BLOCKED. Absence of a computed verdict is expected, not a contradiction:
+        # a dashboard re-run must not read as diverging from an authored pass.
+        spec = _spec(_named("t1", "t2"), {})  # bare tests, empty outcomes → blocked
+        spec["gate_status"] = "passed"
+        assert roll_up_verdict(spec)["result"] == "blocked"  # precondition
+        assert diverges_from_authored(spec) is False
+
+    def test_blocked_with_committed_test_still_divergent(self):
+        # Overreach guard: when the study HAS a committed (code-gradable) test
+        # that a run should have graded but didn't, an authored pass outruns its
+        # machine-checkable evidence — that IS a divergence, even though BLOCKED.
+        spec = _spec([{"name": "t1", "pass_if": {"min": 0.0}}], {})  # blocked
+        spec["gate_status"] = "passed"
+        assert roll_up_verdict(spec)["result"] == "blocked"  # precondition
+        assert diverges_from_authored(spec) is True
+
+    def test_real_contradiction_still_divergent(self):
+        # Regression guard: the absence carve-out must NOT suppress a genuine
+        # contradiction — a DECIDED computed FAIL still diverges from authored pass.
+        spec = _spec(_named("t1"), {"t1": {"result": "FAIL"}})
+        spec["gate_status"] = "passed"
+        assert diverges_from_authored(spec) is True
+
     def test_tolerant_of_empty_spec(self):
         assert diverges_from_authored({}) is False
         assert diverges_from_authored(None) is False

@@ -224,6 +224,26 @@ def diverges_from_authored(spec: dict) -> bool:
     authored_mapped = _GATE_STATUS_MAP.get(authored_gate)
     if authored_mapped is None:
         return False
+    # A BLOCKED computed verdict (a run is present but grades zero outcomes)
+    # is an ABSENT computed verdict. Whether that absence is a DIVERGENCE
+    # depends on WHY the run graded nothing:
+    #
+    #   * The study has a COMMITTED (code-gradable) test — pass_if / pytest /
+    #     post_sim / … — that a run SHOULD have graded but didn't. The authored
+    #     verdict then outruns its own machine-checkable evidence: verdict
+    #     overreach, a genuine divergence the critique cycle must raise.
+    #   * The study's tests are ALL agent-graded (no committed test), so there
+    #     is nothing a run CAN grade. Absence of a computed verdict is EXPECTED,
+    #     not overreach — a dashboard re-run that persists observables but
+    #     computes no pass/fail must not falsely break an agent-graded verdict.
+    #     The "verdict not machine-verified" gap for these studies is owned by
+    #     reviewer_clarity (keyed on the absence of code-gradable tests), not here.
+    #
+    # NOT_STARTED is deliberately NOT carved out: an authored verdict with no run
+    # at all is an unbacked claim the critique system legitimately flags here.
+    if verdict["result"] == _RESULT_BLOCKED and not any(
+            _is_committed_rerunnable(t) for t in _study_tests(spec)):
+        return False
     return authored_mapped != verdict["result"]
 
 
