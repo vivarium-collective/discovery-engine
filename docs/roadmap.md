@@ -1,11 +1,17 @@
 # discovery-engine roadmap — the eight-stage scientific cycle
 
-> **Public vocabulary:** the user-facing discovery cycle is the six stages
-> **Question → Hypothesize → Model → Experiment → Evaluate → Synthesize** with
-> four services (Orchestrator · Reasoner · Strategist · Knowledge Base) — see
-> [`glossary.md`](glossary.md). The eight-stage breakdown this roadmap tracks is
-> the finer internal decomposition; reconciling the two framings is a pending
-> editorial decision.
+> **Public vocabulary vs this roadmap's stages.** The user-facing discovery cycle
+> is the **six** stages **Question → Hypothesize → Model → Experiment → Evaluate →
+> Synthesize**, with four services (Orchestrator · Reasoner · Strategist ·
+> Knowledge Base) — see [`glossary.md`](glossary.md). The **eight** stages this
+> roadmap tracks are the finer *implementation* decomposition and map into the six:
+> Question → **Question**; Generate hypotheses & predictions → **Hypothesize**;
+> Build / compose / calibrate / revise models → **Model**; Design & prioritize
+> experiments + execute → **Experiment**; Interpret / validate / synthesize evidence
+> → **Evaluate**; Record discoveries & renew → **Synthesize**. *Figure critique*
+> (roadmap Stage 6) is a cross-cutting operational capability serving Evaluate and
+> Synthesize, not a seventh public stage. The six names are the canonical public
+> vocabulary; the eight are the build units this roadmap sequences.
 
 
 DE2.0 shipped Phases A–F + N+2, and the 2026-11-11 generative-cycle work (v0.4.0)
