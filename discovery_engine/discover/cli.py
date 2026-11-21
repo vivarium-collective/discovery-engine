@@ -1146,16 +1146,23 @@ def main(argv: list[str] | None = None) -> int:
         from discovery_engine.discover.budget import Budget
         from discovery_engine.discover.investigate import investigate as _investigate
         from discovery_engine.phases.generation import GateConfig
-        from discovery_engine.phases.generation_apply import subprocess_filler
+        from discovery_engine.phases.generation_apply import (
+            subprocess_cli_applier, subprocess_filler)
         budget = Budget(generation_calls=args.generation_calls,
                         simulation_runs=args.simulation_runs,
                         model_builds=args.model_builds)
         gates = GateConfig.preset("free_run") if getattr(args, "free_run", False) else None
         pol = AutonomyPolicy(mode=AUTONOMOUS) if getattr(args, "autonomous", False) else None
+        # Opt-in end-to-end apply of the CLI-verb kinds (visualize / propose_study):
+        # subprocess_cli_applier reads $VIVA_CLI_APPLIER_CMD and declines (None) when
+        # it is unset, so the drive queues those kinds as before UNLESS the caller
+        # (e.g. the /viva:drive-engine skill) exports that command — then the drive
+        # lands rendered viz + seeded studies via the skill. Purely additive.
         summary = _investigate(ws, args.investigation, fill=subprocess_filler(),
                                budget=budget, policy=pol, gates=gates,
                                max_iterations=args.max_iterations,
-                               goal=getattr(args, "goal", None))
+                               goal=getattr(args, "goal", None),
+                               apply_cli_verb=subprocess_cli_applier())
         print(_json.dumps(summary, indent=2, default=str))
         return 0
 
