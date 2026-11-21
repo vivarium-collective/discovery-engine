@@ -80,6 +80,10 @@ CHECKS = (
     # Reviewer-facing clarity strip ambiguities (single-sourced from
     # study_status.study_clarity_summary): ran-but-tests-pending, gate↔test drift
     "reviewer_clarity_ambiguity",
+    # Study-completeness gate rule 2: presents as completed but the computed
+    # verdict is still pending (has runs, every test pending → gate undecided).
+    # warning by default; error under --strict (publish REFUSE).
+    "completed_but_verdict_pending",
     # Chart's stamped source run != the study's latest run (or unrendered /
     # untracked-on-disk). Supersedes the mtime-based figure_stale_vs_run.
     # warning by default; error under --strict.
@@ -161,6 +165,29 @@ CHECKS = (
 )
 
 
+# The "study-completeness" gate: three detections of a study that LOOKS done but
+# is internally inconsistent, so an investigation should not read as complete
+# over it. Consumers (the vivarium-workbench publish path) filter the lint
+# findings by these check ids to render ONE study-completeness banner / CI
+# annotation, and to REFUSE a --strict publish.
+#
+#   1. status_claims_done_no_runs_recorded — claims done but NO runs recorded.
+#   2. completed_but_verdict_pending       — completed but verdict still pending
+#                                            (has runs, every test pending).
+#   3. declared_composite_unresolved       — declares a Model composite that does
+#                                            NOT resolve to a real payload. Emitted
+#                                            PUBLISH-SIDE (the workbench owns the
+#                                            composite registry / resolver that the
+#                                            engine, by import boundary, cannot
+#                                            see); listed here so the family is the
+#                                            single source of the id set.
+STUDY_COMPLETENESS_CHECKS = frozenset({
+    "status_claims_done_no_runs_recorded",
+    "completed_but_verdict_pending",
+    "declared_composite_unresolved",
+})
+
+
 _CHECK_FUNCTIONS = (
     _check_contract_observables,
     _check_renders_via_dashboard,
@@ -190,6 +217,7 @@ _CHECK_FUNCTIONS = (
     _check_status_out_of_date_vs_runs,
     _check_stale_computed_grades,
     _check_status_claims_done_but_no_runs_recorded,
+    _check_completed_but_verdict_pending,
     _check_runs_without_emitter,
     _check_reviewer_clarity_ambiguities,
     _check_viz_stale_vs_latest_run,

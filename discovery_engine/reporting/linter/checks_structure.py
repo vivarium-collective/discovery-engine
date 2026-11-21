@@ -555,6 +555,79 @@ def _check_status_claims_done_but_no_runs_recorded(ctx: _LintContext) -> None:
     )
 
 
+def _check_completed_but_verdict_pending(ctx: _LintContext) -> None:
+    """Study presents as COMPLETED but its computed verdict is still pending.
+
+    The study-completeness gate's rule 2: a study whose progress/status claims
+    completion (``status: completed``/``done``, or ``gate_status: passed`` /
+    ``evaluation_status: evaluated``) while the COMPUTED verdict
+    (``study.verdict.roll_up_verdict``) is ``blocked`` — meaning it HAS runs but
+    every behaviour test is still pending (no outcomes recorded). The run
+    executed, but the gate was never actually decided, so the investigation
+    reads as "done" over a study whose verdict is unresolved.
+
+    The live case (viva_simulation_core biogears-sbml-sepsis): the runs recorded
+    to runs.db, but the study-run HTTP flush 500'd on numpy serialization before
+    grading the behaviour tests into ``outcomes`` — so ``canonical_outcomes`` is
+    empty, ``roll_up_verdict`` returns ``blocked``, and the gate verdict can
+    never pass even though the study is marked complete.
+
+    Distinct from:
+    * ``status_claims_done_no_runs_recorded`` (rule 1) — which owns the NO-runs
+      case (``roll_up_verdict`` → ``not_started``); this check requires runs.
+    * ``reviewer_clarity_ambiguity`` — which flags "ran but tests pending" for
+      ANY study; this one fires ONLY when the study also CLAIMS completion, so
+      it is the signal that forces the investigation out of "complete".
+
+    Warning-level (non-blocking) by default; promoted to error under
+    ``--strict`` (the publish REFUSE path). The fix is to re-run so the tests
+    grade into ``outcomes``, or to correct the status to match the real verdict.
+    """
+    spec = ctx.spec
+    legacy = str(spec.get("status") or "").strip().lower()
+    claims_completed = (
+        legacy in {"completed", "complete", "done", "passed"}
+        or spec.get("gate_status") == "passed"
+        or spec.get("evaluation_status") == "evaluated"
+    )
+    if not claims_completed:
+        return
+    try:
+        from discovery_engine.study.verdict import roll_up_verdict
+    except ImportError:
+        return
+    verdict = roll_up_verdict(spec)
+    # "blocked" = has runs but every test is pending (no recorded outcomes).
+    # "not_started" (no runs) is rule 1's territory — don't double-flag it here.
+    if verdict.get("result") != "blocked":
+        return
+    pending = [n for n in (verdict.get("blocked_by") or []) if n]
+    pending_note = (
+        f" The still-pending test(s): {', '.join(pending)}." if pending else ""
+    )
+    claimed_by = (
+        "gate_status: passed" if spec.get("gate_status") == "passed"
+        else "evaluation_status: evaluated"
+        if spec.get("evaluation_status") == "evaluated"
+        else f"status: {spec.get('status')!r}"
+    )
+    ctx.add(
+        level="warning",
+        field_path="runs[].outcomes",
+        message=(
+            f"study presents as completed ({claimed_by}) but its computed "
+            "verdict is still pending — it has runs, yet every behaviour test "
+            "renders 'pending' because no run outcomes were graded, so the gate "
+            f"was never actually decided.{pending_note} The investigation then "
+            "reads as done over an unresolved study. Re-run so the tests grade "
+            "into runs[].outcomes (a flush/serialization failure can leave "
+            "runs.db populated but outcomes empty), or correct the status to "
+            "match the real verdict."
+        ),
+        check="completed_but_verdict_pending",
+    )
+
+
 def _check_reviewer_clarity_ambiguities(ctx: _LintContext) -> None:
     """Surface anything that would render ambiguously on the reviewer-facing
     run/test/verdict strip — single-sourced from
@@ -761,6 +834,7 @@ __all__ = [
     '_runs_db_rows',
     '_check_status_out_of_date_vs_runs',
     '_check_status_claims_done_but_no_runs_recorded',
+    '_check_completed_but_verdict_pending',
     '_check_reviewer_clarity_ambiguities',
     '_check_viz_stale_vs_latest_run',
     '_check_runs_yaml_vs_db_drift',
