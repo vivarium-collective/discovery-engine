@@ -32,6 +32,7 @@ import datetime as _dt
 import hashlib
 
 from discovery_engine.study.verdict import (
+    _authored_claims_settled_verdict,
     confidence_diverges_from_derived,
     diverges_from_authored,
     roll_up_verdict,
@@ -159,4 +160,42 @@ def critique_triggers(study_specs: list[dict]) -> list[dict]:
                 "note": "authored confidence badge disagrees with the derived confidence — "
                         "reads as spin",
             })
+    return out
+
+
+def composite_overreach_triggers(study_specs: list[dict]) -> list[dict]:
+    """A study that asserts a SETTLED verdict but whose baseline composite does not RESOLVE in the
+    environment: the verdict rests on a model that cannot be reconstructed, so the result is not
+    reproducible — ``a study whose composite can't resolve cannot be 'supported'``. Emits the same
+    verdict_divergence trigger shape as :func:`critique_triggers`, with a composite-specific note.
+
+    Distinct from (and complementary to) critique_triggers: this check is environment-dependent
+    (``resolve_composite`` via ``importlib.find_spec``), not spec-pure. A study already flagged by
+    the ordinary divergence rule is skipped so one study yields one trigger."""
+    from discovery_engine.phases.model_architect import resolve_composite
+    out: list[dict] = []
+    for spec in study_specs or []:
+        if not isinstance(spec, dict):
+            continue
+        # Only a study that CLAIMS a settled verdict can overreach; one already caught by the
+        # evidence-divergence rule (e.g. verdict over 0 runs) is not double-flagged here.
+        if not _authored_claims_settled_verdict(spec) or diverges_from_authored(spec):
+            continue
+        unresolved = [b.get("composite") for b in (spec.get("baseline") or [])
+                      if isinstance(b, dict) and b.get("composite")
+                      and not resolve_composite(b["composite"], None)["resolves"]]
+        if not unresolved:
+            continue
+        slug = _study_slug(spec)
+        out.append({
+            "id": _critique_id(slug, "composite_unresolved").replace("cr:", "ct:"),
+            "kind": "verdict_divergence",
+            "study": slug,
+            "authored": str(spec.get("gate_status") or (spec.get("report") or {}).get("verdict")
+                            or spec.get("verdict") or spec.get("result") or "").strip(),
+            "derived": "unresolvable-model",
+            "note": "authored verdict rests on an unresolved baseline composite ("
+                    + ", ".join(str(c) for c in unresolved)
+                    + ") — the model cannot resolve, so the result is not reproducible",
+        })
     return out

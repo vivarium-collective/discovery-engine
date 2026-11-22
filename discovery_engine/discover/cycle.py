@@ -50,7 +50,7 @@ from discovery_engine.projection.narrative import audit, narrate
 from discovery_engine.study.run_command import render_command, run_command
 from discovery_engine.study.io import atomic_write, load_yaml, load_yaml_mapping, save_yaml_atomic
 from discovery_engine.projection.synthesis import open_calls, synthesize_gates
-from discovery_engine.phases.critique_report import critique_triggers
+from discovery_engine.phases.critique_report import composite_overreach_triggers, critique_triggers
 from discovery_engine.reporting.validation import ValidationContext, run_validators
 
 from discovery_engine.discover._common import (
@@ -182,7 +182,8 @@ def run_cycle(inv_spec: dict, studies_by_slug: dict[str, dict], *,
                       if a.get("study") not in bad],
         # A verdict/confidence that outruns its evidence -> an advisory critique trigger. A study
         # already flagged `bad` (contradicted -> REPAIR) is excluded, mirroring the other signals.
-        "verdict_overreach": [t for t in critique_triggers(list(studies_by_slug.values()))
+        "verdict_overreach": [t for t in (critique_triggers(list(studies_by_slug.values()))
+                                          + composite_overreach_triggers(list(studies_by_slug.values())))
                               if t.get("study") not in bad],
         # A study records a run with no registered runs.db artifact — an unbacked `ran` claim.
         # Advisory + non-blocking (a read-only snapshot legitimately ships without runs.db), so it
