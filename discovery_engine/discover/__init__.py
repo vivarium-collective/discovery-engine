@@ -119,6 +119,9 @@ from discovery_engine.discover.cycle import (
     viz_inventory,
 )
 
+# R1 — the unified cycle controller
+from discovery_engine.discover.campaign import ActionRecord, run_discovery_campaign
+
 # CLI entry point + rendering
 from discovery_engine.discover.cli import (
     _coerce_scalar,
@@ -143,6 +146,7 @@ from discovery_engine.discover.cli import (
 )
 
 __all__ = [
+    'ActionRecord', 'run_discovery_campaign',
     'EPISTEMIC_RELATIONS', 'Path', 'RESOLUTION_KINDS', 'StringIO', 'VERDICT_VOCAB',
     'ValidationContext', 'YAML', '_ADVANCE_OPS', '_advance_study_for', '_append_executed',
     '_apply_refinement', '_arm_mvs', '_cap_gap_load', '_close_built_viz_proposals',
