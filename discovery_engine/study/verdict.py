@@ -44,6 +44,24 @@ _GATE_STATUS_MAP: dict[str, str] = {
     "needs_calibration": _RESULT_NEEDS_CALIBRATION,
 }
 
+# Authored verdict tokens that assert a SETTLED result — across the gate vocabulary
+# (passed/failed) AND the evaluation vocabulary (supported/contested/refuted). A study can claim a
+# settled verdict via `verdict` / `result` / `conclusion_verdict` / `report.verdict` without ever
+# setting `gate_status`; such a claim over a not_started roll-up (no run graded any evidence) is an
+# overreach. Hedged verdicts (provisionally-supported / unresolved / gated / inconclusive) are
+# deliberately EXCLUDED — they acknowledge their own uncertainty and are not overclaims.
+_SETTLED_AUTHORED_VERDICTS: frozenset[str] = frozenset({
+    "passed", "pass", "passing", "failed", "failed_evaluation", "needs_calibration", "partial",
+    "supported", "contested", "refuted", "accepted",
+})
+
+
+def _authored_claims_settled_verdict(spec: dict) -> bool:
+    """True if the study authored a settled verdict via a verdict field other than gate_status."""
+    fields = ((spec.get("report") or {}).get("verdict"), spec.get("verdict"),
+              spec.get("result"), spec.get("conclusion_verdict"))
+    return any(str(v or "").strip().lower() in _SETTLED_AUTHORED_VERDICTS for v in fields)
+
 
 # ---------------------------------------------------------------------------
 # roll_up_verdict
@@ -223,6 +241,13 @@ def diverges_from_authored(spec: dict) -> bool:
     authored_gate = str(spec.get("gate_status") or "").strip().lower()
     authored_mapped = _GATE_STATUS_MAP.get(authored_gate)
     if authored_mapped is None:
+        # No (recognised) gate_status — but the study may still assert a SETTLED verdict via the
+        # evaluation verdict / result / conclusion (supported / contested / refuted). Such a claim
+        # over a not_started roll-up (no run graded any evidence) is an unbacked overreach the
+        # critique system must flag — the same rule as an authored gate_status with no run. This is
+        # the integrity gap that let an authored `supported` with 0 runs project as a clean verdict.
+        if verdict["result"] == _RESULT_NOT_STARTED and _authored_claims_settled_verdict(spec):
+            return True
         return False
     # A BLOCKED computed verdict (a run is present but grades zero outcomes)
     # is an ABSENT computed verdict. Whether that absence is a DIVERGENCE

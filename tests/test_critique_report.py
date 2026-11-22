@@ -74,6 +74,18 @@ def test_trigger_on_verdict_divergence():
     assert trig[0]["authored"] == "passed" and trig[0]["id"].startswith("ct:")
 
 
+def test_trigger_on_authored_supported_over_zero_runs():
+    # Integrity gap: a study asserting an evaluation verdict `supported` (via verdict/result, no
+    # gate_status) with NO run must raise a verdict_overreach — the claimed result outruns 0 runs.
+    studies = [{"name": "s1", "verdict": "supported", "result": "supported",
+                "behavior_tests": [], "runs": []}]
+    trig = critique_triggers(studies)
+    assert len(trig) == 1
+    assert trig[0]["kind"] == "verdict_divergence" and trig[0]["study"] == "s1"
+    assert trig[0]["authored"] == "supported"          # names the real claim, not an empty gate_status
+    assert trig[0]["derived"] == "not_started"
+
+
 def test_no_trigger_when_authored_matches_evidence():
     assert critique_triggers([{"name": "s1"}]) == []           # nothing authored to diverge
 
