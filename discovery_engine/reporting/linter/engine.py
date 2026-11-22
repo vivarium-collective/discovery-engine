@@ -213,6 +213,7 @@ _CHECK_FUNCTIONS = (
     _check_truncated_takeaways,
     _check_decide_phase_missing_findings,
     _check_finding_without_evidence,
+    _check_finding_without_figure,
     _check_finding_without_statement,
     _check_finding_cites_unknown_bib_key,
     _check_finding_references_unknown_expert_doc,
