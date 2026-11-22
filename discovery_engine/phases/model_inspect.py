@@ -145,3 +145,62 @@ def validate_composite(component, ws_root=None, *, expected=None) -> dict:
                            "detail": f"param '{p}' units {_units_of(have_params[p])} != expected {_units_of(wv)}"})
 
     return {"valid": not issues, "issues": issues, "contract": c.to_dict()}
+
+
+def compose_and_validate_model(components: dict, wiring: list, ws_root=None) -> dict:
+    """Compose independently-authored components by wiring their ports, and validate the
+    coupling before the model is declared runnable (§2).
+
+    ``components``: ``{name -> Process class/callable or dotted path}``.
+    ``wiring``: a list of edges ``{"source": [comp, out_port], "target": [comp, in_port]}`` —
+    each connects a producer's output port to a consumer's input port.
+
+    Validates, per §2's acceptance ("produce a runnable coupled model and detect an intentionally
+    incompatible unit or missing exchange port"): every component is importable and a Process;
+    every wired port exists on its component (else ``missing_port``), and the two ends of each
+    wire carry compatible units (else ``unit_mismatch``). Returns ``{runnable, issues, model}``.
+    Pure: no run is triggered. (Runtime mass-balance conservation and a reproducible smoke run
+    are follow-up increments; this is the static coupling gate.)"""
+    contracts = {name: inspect_component(c, ws_root) for name, c in (components or {}).items()}
+    issues: list = []
+
+    for name, c in contracts.items():
+        if not c.importable:
+            issues.append({"kind": "not_importable", "component": name})
+        elif not c.is_process:
+            issues.append({"kind": "not_a_process", "component": name})
+
+    for edge in wiring or []:
+        src = edge.get("source") or []
+        tgt = edge.get("target") or []
+        if len(src) != 2 or len(tgt) != 2:
+            issues.append({"kind": "malformed_wire", "edge": edge})
+            continue
+        s_comp, s_port = src
+        t_comp, t_port = tgt
+        sc, tc = contracts.get(s_comp), contracts.get(t_comp)
+        if sc is None or tc is None:
+            issues.append({"kind": "unknown_component", "edge": edge,
+                           "detail": f"wire references unknown component(s): {s_comp!r}/{t_comp!r}"})
+            continue
+        s_ports = sc.output_ports or {}
+        t_ports = tc.input_ports or {}
+        ok = True
+        if s_port not in s_ports:
+            issues.append({"kind": "missing_port", "side": "output", "component": s_comp,
+                           "port": s_port, "detail": f"{s_comp} declares no output port '{s_port}'"})
+            ok = False
+        if t_port not in t_ports:
+            issues.append({"kind": "missing_port", "side": "input", "component": t_comp,
+                           "port": t_port, "detail": f"{t_comp} declares no input port '{t_port}'"})
+            ok = False
+        if ok:
+            su, tu = _units_of(s_ports[s_port]), _units_of(t_ports[t_port])
+            if su and tu and su != tu:
+                issues.append({"kind": "unit_mismatch", "edge": edge,
+                               "detail": f"wire {s_comp}.{s_port} ({su}) -> {t_comp}.{t_port} ({tu})"})
+
+    runnable = not issues
+    model = {"components": sorted(contracts), "wiring": list(wiring or []),
+             "contracts": {n: c.to_dict() for n, c in contracts.items()}}
+    return {"runnable": runnable, "issues": issues, "model": model}

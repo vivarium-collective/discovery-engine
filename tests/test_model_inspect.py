@@ -74,3 +74,65 @@ def test_inspect_non_importable_component():
     res = validate_composite("nonexistent_pkg.module.Thing")
     assert not res["valid"]
     assert any(i["kind"] == "not_importable" for i in res["issues"])
+
+
+# --- §2 acceptance: compose independently-authored metabolic + spatial processes ---
+
+from discovery_engine.phases.model_inspect import compose_and_validate_model  # noqa: E402
+
+
+class _Spatial(Process):
+    """A reaction-diffusion process consuming a metabolic exchange flux."""
+    config_schema = {"diffusion": {"_type": "float", "_units": "um2/s"}}
+
+    def inputs(self):
+        return {"flux_in": {"_type": "float", "_units": "mmol/s"}, "field": "float"}
+
+    def outputs(self):
+        return {"field": "float"}
+
+    def update(self, state, interval):
+        return {}
+
+
+def test_compose_valid_coupling_is_runnable():
+    comps = {"metab": _Metabolic, "space": _Spatial}
+    wiring = [{"source": ["metab", "exchange_flux"], "target": ["space", "flux_in"]}]
+    res = compose_and_validate_model(comps, wiring)
+    assert res["runnable"] and res["issues"] == []
+    assert set(res["model"]["components"]) == {"metab", "space"}
+
+
+def test_compose_detects_missing_exchange_port():
+    comps = {"metab": _Metabolic, "space": _Spatial}
+    wiring = [{"source": ["metab", "o2_flux"], "target": ["space", "flux_in"]}]  # metab has no o2_flux
+    res = compose_and_validate_model(comps, wiring)
+    assert not res["runnable"]
+    assert any(i["kind"] == "missing_port" and i["port"] == "o2_flux" for i in res["issues"])
+
+
+def test_compose_detects_unit_mismatch_across_the_wire():
+    class _SpaceBadUnits(Process):
+        def inputs(self):
+            return {"flux_in": {"_type": "float", "_units": "g/s"}}   # metab emits mmol/s
+
+        def outputs(self):
+            return {"field": "float"}
+
+        def update(self, state, interval):
+            return {}
+
+    comps = {"metab": _Metabolic, "space": _SpaceBadUnits}
+    wiring = [{"source": ["metab", "exchange_flux"], "target": ["space", "flux_in"]}]
+    res = compose_and_validate_model(comps, wiring)
+    assert not res["runnable"]
+    assert any(i["kind"] == "unit_mismatch" for i in res["issues"])
+
+
+def test_compose_flags_unknown_component_and_malformed_wire():
+    comps = {"metab": _Metabolic}
+    res = compose_and_validate_model(comps, [{"source": ["metab", "exchange_flux"],
+                                              "target": ["ghost", "flux_in"]}])
+    assert any(i["kind"] == "unknown_component" for i in res["issues"])
+    res2 = compose_and_validate_model(comps, [{"source": ["metab"], "target": ["metab", "x"]}])
+    assert any(i["kind"] == "malformed_wire" for i in res2["issues"])
