@@ -47,7 +47,8 @@ def _hash(*parts) -> str:
 
 def run_discovery_campaign(ws_root: Path | str, inv_slug: str, *, autonomous: bool = False,
                            runner=None, budget=None, max_iterations: int = 8, policy=None,
-                           gates=None, render_hook=None, build_hook=None, worktree=None) -> dict:
+                           gates=None, fill=None, apply_cli_verb=None, render_hook=None,
+                           build_hook=None, worktree=None) -> dict:
     """Drive one investigation through a bounded sequence of
     project -> apply -> advance/grade -> persist cycles, under ``budget`` and the autonomy
     ``policy`` (or the legacy ``autonomous`` bool). Returns
@@ -61,6 +62,8 @@ def run_discovery_campaign(ws_root: Path | str, inv_slug: str, *, autonomous: bo
         _cycle_with_evidence, _load_runs_by_study, advance_cycle, load_cycle_inputs,
         persist_cycle, run_cycle)
     from discovery_engine.phases import evidence_integrity as ei
+    from discovery_engine.phases.generation_apply import run_requests
+    from discovery_engine.phases.generation_emit import generation_requests
     from discovery_engine.projection import engine as de
 
     pol = AutonomyPolicy.resolve(policy, autonomous)
@@ -119,6 +122,29 @@ def run_discovery_campaign(ws_root: Path | str, inv_slug: str, *, autonomous: bo
             if status == "applied":
                 applied_total += 1
                 progressed = True
+
+        # 1b) Generation: emit the auto-gated GenerationRequests, fill them through the
+        #     injected filler seam, and apply — the generative half of the loop. With no
+        #     `fill` the campaign is a safe projection that applies no generated content;
+        #     the engine itself never runs an LLM (generation lives only behind `fill`).
+        if fill is not None:
+            reqs = [r for r in generation_requests(
+                        de.opportunities(cyc, inv_spec), inv_spec=inv_spec,
+                        discrepancies=cyc.get("discrepancies"))
+                    if r.gate == "auto"]
+            for o in run_requests(reqs, fill=fill, ws_root=ws_root, inv_slug=inv_slug,
+                                  budget=budget, apply_cli_verb=apply_cli_verb) if reqs else []:
+                oc = o.get("outcome")
+                es = {"applied": "applied", "stop": "blocked",
+                      "queued": "skipped"}.get(oc, oc or "skipped")
+                actions.append(ActionRecord(
+                    id=_hash("generate", o.get("request_id"), i),
+                    kind=f"generate:{o.get('kind')}", target=o.get("request_id"),
+                    cycle_index=i, policy_decision="autonomous", execution_status=es,
+                    input_hash=_hash(o.get("request_id")),
+                    artifacts=o.get("applied_to") or [], depends_on=[]))
+                if es == "applied":
+                    progressed = True
 
         # 2) Advance: build-if-needed, run the ready studies, and grade them (compute_outcomes).
         #    Never counts a run as measured before runs.db confirms it — that is advance's job.

@@ -199,3 +199,66 @@ def test_campaign_does_not_re_apply_feedback_on_resume(tmp_path):
     discover.run_discovery_campaign(tmp_path, "inv", **kw)   # resume
     disk = load_yaml(ip)
     assert len([a for a in disk.get("applied_feedback") or [] if a.get("feedback") == "fb1"]) == 1
+
+
+# --- the generation half: emit auto-gated GenerationRequests, fill, apply, in the same loop ---
+
+def _gen_ws(tmp_path):
+    (tmp_path / "workspace.yaml").write_text("name: t\n", encoding="utf-8")
+    inv = tmp_path / "investigations" / "demo"
+    inv.mkdir(parents=True)
+    save_yaml_atomic(inv / "investigation.yaml", {
+        "name": "demo", "studies": ["s1"],
+        "hypotheses": [{"id": "h", "study": "s1", "status": "open"}]})
+    sd = tmp_path / "studies" / "s1"
+    sd.mkdir(parents=True)
+    save_yaml_atomic(sd / "study.yaml", {
+        "schema_version": 4, "name": "s1", "investigation": "demo", "claim": "X",
+        "baseline": [{"name": "b", "composite": "json.tool.main", "params": {}}],
+        "observables": ["obs.val"],
+        "behavior_tests": [{"name": "t",
+            "measure": {"kind": "range_check_per_generation", "path": "obs.val",
+                        "window": "full_lineage_from_gen_0"},
+            "pass_if": {"op": "range", "low": 0.3, "high": 0.8}}],
+        "runs": [{"name": "r0", "params": {}, "computed_outcomes": {"t": {"status": "within_tol"}}}],
+        "findings": [{"id": "f1", "statement": None,
+                      "evidence": {"from_test": "t", "observed": 0.5, "measure": "obs.val"}}]})
+    return inv / "investigation.yaml"
+
+
+def _fake_fill(req):
+    """The injected filler seam. Authors a behavior test for an auto-gated author_tests
+    request; declines everything else (so nothing is fabricated)."""
+    from discovery_engine.phases.generation import GenerationResult
+    if req.kind == "author_tests":
+        return GenerationResult(request_id=req.id, artifact={
+            "study": "s1", "tests": [
+                {"name": "val_in_band", "measure": {"kind": "range_check", "path": "obs.val"},
+                 "pass_if": {"low": 0.1, "high": 0.9}}]})
+    return None
+
+
+def test_campaign_weaves_generation_authored_tests_in_one_call(tmp_path):
+    _gen_ws(tmp_path)
+    res = discover.run_discovery_campaign(
+        tmp_path, "demo", autonomous=True, runner=_noop_runner, fill=_fake_fill,
+        budget=Budget(simulation_runs=2, model_builds=1, generation_calls=3), max_iterations=2)
+
+    # the auto-gated author_tests request was filled + applied in the campaign loop —
+    # no manual run_requests / `discover investigate`.
+    s = load_yaml(tmp_path / "studies" / "s1" / "study.yaml")
+    assert "val_in_band" in [t["name"] for t in s.get("behavior_tests") or []]
+    assert any(a["kind"] == "generate:author_tests" and a["execution_status"] == "applied"
+               for a in res["actions"])
+
+
+def test_campaign_without_filler_skips_generation(tmp_path):
+    """With no filler the campaign is a safe projection — it emits/advances but applies no
+    generated content (the engine stays pure; generation only runs behind an injected fill)."""
+    _gen_ws(tmp_path)
+    res = discover.run_discovery_campaign(
+        tmp_path, "demo", autonomous=True, runner=_noop_runner,
+        budget=Budget(simulation_runs=2, model_builds=1, generation_calls=3), max_iterations=2)
+    s = load_yaml(tmp_path / "studies" / "s1" / "study.yaml")
+    assert "val_in_band" not in [t["name"] for t in s.get("behavior_tests") or []]
+    assert not [a for a in res["actions"] if a["kind"].startswith("generate:")]
