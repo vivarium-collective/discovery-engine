@@ -339,3 +339,20 @@ def test_campaign_run_state_refuted_not_failed_when_graded_fail(tmp_path):
     # execution, and never a completion.
     assert runs and all(a["execution_status"] == "refuted" for a in runs)
     assert not any(a["execution_status"] in ("completed", "failed_execution") for a in runs)
+
+
+def test_zero_simulation_budget_is_projection_only_not_exhausted(tmp_path):
+    """Friction fix: a zero simulation budget is projection-only, not an exhausted one. The
+    campaign still applies revision/generation work, skips advance (runs nothing), and must NOT
+    report `budget_exhausted` (which falsely signals a budget ran out)."""
+    ip, sp = _ws(tmp_path)
+    runner = FakeRunner()
+    with patch("viva_emitters.RunReader") as cls:
+        cls.open.return_value = _reader()
+        res = discover.run_discovery_campaign(
+            tmp_path, "og", autonomous=True, runner=runner,
+            budget=Budget(simulation_runs=0, model_builds=2, generation_calls=0), max_iterations=3)
+    assert runner.calls == []                 # no simulation ran
+    assert res["runs"] == 0
+    assert res["stop_reason"] != "budget_exhausted"   # projection-only, nothing was exhausted
+    assert res["applied"] >= 1                # the revision still applied (no sim budget needed)
