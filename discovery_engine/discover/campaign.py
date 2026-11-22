@@ -114,7 +114,9 @@ def run_discovery_campaign(ws_root: Path | str, inv_slug: str, *, autonomous: bo
     """Drive one investigation through a bounded sequence of
     project -> apply -> advance/grade -> persist cycles, under ``budget`` and the autonomy
     ``policy`` (or the legacy ``autonomous`` bool). Returns
-    ``{iterations, stop_reason, applied, runs, actions, inv_path}`` where ``actions`` is the
+    ``{iterations, stop_reason, applied, applied_generations, applied_total, runs, actions,
+    inv_path}`` where ``applied`` is model-revision applies, ``applied_generations`` the generated
+    artifacts applied, ``applied_total`` their sum, and ``actions`` is the
     list of :class:`ActionRecord` dicts. A ``stop_reason`` of ``closed`` /
     ``budget_exhausted`` / ``no_informative_experiment`` / ``max_iterations`` is a legitimate
     halt, not a failure."""
@@ -134,6 +136,12 @@ def run_discovery_campaign(ws_root: Path | str, inv_slug: str, *, autonomous: bo
 
     actions: list[ActionRecord] = []
     applied_total = 0
+    # Generation requests already APPLIED this run, by request id. A generation act (e.g.
+    # interpret_finding) writes prose but does not RESOLVE the frontier item it answers (an open
+    # challenge / divergence stays open for real adjudication — interpretation is never evidence),
+    # so the same opportunity re-emits every iteration. Re-applying it would re-interpret the same
+    # target endlessly; instead the controller applies each generation target once and converges.
+    applied_gen_ids: set[str] = set()
     stop_reason = None
     i = 0
 
@@ -212,7 +220,7 @@ def run_discovery_campaign(ws_root: Path | str, inv_slug: str, *, autonomous: bo
             reqs = [r for r in generation_requests(
                         de.opportunities(cyc, inv_spec), gates=gates, inv_spec=inv_spec,
                         discrepancies=cyc.get("discrepancies"))
-                    if r.gate == "auto"]
+                    if r.gate == "auto" and r.id not in applied_gen_ids]   # don't re-apply what landed
             for o in run_requests(reqs, fill=fill, ws_root=ws_root, inv_slug=inv_slug,
                                   budget=budget, apply_cli_verb=apply_cli_verb) if reqs else []:
                 oc = o.get("outcome")
@@ -226,6 +234,7 @@ def run_discovery_campaign(ws_root: Path | str, inv_slug: str, *, autonomous: bo
                     artifacts=o.get("applied_to") or [], depends_on=[]))
                 if es == "applied":
                     progressed = True
+                    applied_gen_ids.add(o.get("request_id"))   # converge: apply each target once
 
         # 2) Advance: build-if-needed, run the ready studies, and grade them (compute_outcomes).
         #    Never counts a run as measured before runs.db confirms it — that is advance's job.
@@ -297,7 +306,16 @@ def run_discovery_campaign(ws_root: Path | str, inv_slug: str, *, autonomous: bo
     if inv_path is not None:
         _ip, _spec, _sts = load_cycle_inputs(ws_root, inv_slug)
         _persist(_ip, _spec, _sts)
-    return {"iterations": i, "stop_reason": stop_reason, "applied": applied_total,
+    # Honest apply counts: `applied` historically counted only model-revision applies (step 1a),
+    # so a run that applied 19 generated artifacts but no revisions reported `applied: 0` — reading
+    # as "nothing happened". Surface the generation applies (step 1b, which live in actions[]) and a
+    # combined total; `applied` stays revision-only for back-compat.
+    applied_generations = sum(1 for a in actions
+                              if a.kind.startswith("generate:") and a.execution_status == "applied")
+    return {"iterations": i, "stop_reason": stop_reason,
+            "applied": applied_total,                              # model-revision applies (back-compat)
+            "applied_generations": applied_generations,           # generated artifacts applied
+            "applied_total": applied_total + applied_generations,  # everything that landed this run
             "runs": runs_done, "actions": [a.to_dict() for a in actions],
             "inv_path": str(inv_path) if inv_path else None,
             "ledger_path": str(ledger_file)}
