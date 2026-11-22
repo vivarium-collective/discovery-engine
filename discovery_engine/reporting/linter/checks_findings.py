@@ -115,6 +115,46 @@ def _check_finding_without_evidence(ctx: _LintContext) -> None:
         )
 
 
+def _is_visualizable_finding(f: dict) -> bool:
+    """A finding whose conclusion is quantitative — it measures an observable or rests on a graded
+    behavior test — so a figure could SHOW it. A purely prose / structural finding is not, and must
+    not trip the figure check (or it goes noisy and gets ignored)."""
+    ev = f.get("evidence") or {}
+    if not isinstance(ev, dict):
+        return False
+    return bool(ev.get("measure") or ev.get("from_test")
+                or isinstance(ev.get("observed"), (int, float)))
+
+
+def _check_finding_without_figure(ctx: _LintContext) -> None:
+    """A study that HEADLINES an evidenced, visualizable finding (a measured observable or a graded
+    test) but declares NO visualization: the conclusion is asserted in prose with nothing that lets
+    a reviewer SEE it. Distinct from the viz-freshness / address checks (which validate DECLARED
+    viz) — this flags the ABSENCE. Warning (a communication/rigor gap, not a blocking error). One
+    per study."""
+    spec = ctx.spec
+    findings = spec.get("findings") or []
+    if not isinstance(findings, list):
+        return
+    if spec.get("visualizations") or spec.get("embed_visualizations"):
+        return   # declared viz is validated by the freshness/address checks, not here
+    hits = [(idx, f) for idx, f in enumerate(findings)
+            if isinstance(f, dict) and _is_visualizable_finding(f)]
+    if not hits:
+        return
+    ids = ", ".join(str(f.get("id", f"<index-{idx}>")) for idx, f in hits)
+    ctx.add(
+        level="warning",
+        field_path="visualizations",
+        message=(
+            f"Study headlines {len(hits)} evidenced, visualizable finding(s) ({ids}) but declares "
+            "no visualization — the conclusion is asserted in prose with nothing a reviewer can SEE. "
+            "Add a figure of the measured observable (the cycle can also propose one)."
+        ),
+        check="finding_without_figure",
+    )
+
+
 def _check_finding_without_statement(ctx: _LintContext) -> None:
     """A finding with no `statement` renders as '(no statement)' in the report
     and produces an empty Key-takeaways bullet. Every finding must carry a
@@ -576,6 +616,7 @@ __all__ = [
     '_expert_doc_names_for_workspace',
     '_check_decide_phase_missing_findings',
     '_check_finding_without_evidence',
+    '_check_finding_without_figure',
     '_check_finding_without_statement',
     '_check_finding_cites_unknown_bib_key',
     '_check_finding_references_unknown_expert_doc',
