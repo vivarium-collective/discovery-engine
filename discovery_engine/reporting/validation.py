@@ -501,7 +501,7 @@ def _investigation_narrative_completeness(ctx: ValidationContext) -> list[dict]:
         execution_status="failed", scientific_judgment=None,
         criteria=["narrative_completeness"],
         findings=[f"missing authored prose: {m}" for m in missing],
-        recommendations=["author via `/viva-investigation` (set-overview / verdict)"],
+        recommendations=["author via `/viva:investigate` (set-overview / verdict)"],
         validator_id="structural.investigation.narrative_completeness")]
 
 

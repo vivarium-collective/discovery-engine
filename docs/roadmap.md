@@ -215,7 +215,7 @@ A ladder of 12 synthetic→real benchmarks (T0–T5). **1 of 12** is built:
 **The frontier (needs a real LLM filler behind `$VIVA_FILLER_CMD`):**
    The drive is now steerable end to end — `discover investigate <inv> --goal "<text>"`
    (#120) threads a free-text goal into every request, and viva-superpowers'
-   `/viva-drive-engine` + `/viva-fill` wrap it. What remains is the reasoning *quality*
+   `/viva:discover` + `/viva:reason` wrap it. What remains is the reasoning *quality*
    behind the seam:
 5. ⬜ Run `discover investigate` against Benchmark 1 with real `hypothesize`/`critique`
    reasoning, replacing the oracle — then the full A–E baseline matrix becomes real.

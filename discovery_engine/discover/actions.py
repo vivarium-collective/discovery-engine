@@ -752,7 +752,7 @@ def apply_revision(ws_root: Path | str, inv_slug: str, proposal_id: str,
     if cand is None:
         return {"status": "needs_build", "study_path": None, "model_version": None,
                 "mechanism": "no fully-derived candidate change — a human must author the mechanism "
-                             "(/viva-expert) before this proposal can be applied"}
+                             "(/viva:model) before this proposal can be applied"}
 
     base = next((a for a in parent.get("baseline") or [] if isinstance(a, dict)), {})
     new_slug = f"{parent_slug}-rev-{str(proposal_id).rsplit(':', 1)[-1]}"
@@ -770,7 +770,7 @@ def apply_revision(ws_root: Path | str, inv_slug: str, proposal_id: str,
     if not resolve_composite(composite, ws)["resolves"]:
         return {"status": "needs_build", "study_path": None, "model_version": None,
                 "mechanism": f"composite {composite!r} does not resolve in this environment — "
-                             "BUILD route: wrap/build it (/viva-expert), then re-apply"}
+                             "BUILD route: wrap/build it (/viva:model), then re-apply"}
 
     child = _ss.build_seeded_study(parent, inv_spec, new_slug=new_slug, finding_id=src.get("finding"),
                                    model_change=mc)

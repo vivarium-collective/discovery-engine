@@ -4,7 +4,7 @@ after a structural edit (studies removed / added / merged).
 Deterministic / AI-free, mirroring the ``finding_observations.py`` split:
 ``detect_drift`` is pure (no writes); ``apply_mechanical`` drops STRUCTURED
 references to removed studies via the comment-preserving ruamel round-trip and
-leaves PROSE for the host agent to rewrite (guided by the ``/viva-investigation
+leaves PROSE for the host agent to rewrite (guided by the ``/viva:investigate
 reconcile`` skill section). Idempotent.
 """
 from __future__ import annotations

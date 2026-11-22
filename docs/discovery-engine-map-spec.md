@@ -62,24 +62,24 @@ ArtifactId = "investigation" | "study" | "runs" | "modelversions"
 
 | id | label | band | functions (module) | skills | grade / purity |
 |---|---|---|---|---|---|
-| `inputs` | Load | core | `load_cycle_inputs` (discover/cycle.py) | `/viva-investigation` | real / pure |
+| `inputs` | Load | core | `load_cycle_inputs` (discover/cycle.py) | `/viva:investigate` | real / pure |
 | `core` | Project | core | `run_cycle` (discover/cycle.py) | — | real / pure |
 | `reconcile` | A · Reconcile | phase | `reconcile_evidence_state` (phases/evidence_integrity.py) | — | real / pure |
 | `plan` | B · Plan | phase | `plan_candidate_actions`, `select_portfolio` (phases/candidate_action.py) | — | real / pure |
 | `design` | C · Design | phase | `design_discriminating_study` (phases/experiment_design.py) | — | conditional / pure |
-| `build` | D · Build | phase | `build_catalog`, `bind_model_versions`, `model_version` (phases/model_architect.py) | `/viva-expert` | real / pure |
+| `build` | D · Build | phase | `build_catalog`, `bind_model_versions`, `model_version` (phases/model_architect.py) | `/viva:model` | real / pure |
 | `grade` | Grading | phase | `compute_outcomes` (study/evaluator/outcomes.py) | `/viva-study` | real / **mutating** |
 | `evaluate` | F · Evaluate | phase | `compare_hypotheses` (phases/evaluation.py), `detect_finding_candidates` (phases/discovery_record.py), `diagnose_refutation` (phases/model_error.py) | `/viva-biology-forward` | conditional / pure |
-| `gate` | Gates | gate | `frontier`, `closure`, `next_action`, `opportunities`, `execute_plan`, `AutonomyPolicy` (projection/engine.py, discover/_policy.py) | `/viva-harden-investigation`, `/viva-navigate` | real / pure |
+| `gate` | Gates | gate | `frontier`, `closure`, `next_action`, `opportunities`, `execute_plan`, `AutonomyPolicy` (projection/engine.py, discover/_policy.py) | `/viva:harden`, `/viva:explore` | real / pure |
 | `emit` | Generate · emit | seam | `generation_requests` (phases/generation_emit.py) | — | real / pure |
-| `fill` | Generate · fill | seam | `subprocess_filler` (phases/generation_apply.py) | **`/viva-fill`** | real / mutating (subprocess) |
+| `fill` | Generate · fill | seam | `subprocess_filler` (phases/generation_apply.py) | **`/viva:reason`** | real / mutating (subprocess) |
 | `apply` | Generate · apply | seam | `apply_result`, `run_requests` (phases/generation_apply.py) | `hypothesize`, `critique`, `acquire_model` | real / mutating |
 | `propose` | Grow · propose | growth | `suggest_studies` (discover/cycle.py) | — | real / pure |
 | `select` | Grow · select | growth | `select_for_launch` (growth/seeding.py) | — | real / pure |
 | `seed` | Grow · seed | growth | `build_seeded_study`, `build_child_seed_from_finding` (growth/seeding.py, growth/seed_from_followup.py) | — | real / pure |
 | `refine` | Grow · refine | growth | `refine_study` (growth/refinement.py) | — | real / pure |
 | `reopen` | Reopen | reopen | `reconcile_and_reopen` (feedback/compiler.py), `ingest_feedback` | — | real / pure-planner |
-| `execute` | E · Execute | execute | `advance_cycle` (discover/cycle.py) | `/viva-harden-investigation` | real / **mutating** |
+| `execute` | E · Execute | execute | `advance_cycle` (discover/cycle.py) | `/viva:harden` | real / **mutating** |
 | `discovery` | Discovery | discovery | `detect_finding_candidates`, `review_findings`/`promote_finding_candidate` (discover/actions.py) | — | real / mutating (on promote) |
 
 > The nine generation **KINDS** are a sub-object of the `apply` node, rendered as a table
