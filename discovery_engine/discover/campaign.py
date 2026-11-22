@@ -132,15 +132,21 @@ def run_discovery_campaign(ws_root: Path | str, inv_slug: str, *, autonomous: bo
         for r in adv.get("runs", []):
             st = r.get("status")
             es = {"executed": "executed", "needs_build": "blocked"}.get(st, st or "skipped")
+            # advance also dispatches the `reopen` op (staged feedback); record it as a typed
+            # reopen, not a run, and do not charge it against the simulation budget. The
+            # summarized rec carries no command, so key off advance's reopen outcome marker.
+            is_reopen = "reopened the investigation" in (r.get("outcome") or "")
+            kind = "reopen" if is_reopen else "run"
             actions.append(ActionRecord(
-                id=_hash("run", r.get("target"), i), kind="run", target=r.get("target"),
-                cycle_index=i, policy_decision="autonomous", execution_status=es,
-                input_hash=_hash(r.get("target")),
+                id=_hash(kind, r.get("target") or r.get("command"), i), kind=kind,
+                target=r.get("target"), cycle_index=i, policy_decision="autonomous",
+                execution_status=es, input_hash=_hash(r.get("target") or r.get("command")),
                 artifacts=r.get("run_ids") or ([r["run_id"]] if r.get("run_id") else []),
                 depends_on=[]))
             if es == "executed":
-                runs_done += 1
                 progressed = True
+                if not is_reopen:
+                    runs_done += 1
         for nb in adv.get("needs_build", []):
             actions.append(ActionRecord(
                 id=_hash("needs_build", nb.get("study"), i), kind="run",

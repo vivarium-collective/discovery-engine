@@ -144,3 +144,58 @@ def test_campaign_is_idempotent_on_resume(tmp_path):
     assert studies_after_2 == studies_after_1        # no duplicate child study
     assert props_after_2 == props_after_1            # no duplicate proposal
     assert runner2.calls == []                       # nothing re-run (already graded)
+
+
+# --- §1 acceptance: feedback YAML reopens a closed investigation, no manual per-phase command ---
+
+def _staged_reopen(fid="fb1"):
+    return {"id": fid, "summary": {},
+            "feedback": {"human_feedback_to_engine": "reconsider the verdict"},
+            "actions": [{"type": "reopen", "status": "open", "verdict_status": "reopened",
+                         "reason": "a new counter-result refutes the closed verdict"}]}
+
+
+def _reopen_ws(tmp_path):
+    (tmp_path / "workspace.yaml").write_text("name: t\n", encoding="utf-8")
+    inv = tmp_path / "investigations" / "inv"
+    inv.mkdir(parents=True)
+    save_yaml_atomic(inv / "investigation.yaml", {
+        "name": "inv", "studies": ["s1"], "status": "closed",
+        "executive": {"verdict_status": "supported"},
+        "pending_feedback": [_staged_reopen()]})
+    sd = tmp_path / "studies" / "s1"
+    sd.mkdir(parents=True)
+    save_yaml_atomic(sd / "study.yaml", {
+        "schema_version": 4, "name": "s1", "investigation": "inv", "claim": "X holds"})
+    return inv / "investigation.yaml"
+
+
+def _noop_runner(cmd, ws, **_kw):
+    return {"ok": True, "returncode": 0, "run_id": "stub", "tail": ""}
+
+
+def test_campaign_applies_staged_feedback_to_reopen_closed_investigation(tmp_path):
+    ip = _reopen_ws(tmp_path)
+    res = discover.run_discovery_campaign(
+        tmp_path, "inv", autonomous=True, runner=_noop_runner,
+        budget=Budget(simulation_runs=4, model_builds=2, generation_calls=0), max_iterations=3)
+
+    # ONE call applied the staged feedback — no manual `ingest-feedback` or `advance`.
+    disk = load_yaml(ip)
+    assert disk["status"] == "open"                                   # reopened
+    assert disk["executive"]["verdict_status"] == "reopened"
+    assert any(a.get("feedback") == "fb1" for a in disk.get("applied_feedback") or [])
+
+    # the reopen is a typed action in the ledger, not mislabelled as a run.
+    assert any(a["kind"] == "reopen" and a["execution_status"] == "executed"
+               for a in res["actions"])
+
+
+def test_campaign_does_not_re_apply_feedback_on_resume(tmp_path):
+    ip = _reopen_ws(tmp_path)
+    kw = dict(autonomous=True, runner=_noop_runner, max_iterations=3,
+              budget=Budget(simulation_runs=4, model_builds=2, generation_calls=0))
+    discover.run_discovery_campaign(tmp_path, "inv", **kw)
+    discover.run_discovery_campaign(tmp_path, "inv", **kw)   # resume
+    disk = load_yaml(ip)
+    assert len([a for a in disk.get("applied_feedback") or [] if a.get("feedback") == "fb1"]) == 1
