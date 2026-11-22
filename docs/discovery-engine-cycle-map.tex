@@ -154,6 +154,27 @@ engine produces: a free-text \emph{steering goal} on \code{discover investigate}
 generation request's context and floats on-goal work first (token overlap + kind-intent), while the
 frontier stays derived from state, never from the prompt.
 
+\paragraph{Autonomous mechanistic investigation (the 0.7.2 build-out).} Four increments turn the
+projection into a loop that can drive an investigation forward on its own, without loosening a single
+honesty rule. \textbf{R1 --- a unified campaign controller.} \code{run\_discovery\_campaign}
+(\code{discover/campaign.py}, driven by \code{discover campaign}) weaves generation and execution into
+one bounded loop --- project $\rightarrow$ apply authorized model-revision proposals $\rightarrow$
+advance/execute + grade $\rightarrow$ persist --- recording each step as a typed \code{ActionRecord}
+in a durable \code{campaign\_ledger.jsonl} and halting on a typed stop. A zero simulation budget is
+\emph{projection-only}, not an exhausted one. \textbf{R2 --- an executable model architect.}
+\code{model\_inspect.py} reads what a composite \emph{actually} provides as a \code{ModelContract},
+validates a proposed composition before it is built, and separates the mechanisms a model
+\emph{certifies} from those merely suggested --- so \code{assess\_gap\_closure} can decide whether a
+capability gap is truly closed. \textbf{R3 --- design by invention.} When no arm on hand
+discriminates, \code{experiment\_search.py} walks the typed perturbation space and
+\code{design\_by\_invention} proposes a \emph{new} arm (with treatment / control / matched-baseline
+roles) that would separate the competing hypotheses. \textbf{R4 --- adequacy, closure, explanation.}
+Promotion is gated on \code{assess\_model\_adequacy} (a Discovery can never outrun the mechanism behind
+it); \code{closure\_states} resolves five explicit axes --- \code{workflow\_complete},
+\code{evidence\_sufficient}, \code{model\_adequate}, \code{scientifically\_resolved},
+\code{discovery\_active} --- each with a stated reason; and \code{build\_scientific\_explanation}
+fingerprints a resolution to its evidence, so a settled claim re-opens when the evidence under it moves.
+
 % ===========================================================================
 \section{The cycle at a glance}
 
@@ -208,7 +229,7 @@ in the workbench panel; \textbf{\code{run\_cycle} is pure}, and state changes on
 execute phase, the grading sync, and a few explicit write-backs.
 
 \medskip
-\noindent\textbf{The steps.} Fourteen in the panel's projection graph --- thirteen pure, one
+\noindent\textbf{The steps.} Sixteen in the panel's projection graph --- fifteen pure, one
 mutating --- plus the generation seam that runs an LLM against the frontier (\S\ref{sec:seam}).
 
 \begin{center}\small
@@ -222,12 +243,14 @@ A $\cdot$ Reconcile & \code{reconcile\_evidence\_state} & grade the evidence  & 
 B $\cdot$ Plan      & \code{plan\_candidate\_actions} + \code{select\_portfolio} & rank the moves & pure\\
 C $\cdot$ Design    & \code{design\_discriminating\_study} & design the test  & pure\\
 D $\cdot$ Build     & \code{build\_catalog} / \code{bind\_model\_versions} & acquire \& bind the model & pure\\
+M $\cdot$ Inspect   & \code{inspect\_component} / \code{assess\_gap\_closure} & assess coverage \& gap-closure & pure\\
 F $\cdot$ Evaluate  & \code{compare\_hypotheses} + \code{detect\_finding\_candidates} & verdicts + candidates & pure\\
 Grading     & \code{compute\_outcomes}          & the sync that feeds the verdict & \textcolor{warn}{\textbf{mut.}}\\
 Growth      & \code{suggest\_studies}           & propose the next studies  & pure\\
 \quad $\cdot$ select & \code{select\_for\_launch}       & the autonomy gate         & pure\\
 \quad $\cdot$ seed   & \code{build\_seeded\_study}      & author a run-ready study   & pure\\
 \quad $\cdot$ refine & \code{refine\_study}             & deepen an existing study   & pure\\
+Explain     & \code{build\_scientific\_explanation} & fingerprint the resolution to its evidence & pure\\
 Reopen      & \code{reconcile\_and\_reopen}     & re-enter on feedback      & pure$^\dagger$\\
 E $\cdot$ Execute   & \code{advance\_cycle}             & build + run + change state   & \textcolor{warn}{\textbf{mut.}}\\
 \bottomrule
@@ -273,7 +296,7 @@ never silently overwrites the old one.
 \end{itemize}
 
 \paragraph{Provenance.} Throughout this map: \textbf{(H)} human-authored, \textbf{(AI)}
-agent-authored (via the \code{/viva-*} skills or the filler), \textbf{(D)} derived/computed from
+agent-authored (via the \code{/viva:*} skills or the filler), \textbf{(D)} derived/computed from
 evidence, \textbf{(CFG)} config / schema / rollout flag. The verdict/gate/acceptance roll-ups read
 the \emph{computed} outcome, not the authored one: a test that \emph{computes} fail can no longer
 read ``met'' through a gate.
@@ -535,7 +558,7 @@ never evidence); and an honest no-answer \emph{abstains} --- a filler that retur
 \section{The skills --- who drives each stage}\label{sec:skills}
 
 The engine is headless. Two skill families drive it: the engine's own \textbf{authoring contracts}
-(the three registry kinds above) and the vivarium-workbench \textbf{\code{/viva-*} plugin skills}.
+(the three registry kinds above) and the vivarium-workbench \textbf{\code{/viva:*} plugin skills}.
 The plugin skills reach the engine either by shelling a \code{discover} verb, by the workbench
 \code{/api/*} endpoints (which import the engine server-side), or --- for the filler --- by
 \emph{being invoked by} the engine.
@@ -546,21 +569,22 @@ The plugin skills reach the engine either by shelling a \code{discover} verb, by
 \textbf{stage} & \textbf{skill} & \textbf{role \& how it reaches the engine}\\
 \midrule
 Author (inv)   & \code{/viva:investigate} & investigation CRUD, \code{scaffold-from-plan}, members, \code{run}; writes \code{investigation.yaml}; shells \code{import}/\code{reconcile}; owns \code{proposed\_inputs} discipline. Investigation $\equiv$ branch $\equiv$ worktree.\\
-Author (study) & \code{/viva-study} & the primary \code{study.yaml} writer; Design$\rightarrow$Decide lifecycle via \code{/api/study-*}; inline \code{report\_linter} / \code{study.verdict}.\\
-Author (bands) & \code{/viva-cite-bands} & band provenance --- cites + calibration anchors into \code{study.yaml}; enforced by the report linter.\\
+Author (study) & \code{/viva:study} & the primary \code{study.yaml} writer; Design$\rightarrow$Decide lifecycle via \code{/api/study-*}; inline \code{report\_linter} / \code{study.verdict}.\\
+Author (tests) & \code{/viva:tests} & the graded report cards --- authors + cites acceptance-band provenance + calibration anchors into \code{study.yaml}; enforced by the report linter.\\
 Fill (seam)    & \code{/viva:reason} & the AI \textbf{filler} wired as \code{\$VIVA\_FILLER\_CMD}; one request in, one result out. The only skill that drives the generation/apply seam directly.\\
 Build (model)  & \code{/viva:model} & wraps a simulator as a real composite; an accepted \code{acquire\_model} proposal feeds \code{required\_mechanisms} $\rightarrow$ the capability-gap build loop calls a workspace \code{build\_hook}.\\
-Evaluate       & \code{/viva-biology-forward} & the \code{interpret\_finding} realization --- populates the measured slots (deterministic) then authors the mechanism prose (AI). Via \code{/api/study-findings-populate-observations}.\\
-Grow / gate    & \code{/viva:harden} & the clearest CLI consumer --- shells \code{discover crank}, then \code{resolve}/\code{connect}/\code{relate} to drive the frontier to CLOSED.\\
-Report         & \code{/viva-report} & Pass A audit + Pass B lint + render, via \code{/api/report-lint} / \code{/api/render}; the engine owns the lint/render logic. Headless twin: \code{discover report}/\code{lint}.\\
+Evaluate       & \code{/viva:validate} & the \code{interpret\_finding} realization + biology-forward authoring --- populates the measured slots (deterministic) then authors the mechanism prose (AI). Via \code{/api/study-findings-populate-observations}.\\
+Grow / gate    & \code{/viva:validate} & the clearest CLI consumer --- shells \code{discover crank}, then \code{resolve}/\code{connect}/\code{relate} to drive the frontier to CLOSED (same skill, its hardening facet).\\
+Drive (engine) & \code{/viva:discover} & the autonomous driver --- shells \code{discover investigate}/\code{campaign} to run the bounded cycle loop (R1) under a Budget, with an optional free-text steering goal.\\
+Report         & \code{/viva:report} & Pass A audit + Pass B lint + render, via \code{/api/report-lint} / \code{/api/render}; the engine owns the lint/render logic. Headless twin: \code{discover report}/\code{lint}.\\
 Navigate       & \code{/viva:explore} & read-only \code{/api/linkage-index} + \code{/api/needs-attention} (``decisions needed''). Headless twin: \code{discover linkage}.\\
 Author (eng)   & \code{hypothesize} / \code{critique} / \code{acquire\_model} & the engine's own authoring contracts (\S\ref{sec:seam}); surfaced by the \code{anomaly}/\code{coverage\_gap}, \code{verdict\_overreach}, and \code{model\_acquisition} frontier kinds.\\
 \bottomrule
 \end{tabularx}
 \end{center}
 
-{\footnotesize Not part of the cycle: \code{/viva-suggest} (an internal dashboard callback that
-drafts a repo name / PR title / PR body --- touches no engine function) and \code{/viva-run}
+{\footnotesize Not part of the cycle: \code{/viva:suggest} (an internal dashboard callback that
+drafts a repo name / PR title / PR body --- touches no engine function) and \code{/viva:run}
 (smoke-tests one composite; does not write \code{runs.db} or any study).}
 
 % ===========================================================================
