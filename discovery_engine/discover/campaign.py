@@ -210,7 +210,7 @@ def run_discovery_campaign(ws_root: Path | str, inv_slug: str, *, autonomous: bo
         #     the engine itself never runs an LLM (generation lives only behind `fill`).
         if fill is not None:
             reqs = [r for r in generation_requests(
-                        de.opportunities(cyc, inv_spec), inv_spec=inv_spec,
+                        de.opportunities(cyc, inv_spec), gates=gates, inv_spec=inv_spec,
                         discrepancies=cyc.get("discrepancies"))
                     if r.gate == "auto"]
             for o in run_requests(reqs, fill=fill, ws_root=ws_root, inv_slug=inv_slug,
