@@ -28,11 +28,16 @@ def test_open_operational_items_block_only_workflow():
     assert r["closed"] is False
 
 
-def test_provisional_evidence_blocks_evidence_sufficient_only():
+def test_provisional_evidence_blocks_evidence_sufficient_and_scientific_resolution():
+    # A claim on provisional-only evidence is not scientifically resolved: evidence sufficiency is
+    # a precondition for resolution, so the two states cannot disagree (the coupling that stops the
+    # autonomous controller from closing over a live frontier). Workflow can still be complete.
     r = closure_states(_SETTLED, provisional_claims=["claim:a"])
     assert not r["states"]["evidence_sufficient"]
-    assert r["states"]["workflow_complete"] and r["states"]["scientifically_resolved"]
+    assert not r["states"]["scientifically_resolved"]
+    assert r["states"]["workflow_complete"]
     assert "provisional-only" in r["reasons"]["evidence_sufficient"]
+    assert "provisional-only" in r["reasons"]["scientifically_resolved"]
 
 
 def test_inadequate_claim_blocks_model_and_scientific_resolution():

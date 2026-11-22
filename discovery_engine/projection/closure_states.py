@@ -40,7 +40,11 @@ def closure_states(closure_result, *, provisional_claims=None, inadequate_claims
         "workflow_complete": not unaddressed and not gaps,
         "evidence_sufficient": not provisional,
         "model_adequate": not inadequate,
-        "scientifically_resolved": not challenges and not inadequate,
+        # Evidence sufficiency is a PRECONDITION for resolution: a claim resting on provisional-only
+        # (unverified) evidence is not scientifically resolved, even with no open challenge or
+        # inadequate claim. Without this coupling the five states contradict (resolved yet evidence
+        # insufficient), which let the autonomous controller close over a live frontier.
+        "scientifically_resolved": not challenges and not inadequate and not provisional,
         "discovery_active": bool(active),
     }
     reasons = {
@@ -50,10 +54,13 @@ def closure_states(closure_result, *, provisional_claims=None, inadequate_claims
                                 else f"{len(provisional)} claim(s) rest on provisional-only evidence"),
         "model_adequate": ("no claim fails its adequacy gate" if states["model_adequate"]
                            else f"{len(inadequate)} claim(s) overreach the model (missing mechanism)"),
-        "scientifically_resolved": ("no open challenge or inadequate claim"
+        "scientifically_resolved": ("no open challenge, inadequate or provisional-only claim"
                                     if states["scientifically_resolved"]
-                                    else f"{challenges} open challenge(s)"
-                                         + (f", {len(inadequate)} inadequate claim(s)" if inadequate else "")),
+                                    else ", ".join(filter(None, [
+                                        f"{challenges} open challenge(s)" if challenges else "",
+                                        f"{len(inadequate)} inadequate claim(s)" if inadequate else "",
+                                        f"{len(provisional)} claim(s) on provisional-only evidence"
+                                        if provisional else ""])) or "unresolved"),
         "discovery_active": (f"{len(active)} discovery/ies in progress" if active
                              else "no discovery in progress"),
     }
