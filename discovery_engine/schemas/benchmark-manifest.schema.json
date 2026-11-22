@@ -17,7 +17,9 @@
         "candidate_model": {"type": "string"},
         "evidence": {"type": "string"},
         "holdout": {"type": "string"},
-        "oracle_visibility": {"type": "string"}
+        "oracle_visibility": {"type": "string"},
+        "provider": {"type": "string",
+          "description": "dotted 'module:callable' (or 'module.callable') a workspace implements; called as provider(ws_root) -> BenchmarkProviderBundle to run a workspace benchmark through the harness"}
       }
     },
     "allowed_skills": {"type": "array", "items": {"type": "string"}},

@@ -57,6 +57,16 @@ acquisition→recovery loop runs with no human in the accept step.) ``overreach_
 on the *presence* of a critique, not its substance — a content-quality check on the critique is
 a further follow-up.
 """
+from discovery_engine.benchmark.provider import (
+    BenchmarkProviderBundle,
+    load_provider_bundle,
+    resolve_provider,
+)
+from discovery_engine.benchmark.manifest_run import run_manifest_benchmark, run_manifest_path
 from discovery_engine.benchmark.scenario import GroundTruth, Scenario, build_scenario
 
-__all__ = ["GroundTruth", "Scenario", "build_scenario"]
+__all__ = [
+    "GroundTruth", "Scenario", "build_scenario",
+    "BenchmarkProviderBundle", "resolve_provider", "load_provider_bundle",
+    "run_manifest_benchmark", "run_manifest_path",
+]

@@ -491,6 +491,12 @@ def main(argv: list[str] | None = None) -> int:
                            "model (one real run, not the ablation matrix); not a fixed pass")
     p_bm.add_argument("--filler-cmd", default=None,
                       help="explicit fill command (implies --real-llm; overrides $VIVA_FILLER_CMD)")
+    p_bm.add_argument("--manifest", default=None,
+                      help="run a workspace benchmark from its manifest (fixture.provider); "
+                           "additive to the bundled ablation benchmark")
+    p_bm.add_argument("--bench-workspace", dest="bench_workspace", default=None,
+                      help="workspace root the provider authors its scenario under "
+                           "(default: a temp dir)")
 
     p_snap = sub.add_parser("snapshot-validations",
                             help="accept the current validation state; later drift is flagged stale")
@@ -801,6 +807,33 @@ def main(argv: list[str] | None = None) -> int:
         import tempfile
         from dataclasses import asdict as _asdict
         from pathlib import Path as _P
+
+        # Workspace-benchmark route (additive): a manifest whose fixture.provider names a
+        # workspace provider. Leaves the bundled ablation benchmark path below untouched.
+        if getattr(args, "manifest", None):
+            import os as _os
+            from discovery_engine.benchmark.manifest import load_manifest
+            from discovery_engine.benchmark.manifest_run import run_manifest_benchmark
+            real_cmd = args.filler_cmd or (_os.environ.get("VIVA_FILLER_CMD")
+                                           if getattr(args, "real_llm", False) else None)
+            man = load_manifest(args.manifest)
+
+            def _run_manifest(ws):
+                return run_manifest_benchmark(man, _P(ws), recovery=args.recovery,
+                                              real_llm=bool(real_cmd), filler_cmd=real_cmd)
+
+            if args.bench_workspace:
+                matrix = _run_manifest(args.bench_workspace)
+            else:
+                with tempfile.TemporaryDirectory(prefix="de-manifest-bench-") as td:
+                    matrix = _run_manifest(td)
+            if args.json:
+                print(_json.dumps({k: _asdict(v) for k, v in matrix.items()}, indent=2))
+            else:
+                for k, v in matrix.items():
+                    print(f"{k}: {v}")
+            return 0
+
         from discovery_engine.benchmark.report import (
             render_matrix, render_recovery_matrix, run_matrix, run_recovery_matrix)
 
