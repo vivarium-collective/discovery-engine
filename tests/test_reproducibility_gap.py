@@ -95,3 +95,23 @@ def test_reproducibility_gap_surfaces_on_the_live_cycle(tmp_path):
     opps = de.opportunities(result, inv_spec)
     assert any(o.get("action_type") == "revalidate" and str(o.get("source", "")).endswith("s1")
                for o in opps), "reproducibility_gap did not reach the live opportunities"
+
+
+def test_reproducibility_gap_surfaces_via_the_opportunities_cli(tmp_path, capsys):
+    """The actual CLI COMMAND surface (not just the in-process cycle): `discover opportunities
+    <inv>` on a genuinely-artifactless workspace must PRINT the reproducibility_gap (op
+    revalidate). Guards the cycle+engine -> CLI-handler seam, which the in-process test skips."""
+    from discovery_engine.study.io import save_yaml_atomic
+    (tmp_path / "workspace.yaml").write_text("name: t\n", encoding="utf-8")
+    inv = tmp_path / "investigations" / "demo"
+    (tmp_path / "studies" / "s1").mkdir(parents=True)
+    inv.mkdir(parents=True)
+    save_yaml_atomic(inv / "investigation.yaml", {"name": "demo", "studies": ["s1"]})
+    save_yaml_atomic(tmp_path / "studies" / "s1" / "study.yaml", {
+        "schema_version": 4, "name": "s1", "investigation": "demo", "claim": "X",
+        "baseline": [{"name": "b", "composite": "json.tool.main", "params": {}}],
+        "observables": ["obs.val"], "runs": [{"name": "r0", "run_id": "r0", "params": {}}]})
+    rc = discover.main(["--workspace", str(tmp_path), "opportunities", "demo"])
+    out = capsys.readouterr().out
+    assert rc == 0
+    assert "revalidate" in out and "s1" in out, f"reproducibility_gap not in CLI output:\n{out}"
