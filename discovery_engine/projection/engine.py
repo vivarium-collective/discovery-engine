@@ -456,9 +456,18 @@ def invariants(cycle_result: dict) -> list[dict]:
 
 
 def crank(cycle_result: dict, inv_spec: dict) -> dict:
-    """One combined crank report: the frontier, the next action, closure, invariants."""
+    """One combined crank report: the frontier, the next action, closure (+ the five explicit
+    closure states), invariants.
+
+    ``closure_states`` here is the *closure-derived* view — ``workflow_complete`` and
+    ``scientifically_resolved`` are exact; the ``evidence_sufficient`` / ``model_adequate`` /
+    ``discovery_active`` axes need the evidence state and are refined in the persisted
+    ``cycle_state`` (``build_cycle_state`` → ``closure_states_from_cycle``)."""
+    from discovery_engine.projection.closure_states import closure_states
+    clo = closure(cycle_result, inv_spec)
     return {
-        "closure": closure(cycle_result, inv_spec),
+        "closure": clo,
+        "closure_states": closure_states(clo)["states"],
         "next_action": next_action(cycle_result, inv_spec),
         "frontier": frontier(cycle_result, inv_spec),
         "invariant_violations": invariants(cycle_result),
@@ -474,6 +483,10 @@ def summarize(report: dict) -> str:
         f"open gaps {c['open_gaps']}, open challenges {c['open_challenges']}, "
         f"frontier {c['open_items']})",
     ]
+    cs = report.get("closure_states")
+    if cs:
+        lines.append("states: " + " · ".join(
+            f"{'✓' if v else '✗'} {k.replace('_', ' ')}" for k, v in cs.items()))
     na = report["next_action"]
     if na:
         lines.append(f"next: [{na['op']}] {na['kind']} on {na['target']}  — {na['rationale']}")
