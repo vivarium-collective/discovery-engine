@@ -319,3 +319,56 @@ def assess_mechanism_coverage(mechanism: str, declarations, *, capability_tokens
                 "note": "lexical token match only — suggests, does not certify"}
     return {"mechanism": mechanism, "status": COVERAGE_NOT_COVERED, "backing": None,
             "note": "no typed declaration and no lexical match"}
+
+
+# --- §2: a capability gap closes only when the built model passes its declared tests ---
+
+GAP_OPEN = "open"
+GAP_CLOSED = "closed"
+
+
+def _test_passed(t) -> bool:
+    if not isinstance(t, dict):
+        return False
+    if "passed" in t:
+        return bool(t["passed"])
+    return _norm(t.get("result")) == "pass"
+
+
+def assess_gap_closure(mechanism: str, *, coverage, model_validation, behavioral_tests) -> dict:
+    """Decide whether a capability gap for ``mechanism`` may close (§2's second acceptance: "a
+    proposed new mechanism does not close a capability gap until the built model passes declared
+    behavioral and interface tests").
+
+    Three gates, ALL required:
+      - **interface** — the built model is interface-valid (``compose_and_validate_model``
+        ``runnable`` / ``validate_composite`` ``valid``: ports + units check out);
+      - **coverage**  — the mechanism's coverage is **certified** (a backed declaration — not a
+        lexical suggestion; see :func:`assess_mechanism_coverage`);
+      - **behavioral** — at least one declared behavioral test exists and all of them pass.
+
+    ``behavioral_tests``: ``[{name, result}]`` (result PASS/FAIL/…) or ``[{name, passed: bool}]``.
+    Returns ``{mechanism, status, reasons}``; ``status`` is ``closed`` only when no gate fails."""
+    reasons: list = []
+
+    mv = model_validation or {}
+    interface_ok = mv.get("runnable") if "runnable" in mv else mv.get("valid")
+    if not interface_ok:
+        reasons.append({"gate": "interface",
+                        "detail": "model is not interface-valid (ports/units)",
+                        "issues": mv.get("issues")})
+
+    cov_status = (coverage or {}).get("status")
+    if cov_status != COVERAGE_CERTIFIED:
+        reasons.append({"gate": "coverage",
+                        "detail": f"coverage is {cov_status or 'unknown'}, not certified"})
+
+    bt = behavioral_tests or []
+    failed = [t.get("name") for t in bt if isinstance(t, dict) and not _test_passed(t)]
+    if not bt:
+        reasons.append({"gate": "behavioral", "detail": "no declared behavioral test to pass"})
+    elif failed:
+        reasons.append({"gate": "behavioral", "detail": f"behavioral tests failed: {failed}"})
+
+    return {"mechanism": mechanism, "status": GAP_CLOSED if not reasons else GAP_OPEN,
+            "reasons": reasons}

@@ -213,3 +213,46 @@ def test_coverage_not_covered_without_declaration_or_tokens():
     r = assess_mechanism_coverage("quorum_sensing", decls,
                                   capability_tokens={"metabolite", "exchange"})
     assert r["status"] == "not_covered"
+
+
+# --- §2 2nd acceptance: a capability gap closes only when the built model passes its tests ---
+
+from discovery_engine.phases.model_inspect import assess_gap_closure  # noqa: E402
+
+_CERTIFIED = {"mechanism": "metabolite_exchange", "status": "certified",
+              "backing": {"kind": "test", "ref": "t"}}
+_RUNNABLE = {"runnable": True, "issues": []}
+_PASSING = [{"name": "exchange_in_band", "result": "PASS"}]
+
+
+def test_gap_closes_only_when_all_three_gates_pass():
+    r = assess_gap_closure("metabolite_exchange", coverage=_CERTIFIED,
+                           model_validation=_RUNNABLE, behavioral_tests=_PASSING)
+    assert r["status"] == "closed" and r["reasons"] == []
+
+
+def test_gap_stays_open_when_model_interface_invalid():
+    bad = {"runnable": False, "issues": [{"kind": "unit_mismatch"}]}
+    r = assess_gap_closure("metabolite_exchange", coverage=_CERTIFIED,
+                           model_validation=bad, behavioral_tests=_PASSING)
+    assert r["status"] == "open"
+    assert any(x["gate"] == "interface" for x in r["reasons"])
+
+
+def test_gap_stays_open_when_coverage_only_suggested():
+    suggested = {"mechanism": "metabolite_exchange", "status": "suggested", "backing": None}
+    r = assess_gap_closure("metabolite_exchange", coverage=suggested,
+                           model_validation=_RUNNABLE, behavioral_tests=_PASSING)
+    assert r["status"] == "open"
+    assert any(x["gate"] == "coverage" for x in r["reasons"])
+
+
+def test_gap_stays_open_when_a_behavioral_test_fails_or_is_absent():
+    failing = [{"name": "exchange_in_band", "result": "FAIL"}]
+    r = assess_gap_closure("metabolite_exchange", coverage=_CERTIFIED,
+                           model_validation=_RUNNABLE, behavioral_tests=failing)
+    assert r["status"] == "open" and any(x["gate"] == "behavioral" for x in r["reasons"])
+
+    r2 = assess_gap_closure("metabolite_exchange", coverage=_CERTIFIED,
+                            model_validation=_RUNNABLE, behavioral_tests=[])
+    assert r2["status"] == "open" and any(x["gate"] == "behavioral" for x in r2["reasons"])
