@@ -7,6 +7,7 @@ import yaml
 
 from discovery_engine.phases.critique_report import (
     build_critique_report,
+    composite_overreach_triggers,
     critique_triggers,
     validate_critique_report,
 )
@@ -115,3 +116,40 @@ def test_address_marks_status_without_moving_a_verdict(tmp_path):
     disk = yaml.safe_load(inv_path.read_text())
     assert disk["critique_reports"][0]["status"] == "addressed"
     assert "hypotheses" not in disk and "discoveries" not in disk   # advisory: no state moved
+
+
+# ---- composite gates the verdict: a settled verdict on an unresolvable model is overreach ----
+
+def _ran_study(composite, **kw):
+    s = {"name": "s1", "baseline": [{"name": "b", "composite": composite, "params": {}}],
+         "behavior_tests": [{"name": "t", "measure": {"kind": "range_check", "path": "o"},
+                             "pass_if": {"low": 0, "high": 1}}],
+         "runs": [{"name": "r0", "computed_outcomes": {"t": {"result": "PASS"}}}]}
+    s.update(kw)
+    return s
+
+
+def test_settled_verdict_on_unresolvable_composite_is_flagged():
+    # the study RAN (roll-up passed, so the evidence-divergence rule does not fire), authored
+    # `supported`, but its baseline composite does not resolve -> the verdict rests on a model that
+    # cannot be reconstructed, not reproducible.
+    trig = composite_overreach_triggers([_ran_study("nonexistent_pkg.mod.name", verdict="supported")])
+    assert len(trig) == 1
+    assert trig[0]["kind"] == "verdict_divergence" and trig[0]["study"] == "s1"
+    assert trig[0]["derived"] == "unresolvable-model"
+    assert "unresolved baseline composite" in trig[0]["note"] and "nonexistent_pkg" in trig[0]["note"]
+
+
+def test_settled_verdict_on_resolvable_composite_is_not_flagged():
+    assert composite_overreach_triggers([_ran_study("json.tool.main", verdict="supported")]) == []
+
+
+def test_unresolvable_composite_without_settled_verdict_is_not_flagged():
+    assert composite_overreach_triggers([_ran_study("nonexistent_pkg.x")]) == []
+
+
+def test_zero_run_supported_is_left_to_the_evidence_rule_not_double_flagged():
+    # a `supported` over 0 runs is already a verdict_overreach via diverges_from_authored; the
+    # composite check must NOT also fire for it (one study, one trigger).
+    assert composite_overreach_triggers(
+        [{"name": "s1", "baseline": [{"composite": "nonexistent_pkg.x"}], "verdict": "supported"}]) == []
