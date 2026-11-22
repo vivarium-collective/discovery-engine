@@ -111,3 +111,18 @@ def test_native_kind_is_filled_and_captured_not_skipped():
     assert port.captures[0].outcome == "proposed"
     assert port.captures[0].skill == "native:interpret_finding"
     assert len(port.proposals) == 1
+
+
+def test_ablated_registry_skill_is_not_resurrected_via_default_registry():
+    # A trimmed registry (what the benchmark matrix passes to ablate a skill) must actually drop
+    # its removed skill. The native-kind check must test native handlers ONLY, never fall back to
+    # the default registry — otherwise an ablated registry kind gets filled anyway.
+    class _EmptyRegistry:
+        def get(self, kind):
+            return None
+
+    called = []
+    port = DiscoveryAgent(registry=_EmptyRegistry()).propose([_opp()], fill=lambda r: called.append(r))
+    assert called == []                                    # hypothesize (a registry kind) NOT filled
+    assert port.captures == []
+    assert port.skipped and port.skipped[0]["kind"] == "hypothesize"

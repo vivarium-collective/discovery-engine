@@ -26,18 +26,21 @@ class DiscoveryAgent:
         self.registry = registry if registry is not None else default_registry()
 
     def propose(self, opportunities, *, fill, gates=None) -> ProposalPortfolio:
-        # Native-aware routing (lazy import avoids an apply<->agent cycle): a kind is fillable if a
-        # registry skill knows it OR it has a native apply handler. The native kinds
-        # (interpret_finding / explain / author_tests / resolve_decision) are NOT in the registry,
-        # so registry-only routing dropped them before the filler — on an interpretation-driven
-        # investigation that is the entire frontier, and the whole drive stalled at applied:0.
-        from discovery_engine.phases.generation_apply import _handler_for
+        # Native-aware routing (lazy import avoids an apply<->agent cycle): a kind is fillable if
+        # THIS agent's registry knows it OR it is a native kind (interpret_finding / explain /
+        # author_tests / resolve_decision), which have native apply handlers and are not in any
+        # registry. Registry-only routing dropped the native kinds before the filler — on an
+        # interpretation-driven investigation that is the entire frontier (applied:0 stall).
+        # Test ONLY _NATIVE_HANDLERS here, never `_handler_for`: the latter falls back to the
+        # DEFAULT registry, which would resurrect a skill this agent's registry deliberately
+        # ablated (the benchmark matrix removes skills by passing a trimmed registry).
+        from discovery_engine.phases.generation_apply import _NATIVE_HANDLERS
         captures: list[ProposalCapture] = []
         proposals: list[dict] = []
         skipped: list[dict] = []
         for req in generation_requests(opportunities, gates=gates):
             sk = self.registry.get(req.kind)
-            native = sk is None and _handler_for(req.kind) is not None
+            native = sk is None and req.kind in _NATIVE_HANDLERS
             if sk is None and not native:
                 # CLI-verb kinds (propose_study / visualize) and unknown kinds have neither a skill
                 # nor a native handler — they belong to the apply_cli_verb seam, not this fill path.
