@@ -400,3 +400,17 @@ def test_campaign_forwards_gates_to_generation(tmp_path):
     s = load_yaml(tmp_path / "studies" / "s1" / "study.yaml")
     assert "val_in_band" not in [t["name"] for t in s.get("behavior_tests") or []]   # gated => not filled
     assert not [a for a in res["actions"] if a["kind"].startswith("generate:")]
+
+
+def test_campaign_summary_counts_generation_applies(tmp_path):
+    # Honest summary: a run that applied generated artifacts (but no model revisions) must not
+    # report applied:0 (which reads as "nothing happened"). `applied` stays revision-only;
+    # applied_generations + applied_total surface what actually landed.
+    _gen_ws(tmp_path)
+    res = discover.run_discovery_campaign(
+        tmp_path, "demo", autonomous=True, runner=_noop_runner, fill=_fake_fill,
+        budget=Budget(simulation_runs=2, model_builds=1, generation_calls=3), max_iterations=2)
+    gen_applied = [a for a in res["actions"]
+                   if a["kind"].startswith("generate:") and a["execution_status"] == "applied"]
+    assert res["applied_generations"] == len(gen_applied) >= 1
+    assert res["applied_total"] == res["applied"] + res["applied_generations"]

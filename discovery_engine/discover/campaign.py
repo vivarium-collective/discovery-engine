@@ -114,7 +114,9 @@ def run_discovery_campaign(ws_root: Path | str, inv_slug: str, *, autonomous: bo
     """Drive one investigation through a bounded sequence of
     project -> apply -> advance/grade -> persist cycles, under ``budget`` and the autonomy
     ``policy`` (or the legacy ``autonomous`` bool). Returns
-    ``{iterations, stop_reason, applied, runs, actions, inv_path}`` where ``actions`` is the
+    ``{iterations, stop_reason, applied, applied_generations, applied_total, runs, actions,
+    inv_path}`` where ``applied`` is model-revision applies, ``applied_generations`` the generated
+    artifacts applied, ``applied_total`` their sum, and ``actions`` is the
     list of :class:`ActionRecord` dicts. A ``stop_reason`` of ``closed`` /
     ``budget_exhausted`` / ``no_informative_experiment`` / ``max_iterations`` is a legitimate
     halt, not a failure."""
@@ -297,7 +299,16 @@ def run_discovery_campaign(ws_root: Path | str, inv_slug: str, *, autonomous: bo
     if inv_path is not None:
         _ip, _spec, _sts = load_cycle_inputs(ws_root, inv_slug)
         _persist(_ip, _spec, _sts)
-    return {"iterations": i, "stop_reason": stop_reason, "applied": applied_total,
+    # Honest apply counts: `applied` historically counted only model-revision applies (step 1a),
+    # so a run that applied 19 generated artifacts but no revisions reported `applied: 0` — reading
+    # as "nothing happened". Surface the generation applies (step 1b, which live in actions[]) and a
+    # combined total; `applied` stays revision-only for back-compat.
+    applied_generations = sum(1 for a in actions
+                              if a.kind.startswith("generate:") and a.execution_status == "applied")
+    return {"iterations": i, "stop_reason": stop_reason,
+            "applied": applied_total,                              # model-revision applies (back-compat)
+            "applied_generations": applied_generations,           # generated artifacts applied
+            "applied_total": applied_total + applied_generations,  # everything that landed this run
             "runs": runs_done, "actions": [a.to_dict() for a in actions],
             "inv_path": str(inv_path) if inv_path else None,
             "ledger_path": str(ledger_file)}
