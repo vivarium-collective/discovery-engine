@@ -511,3 +511,49 @@ def test_campaign_does_not_re_attempt_a_failed_run(tmp_path):
             if a["kind"] == "run" and a["execution_status"] == "failed_execution"]  # a run did fail
     assert len(runner.calls) == len(set(runner.calls)), \
         f"a failed run was re-attempted across iterations: {runner.calls}"
+
+
+# --- isolation tool wired into the campaign: grounding + transcript at the filler seam -------
+
+def test_campaign_grounds_requests_and_records_a_transcript(tmp_path):
+    """`--resources`/`--transcript` on the campaign (the shared isolation tool): every
+    generation request the filler sees carries the declared resources in its context, and each
+    (request, result) is appended to an auditable JSONL transcript. The summary reports both."""
+    from discovery_engine.discover.fill_isolation import load_resources
+    _gen_ws(tmp_path)
+    seen_ctx = []
+
+    def _recording_fill(req):
+        seen_ctx.append(dict(req.context or {}))
+        return _fake_fill(req)
+
+    res_dir = tmp_path / "res"
+    res_dir.mkdir()
+    (res_dir / "bg.md").write_text("known background")
+    transcript = tmp_path / "audit" / "run.jsonl"
+
+    res = discover.run_discovery_campaign(
+        tmp_path, "demo", autonomous=True, runner=_noop_runner, fill=_recording_fill,
+        budget=Budget(simulation_runs=2, model_builds=1, generation_calls=3), max_iterations=2,
+        resources=load_resources(str(res_dir)), transcript=str(transcript))
+
+    # 1) the filler reasoned from engine-supplied grounding on at least one request
+    assert seen_ctx, "no generation requests were filled"
+    assert any(c.get("resources") == [{"name": "bg.md", "content": "known background"}]
+               for c in seen_ctx)
+    # 2) the transcript is a durable, parseable record of the filled requests
+    lines = [json.loads(ln) for ln in transcript.read_text().splitlines() if ln.strip()]
+    assert lines and all("request" in e and "result" in e for e in lines)
+    assert any(e["request"]["context"].get("resources") for e in lines)
+    # 3) the summary reports the isolation state
+    assert res["transcript"] == str(transcript) and res["resources"] == 1
+
+
+def test_campaign_without_isolation_is_unchanged(tmp_path):
+    """Identity property: a campaign with no resources/transcript writes no transcript and
+    reports zero resources — byte-identical to the pre-isolation behavior."""
+    _gen_ws(tmp_path)
+    res = discover.run_discovery_campaign(
+        tmp_path, "demo", autonomous=True, runner=_noop_runner, fill=_fake_fill,
+        budget=Budget(simulation_runs=2, model_builds=1, generation_calls=3), max_iterations=2)
+    assert res["transcript"] is None and res["resources"] == 0

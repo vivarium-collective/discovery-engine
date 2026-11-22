@@ -111,7 +111,7 @@ def _load_ledger(path: Path) -> dict:
 def run_discovery_campaign(ws_root: Path | str, inv_slug: str, *, autonomous: bool = False,
                            runner=None, budget=None, max_iterations: int = 8, policy=None,
                            gates=None, fill=None, apply_cli_verb=None, render_hook=None,
-                           build_hook=None, worktree=None) -> dict:
+                           build_hook=None, worktree=None, resources=None, transcript=None) -> dict:
     """Drive one investigation through a bounded sequence of
     project -> apply -> advance/grade -> persist cycles, under ``budget`` and the autonomy
     ``policy`` (or the legacy ``autonomous`` bool). Returns
@@ -131,6 +131,12 @@ def run_discovery_campaign(ws_root: Path | str, inv_slug: str, *, autonomous: bo
     from discovery_engine.projection.closure_states import closure_states_from_cycle
     from discovery_engine.phases.generation_emit import generation_requests
     from discovery_engine.projection import engine as de
+    from discovery_engine.discover.fill_isolation import isolate_fill
+
+    # Isolation tool (shared with `discover investigate`): ground every generation request in the
+    # author-declared resources and record each (request, result) to the transcript. Identity when
+    # both are empty, so a campaign without them is byte-identical.
+    fill = isolate_fill(fill, resources=resources, transcript=transcript)
 
     pol = AutonomyPolicy.resolve(policy, autonomous)
     sim_budget = getattr(budget, "simulation_runs", None)
@@ -329,4 +335,6 @@ def run_discovery_campaign(ws_root: Path | str, inv_slug: str, *, autonomous: bo
             "applied_total": applied_total + applied_generations,  # everything that landed this run
             "runs": runs_done, "actions": [a.to_dict() for a in actions],
             "inv_path": str(inv_path) if inv_path else None,
-            "ledger_path": str(ledger_file)}
+            "ledger_path": str(ledger_file),
+            "transcript": str(transcript) if transcript else None,
+            "resources": len(resources) if resources else 0}

@@ -550,6 +550,14 @@ def main(argv: list[str] | None = None) -> int:
                                help="free-text steering prompt threaded into every generation "
                                     "request's context['goal'] (overrides the investigation's "
                                     "durable discovery.goal)")
+    p_investigate.add_argument("--resources", default=None,
+                               help="directory of text resources (*.md) injected into every "
+                                    "generation request's context['resources'] as grounding "
+                                    "(the engine surfaces declared background to the filler)")
+    p_investigate.add_argument("--transcript", default=None,
+                               help="path to a JSONL transcript: every (request, result) at the "
+                                    "filler seam is appended, making the run's prompts + responses "
+                                    "an auditable, reproducible record")
 
     p_campaign = sub.add_parser("campaign",
                                 help="R1 unified cycle controller (run_discovery_campaign): one bounded loop that "
@@ -569,6 +577,14 @@ def main(argv: list[str] | None = None) -> int:
                             help="cap on model builds for the run")
     p_campaign.add_argument("--max-iterations", type=int, default=8, dest="max_iterations",
                             help="hard cap on loop iterations (default 8)")
+    p_campaign.add_argument("--resources", default=None,
+                            help="directory of text resources (*.md) injected into every "
+                                 "generation request's context['resources'] as grounding "
+                                 "(the engine surfaces declared background to the filler)")
+    p_campaign.add_argument("--transcript", default=None,
+                            help="path to a JSONL transcript: every (request, result) at the "
+                                 "filler seam is appended, making the run's prompts + responses "
+                                 "an auditable, reproducible record")
 
     p_prop = sub.add_parser("propose",
                             help="DiscoveryAgent coordinator: route opportunities to scientific skills (dry-run by default; --fill runs the filler, records captures, applies auto-gated proposals under policy). Unlike 'requests --fill', --fill DOES run the filler on review-gated requests (to capture them for audit) but never auto-applies them")
@@ -1285,11 +1301,14 @@ def main(argv: list[str] | None = None) -> int:
         # it is unset, so the drive queues those kinds as before UNLESS the caller
         # (e.g. the /viva:discover skill) exports that command — then the drive
         # lands rendered viz + seeded studies via the skill. Purely additive.
+        from discovery_engine.discover.investigate import load_resources
         summary = _investigate(ws, args.investigation, fill=subprocess_filler(),
                                budget=budget, policy=pol, gates=gates,
                                max_iterations=args.max_iterations,
                                goal=getattr(args, "goal", None),
-                               apply_cli_verb=subprocess_cli_applier())
+                               apply_cli_verb=subprocess_cli_applier(),
+                               resources=load_resources(getattr(args, "resources", None)),
+                               transcript=getattr(args, "transcript", None))
         print(_json.dumps(summary, indent=2, default=str))
         return 0
 
@@ -1308,11 +1327,14 @@ def main(argv: list[str] | None = None) -> int:
         gates = GateConfig.preset("free_run") if getattr(args, "free_run", False) else None
         autonomous = bool(getattr(args, "autonomous", False))
         pol = AutonomyPolicy(mode=AUTONOMOUS) if autonomous else None
+        from discovery_engine.discover.fill_isolation import load_resources
         summary = run_discovery_campaign(ws, args.investigation, autonomous=autonomous,
                                          budget=budget, policy=pol, gates=gates,
                                          max_iterations=args.max_iterations,
                                          fill=subprocess_filler(),
-                                         apply_cli_verb=subprocess_cli_applier())
+                                         apply_cli_verb=subprocess_cli_applier(),
+                                         resources=load_resources(getattr(args, "resources", None)),
+                                         transcript=getattr(args, "transcript", None))
         # Surface the five explicit closure states (R4) + their reasons from the persisted
         # cycle_state, so a false axis (e.g. evidence_sufficient) shows *why*, not just the bit.
         try:

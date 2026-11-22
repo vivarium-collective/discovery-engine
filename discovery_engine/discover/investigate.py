@@ -42,6 +42,14 @@ def _steer_fill(fill, goal: str | None):
     return steered
 
 
+# The reusable isolation wrappers (grounding + transcript recording) live in fill_isolation, so the
+# campaign and any other driver share them; load_resources is re-exported here for back-compat.
+from discovery_engine.discover.fill_isolation import (  # noqa: E402
+    isolate_fill,
+    load_resources,
+)
+
+
 # Goal cue words → the request KIND they gesture at. A goal names what it WANTS
 # ("a visual exposition", "test this", "decide X") in intent words that rarely appear
 # verbatim in a request's target string — so string overlap alone misses them (a goal of
@@ -94,7 +102,8 @@ def _goal_order(reqs, goal: str | None):
 
 def investigate(ws_root, inv_slug, *, fill, budget=None, policy=None, gates=None,
                 max_iterations: int = 8, actor: str = "orchestrator",
-                goal: str | None = None, apply_cli_verb=None) -> dict:
+                goal: str | None = None, apply_cli_verb=None,
+                resources=None, transcript=None) -> dict:
     """Run a bounded investigation loop. ``fill(request) -> GenerationResult | None`` is the
     filler seam (a ``/viva-*`` skill, ``$VIVA_FILLER_CMD``, or a test oracle); ``budget`` a
     :class:`~discovery_engine.discover.budget.Budget`; ``gates`` an optional
@@ -141,7 +150,10 @@ def investigate(ws_root, inv_slug, *, fill, budget=None, policy=None, gates=None
             stop_reason = "closed" if de.closure(cyc, inv_spec).get("closed") else NO_INFORMATIVE_EXPERIMENT
             break
         reqs = _goal_order(reqs, eff_goal)       # on-goal requests fill first under the budget
-        outs = run_requests(reqs, fill=_steer_fill(fill, eff_goal), ws_root=ws_root,
+        # Compose the seam wrappers so the transcript captures the fully-injected request:
+        # steer (goal) -> ground (resources) -> record (request + result) -> the real filler.
+        seam = _steer_fill(isolate_fill(fill, resources=resources, transcript=transcript), eff_goal)
+        outs = run_requests(reqs, fill=seam, ws_root=ws_root,
                             inv_slug=inv_slug, budget=budget, apply_cli_verb=apply_cli_verb)
         applied_here = 0
         budget_hit = False
@@ -167,4 +179,5 @@ def investigate(ws_root, inv_slug, *, fill, budget=None, policy=None, gates=None
         stop_reason = "max_iterations"
     return {"iterations": i, "stop_reason": stop_reason, "applied": applied_total,
             "decisions": decisions, "inv_path": str(inv_path) if inv_path else None,
-            "goal": eff_goal}
+            "goal": eff_goal, "transcript": str(transcript) if transcript else None,
+            "resources": len(resources) if resources else 0}
