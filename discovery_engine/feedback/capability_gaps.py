@@ -277,6 +277,23 @@ def build_capability_gap(gap: dict, build_hook: Callable[[dict, Any], dict], *,
             # else a name-only match would silently close the gap (same bar as the recatalog path).
             st, res = "failed", {"detail": f"process {process!r} is present but does not cover "
                                            f"{gap.get('mechanism')!r}"}
+    # §2 gate (R2): when the build hook supplies verification evidence, a built model closes the
+    # gap ONLY if it is interface-valid, CERTIFIES coverage of the mechanism (a backed declaration,
+    # not a lexical suggestion), and passes its declared behavioral tests. A legacy hook that
+    # supplies none of these keeps the lexical path above unchanged.
+    if st in ("reuse", "built") and any(k in res for k in
+                                        ("capabilities", "validation", "behavioral_tests")):
+        from discovery_engine.phases.model_inspect import (
+            assess_gap_closure, assess_mechanism_coverage)
+        cov = assess_mechanism_coverage(gap.get("mechanism", ""), res.get("capabilities") or [])
+        closure = assess_gap_closure(gap.get("mechanism", ""), coverage=cov,
+                                     model_validation=res.get("validation") or {},
+                                     behavioral_tests=res.get("behavioral_tests") or [])
+        if closure["status"] != "closed":
+            st = "failed"
+            res = {**res, "status": "failed",
+                   "detail": f"built model does not yet close the gap (declared tests): "
+                             f"{closure['reasons']}"}
     if st in ("reuse", "built"):
         gap["status"] = "built"
         gap["built"] = {"process": process, "via": st, "detail": res.get("detail")}
