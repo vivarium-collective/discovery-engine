@@ -46,6 +46,42 @@ def _hash(*parts) -> str:
     return hashlib.sha256("|".join(str(p) for p in parts).encode()).hexdigest()[:16]
 
 
+# The §1 execution-state taxonomy. Execution is separated from verdict ("Progress ⊥ verdict":
+# a failed execution is not a refuted hypothesis): a run that executed and whose prediction was
+# wrong is `refuted` (the science spoke), distinct from `failed_execution` (the run itself did
+# not produce a confirmed result). `completed` is never claimed without a runs.db-confirmed grade.
+EXECUTION_STATES = ("completed", "refuted", "inconclusive", "failed_execution",
+                    "blocked", "applied", "skipped", "gated", "executed")
+
+
+def _run_execution_state(status, ws_root, inv_slug, target) -> str:
+    """Map an advance run rec (+ its just-graded outcomes) onto EXECUTION_STATES."""
+    if status == "needs_build":
+        return "blocked"
+    if status in ("failed", "error"):
+        return "failed_execution"
+    if status != "executed":
+        return status or "skipped"
+    from discovery_engine.discover.cycle import _study_dir_on_disk
+    from discovery_engine.study.io import load_yaml
+    slug = (target or "").split(":")[-1]
+    sdir = _study_dir_on_disk(ws_root, inv_slug, slug) if slug else None
+    if sdir is None:
+        return "inconclusive"
+    runs = (load_yaml(Path(sdir) / "study.yaml") or {}).get("runs") or []
+    outcomes = (runs[-1] or {}).get("computed_outcomes") if runs else None
+    if not outcomes:
+        return "inconclusive"          # ran but not measured — never 'completed'
+    # per-test verdicts only (computed_outcomes also carries non-test metadata entries)
+    results = [o["result"] for o in outcomes.values()
+               if isinstance(o, dict) and "result" in o]
+    if any(r == "FAIL" for r in results):
+        return "refuted"               # prediction wrong — scientifically refuted, not a failure
+    if results and all(r == "PASS" for r in results):
+        return "completed"             # runs.db-confirmed pass
+    return "inconclusive"              # SKIP / ungraded / mixed-non-fail
+
+
 def _ledger_path(inv_path: Path | str) -> Path:
     """The durable, append-only ActionRecord ledger for one investigation. Per-investigation
     (next to investigation.yaml) so parallel campaigns on sibling investigations never share
@@ -108,7 +144,8 @@ def run_discovery_campaign(ws_root: Path | str, inv_slug: str, *, autonomous: bo
     ledger = _load_ledger(ledger_file)
     recorded_ids = set(ledger)
     runs_done = sum(1 for r in ledger.values()
-                    if r.get("kind") == "run" and r.get("execution_status") == "executed")
+                    if r.get("kind") == "run"
+                    and r.get("execution_status") in ("completed", "refuted", "inconclusive"))
 
     def _record(rec: ActionRecord) -> ActionRecord:
         actions.append(rec)
@@ -200,22 +237,28 @@ def run_discovery_campaign(ws_root: Path | str, inv_slug: str, *, autonomous: bo
                             **({"max_runs": remaining} if remaining is not None else {}))
         for r in adv.get("runs", []):
             st = r.get("status")
-            es = {"executed": "executed", "needs_build": "blocked"}.get(st, st or "skipped")
             # advance also dispatches the `reopen` op (staged feedback); record it as a typed
             # reopen, not a run, and do not charge it against the simulation budget. The
             # summarized rec carries no command, so key off advance's reopen outcome marker.
             is_reopen = "reopened the investigation" in (r.get("outcome") or "")
-            kind = "reopen" if is_reopen else "run"
+            if is_reopen:
+                kind = "reopen"
+                es = "executed" if st == "executed" else (st or "skipped")
+            else:
+                kind = "run"
+                es = _run_execution_state(st, ws_root, inv_slug, r.get("target"))
             _record(ActionRecord(
                 id=_hash(kind, r.get("target") or r.get("command")), kind=kind,
                 target=r.get("target"), cycle_index=i, policy_decision="autonomous",
                 execution_status=es, input_hash=_hash(r.get("target") or r.get("command")),
                 artifacts=r.get("run_ids") or ([r["run_id"]] if r.get("run_id") else []),
                 depends_on=[]))
-            if es == "executed":
+            ran = es in ("completed", "refuted", "inconclusive")   # the run actually executed
+            if is_reopen and st == "executed":
                 progressed = True
-                if not is_reopen:
-                    runs_done += 1
+            elif ran:
+                progressed = True
+                runs_done += 1
         for nb in adv.get("needs_build", []):
             _record(ActionRecord(
                 id=_hash("needs_build", nb.get("study")), kind="run",

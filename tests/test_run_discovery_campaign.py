@@ -123,7 +123,7 @@ def test_campaign_drives_revision_to_graded_child_in_one_call(tmp_path):
     # status, and the run was never marked measured before runs.db confirmed it.
     assert res["actions"], "campaign must return a durable ActionRecord per action"
     assert all("execution_status" in a for a in res["actions"])
-    assert any(a["execution_status"] == "executed" for a in res["actions"])
+    assert any(a["execution_status"] == "completed" for a in res["actions"])
 
     # the cycle was persisted (no manual persist_cycle), and the run ends with a typed stop.
     assert load_yaml(ip).get("cycle_state")
@@ -283,7 +283,7 @@ def test_campaign_writes_a_durable_action_ledger(tmp_path):
               "execution_status", "input_hash", "artifacts", "depends_on"}
     assert recs and all(fields <= set(r) for r in recs)
     assert any(r["kind"] == "revision_apply" and r["execution_status"] == "applied" for r in recs)
-    assert any(r["kind"] == "run" and r["execution_status"] == "executed" for r in recs)
+    assert any(r["kind"] == "run" and r["execution_status"] == "completed" for r in recs)
 
 
 def test_campaign_ledger_is_append_only_and_deduped_on_resume(tmp_path):
@@ -300,4 +300,42 @@ def test_campaign_ledger_is_append_only_and_deduped_on_resume(tmp_path):
     assert len(ids_after_2) == len(set(ids_after_2)), f"duplicate ids in ledger: {ids_after_2}"
     assert set(ids_after_1) == set(ids_after_2)          # resume added no new consequential action
     # the budget charge was reconstructed, not recounted from zero
-    assert sum(1 for r in recs2 if r["kind"] == "run" and r["execution_status"] == "executed") == 1
+    assert sum(1 for r in recs2 if r["kind"] == "run"
+               and r["execution_status"] in ("completed", "refuted", "inconclusive")) == 1
+
+
+# --- §1 bullet 4: the typed execution-state taxonomy (execution separated from verdict) ---
+
+def _reader_vals(vals):
+    n = len(vals)
+    return _FakeReader({"obs.val": pl.DataFrame({
+        "generation": [0] * n, "time": [float(i) for i in range(n)],
+        "abs_time": [float(i) for i in range(n)], "value": vals})})
+
+
+def _run_campaign_vals(tmp_path, vals):
+    runner = FakeRunner()
+    with patch("viva_emitters.RunReader") as cls:
+        cls.open.return_value = _reader_vals(vals)
+        res = discover.run_discovery_campaign(
+            tmp_path, "og", autonomous=True, runner=runner,
+            budget=Budget(simulation_runs=4, model_builds=2, generation_calls=0),
+            max_iterations=4)
+    return runner, res
+
+
+def test_campaign_run_state_completed_when_graded_pass(tmp_path):
+    _ws(tmp_path)
+    _, res = _run_campaign_vals(tmp_path, [0.4, 0.5, 0.6])          # measured in-band -> PASS
+    runs = [a for a in res["actions"] if a["kind"] == "run"]
+    assert runs and all(a["execution_status"] == "completed" for a in runs)
+
+
+def test_campaign_run_state_refuted_not_failed_when_graded_fail(tmp_path):
+    _ws(tmp_path)
+    _, res = _run_campaign_vals(tmp_path, [0.05, 0.1, 0.05])        # measured out-of-band -> FAIL
+    runs = [a for a in res["actions"] if a["kind"] == "run"]
+    # a wrong prediction is SCIENTIFICALLY REFUTED (the run succeeded) — never a failed
+    # execution, and never a completion.
+    assert runs and all(a["execution_status"] == "refuted" for a in runs)
+    assert not any(a["execution_status"] in ("completed", "failed_execution") for a in runs)
