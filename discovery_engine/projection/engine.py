@@ -54,6 +54,7 @@ _PRIORITY = {
     "anomaly": 48,                 # an observation outside every live hypothesis band
     "verdict_overreach": 46,       # a verdict/confidence that outruns its evidence (advisory critique)
     "reproducibility_gap": 44,     # a recorded run with no registered runs.db artifact (advisory)
+    "study_edge_proposed": 39,     # an edge latent in claim/finding prose, proposed for accept
     # Visualization loop (NON-blocking): a declared figure that is broken/missing/stale.
     "viz_broken": 47, "viz_missing": 46, "viz_proposed": 44, "viz_stale": 38,
     # Viz appropriateness (NON-blocking, review tier): a figure shown where it does not belong.
@@ -84,6 +85,7 @@ _OP = {
     "anomaly": "revise_model",
     "verdict_overreach": "critique",     # author an advisory CritiqueReport; never engine-executed
     "reproducibility_gap": "revalidate",  # re-run to back the claim, or acknowledge; never auto-run
+    "study_edge_proposed": "relate",      # accept the proposed edge via `discover relate`; never auto-wired
     "viz_broken": "refine_viz", "viz_missing": "build_viz",
     "viz_proposed": "build_viz", "viz_stale": "refine_viz",
     "viz_misplaced": "relocate_viz", "viz_duplicated": "relocate_viz", "viz_untied": "relocate_viz",
@@ -305,6 +307,19 @@ def frontier(cycle_result: dict, inv_spec: dict) -> list[dict]:
             continue
         add("reproducibility_gap", study,
             g.get("note") or "a recorded run has no registered runs.db artifact — unreproducible")
+
+    # 6c. study-graph edges proposed from the prose (non-blocking, advisory): a study whose
+    #     claim/findings name another member study without a declared relation. One item per
+    #     downstream study. Never auto-wired — a human accepts via `discover relate`; the proposal
+    #     self-discharges once the edge is declared (or a resolution dismisses it).
+    _edges_by_study: dict = {}
+    for p in cycle_result.get("study_edge_proposals") or []:
+        if isinstance(p, dict) and p.get("study") and p.get("parent"):
+            _edges_by_study.setdefault(p["study"], []).append(p["parent"])
+    for study, parents in _edges_by_study.items():
+        add("study_edge_proposed", study,
+            f"{len(parents)} edge(s) latent in the prose: builds-on {', '.join(parents)} — accept with "
+            f"`discover relate {study} <upstream> --relation builds-on`, or dismiss")
 
     # 7. visualization loop (non-blocking): one typed item per non-fresh declared figure.
     #    fresh emits nothing (derivation discharge).
@@ -785,6 +800,10 @@ def _executor_for(op: str, target: str, kind: str | None = None) -> dict:
     if op == "revalidate":
         return {"executor": "snapshot-validations", "command": "discover snapshot-validations <inv>",
                 "consequence": "safe", "auto_safe": True}
+    if op == "relate":
+        return {"executor": "discover relate",
+                "command": f"discover relate {study} <upstream> --relation builds-on",
+                "consequence": "review", "auto_safe": False}   # a human accepts the proposed edge
     if op == "test":
         return {"executor": "run-study",
                 "command": run_command(study),

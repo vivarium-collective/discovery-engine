@@ -47,6 +47,7 @@ from discovery_engine.projection.argument import derive_argument, merge_argument
 from discovery_engine.investigation.import_ import investigation_members, investigations_dir, studies_dir
 from discovery_engine.projection.knowledge import canonical_verdict, derive_knowledge, merge_knowledge
 from discovery_engine.projection.narrative import audit, narrate
+from discovery_engine.projection.study_edges import propose_study_edges
 from discovery_engine.study.run_command import render_command, run_command
 from discovery_engine.study.io import atomic_write, load_yaml, load_yaml_mapping, save_yaml_atomic
 from discovery_engine.projection.synthesis import open_calls, synthesize_gates
@@ -165,6 +166,13 @@ def run_cycle(inv_spec: dict, studies_by_slug: dict[str, dict], *,
     }
     # Suggestions for new studies (the branch op, made first-class + expert-gated).
     bundle["suggestions"] = suggest_studies(bundle, inv_spec, studies_by_slug)
+    # Study-graph edges latent in the prose: a study whose claim/findings name another member study
+    # without declaring a relation to it. PROPOSED for accept (via `discover relate`), never auto-
+    # wired — with the argument's verdicts so a builds-on is never proposed onto a refuted parent.
+    bundle["study_edge_proposals"] = propose_study_edges(
+        studies_by_slug,
+        verdicts={s: ((argument.get("claims") or {}).get(f"claim:{s}") or {}).get("verdict")
+                  for s in studies_by_slug})
     # Closed-loop feedback (pure): the raw signals and the typed revision proposals they
     # yield, so the frontier can raise them as non-blocking items.
     from discovery_engine.phases import evaluation as _ev
