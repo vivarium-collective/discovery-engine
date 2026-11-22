@@ -122,6 +122,68 @@ cycle stages are untouched.
 > baseline matrix (which needs non-deterministic fillers for meaningful CIs), are the
 > open frontier.
 
+## Shipped 2026-11-22 — the 0.7.2 build-out: autonomous mechanistic investigation (R1–R4, PRs #151–#163)
+
+The 0.7.2 upgrade plan — four releases turning the bounded discovery kernel into an autonomous,
+model-building investigation engine — is merged. Per its executive decision the derive-first pure
+core, the single generation seam, the evidence-authority guard, the `AutonomyPolicy`, and reviewed
+Discovery promotion were preserved; the work connected the generation and execution loops, made
+model construction executable, and added harder gates.
+
+**R1 — unified cycle controller (§1, #151).**
+- ✅ **`discover.run_discovery_campaign`** — one engine-owned bounded loop: project (with evidence)
+  → apply authorized model-revision proposals → advance/execute + grade → persist, under budget.
+  Coordinates the existing primitives without merging the pure `run_cycle`; human-only acts
+  (adjudication, steer/synthesize, reviewed Discovery promotion) stay human-gated.
+- ✅ **Durable `ActionRecord` ledger** (`campaign_ledger.jsonl`) — idempotent, resume-after-crash.
+- ✅ **Typed execution states** — `completed` / `refuted` (a failed grade is *scientifically
+  refuted*, not a failed execution) / `inconclusive` / `failed_execution` / `blocked`.
+- ✅ **Feedback-reopen + generation woven in** — staged `pending_feedback` reopens a closed
+  investigation; the generative half (`run_requests`) runs in the same loop.
+
+**R2 — executable model architect (§2, #152, #153).**
+- ✅ **`inspect_component` + `ModelContract`** — real interface introspection (importability,
+  parameters with units, input/output ports) of a process-bigraph component.
+- ✅ **`compose_and_validate_model`** — wire independently-authored components; detect a missing
+  exchange port or a unit mismatch across the wires.
+- ✅ **`register_model_version`** — immutable, content-addressed version binding implementation +
+  interface + config + dependencies + validation results + parent lineage.
+- ✅ **`assess_mechanism_coverage`** — typed coverage; a lexical match *suggests*, only evidence
+  (equation / test / implementation / citation) *certifies*.
+- ✅ **`assess_gap_closure`, wired into the build loop (#153)** — a capability gap closes only when
+  the built model is interface-valid, certifies coverage, and passes its declared behavioral tests.
+
+**R3 — experimental design from ranking to invention (§3, #154, #155, #156).**
+- ✅ **Explicit arm roles** — treatment / negative_control / positive_control / sham /
+  matched_baseline, declared, never inferred from an arm name.
+- ✅ **`ExperimentSearchSpace` + `enumerate_perturbations`** — generate candidate perturbations.
+- ✅ **`search_discriminating_perturbation`** — invent a *new* regime where competing predictions
+  diverge, or abstain with a concrete data/model requirement.
+- ✅ **`design_by_invention`** — build a discriminating `ExperimentDesign` from the invented regime,
+  controls taken from the declared roles.
+
+**R4 — model adequacy, closure, explanation (§4-5, #157–#162).**
+- ✅ **`assess_model_adequacy`** (#157) — a claim-specific gate; an overclaim whose required
+  mechanism is unestablished is rejected, with the supported inference + a proposed revision/test.
+  Live in the discovery-promotion path (#162): an overreaching `FindingCandidate` is held, not minted.
+- ✅ **Five explicit closure states** (#158 / #160 / #161) — `workflow_complete` /
+  `evidence_sufficient` / `model_adequate` / `scientifically_resolved` / `discovery_active`,
+  computed + persisted in `cycle_state` and surfaced in `crank` / `summarize`; the boolean `closed`
+  stays a compatibility view.
+- ✅ **`ScientificExplanation` + evidence-fingerprinted resolutions** (#159) — evidence-linked
+  claims / mechanisms / unresolved alternatives; a resolution reopens when its evidence/model
+  fingerprint changes (the `(kind, target)` discharge key is not enough).
+
+**§7 — benchmark program (#163).** ✅ **manifest→provider route** — `discover benchmark --manifest`
+runs a workspace's own benchmark through a dotted-import provider contract, with real-runner grading
+via `compute_outcomes`.
+
+**Still open (depth, not core):** runtime mass-balance conservation + a reproducible smoke run inside
+`compose_and_validate_model`; wiring `design_by_invention` into `advance_cycle` with a real model
+`predict`; random / heuristic / expert design baselines; the §6 control-plane consolidation; the §8
+endosymbiosis vertical slice (its acceptance is already a `model_adequacy` unit test); benchmarks
+B2–B6.
+
 ## Still missing — new data entities
 Target package: `discovery_engine/contracts/`
 - ◑ **Hypothesis** — a `hypotheses` module + discrimination exist, and the typed **Discrepancy** trigger now feeds each `hypothesize` request's context (#102/#109); the fully generative entity (real alternative generation) still needs an LLM filler (FR-02.01).
@@ -198,6 +260,12 @@ A ladder of 12 synthetic→real benchmarks (T0–T5). **1 of 12** is built:
   literature-grounded novelty, autonomous multiscale construction.
 
 ## Next build steps (2026-11-19)
+
+> **Partly superseded by the 0.7.2 build-out** — see *Shipped 2026-11-22* above. Item 2's "feed it a
+> study's perturbation space + the workspace model to `predict`" landed as R3
+> (`search_discriminating_perturbation` → `design_by_invention`); what remains there is wiring the
+> real `predict` into `advance_cycle`. Benchmark 2+ and the real-LLM-filler frontier (items 3, 5, 6)
+> are still open.
 
 **Deterministic, buildable now:**
 1. ✅ *Refresh this roadmap* + cut the **0.7.0** release marking the benchmark
