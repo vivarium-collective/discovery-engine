@@ -25,9 +25,9 @@ def _detail(scorecard, dim_id):
 # ---------------------------------------------------------------------------
 
 def test_new_dims_silent_on_empty_and_plain_specs():
-    # The empty-spec dimension count is unchanged (the existing invariant).
-    assert study_rigor({})["score"]["total"] == 12
-    assert study_rigor(None)["score"]["total"] == 12
+    # The empty-spec dimension count (13 = 12 base + visualized_evidence, always present).
+    assert study_rigor({})["score"]["total"] == 13
+    assert study_rigor(None)["score"]["total"] == 13
     # A plain non-causal, non-equivalence, non-converting study gets none of them.
     sc = study_rigor({"name": "s", "runs": [{"name": "r1"}],
                       "findings": [{"statement": "It works."}]})
