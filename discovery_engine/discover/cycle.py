@@ -326,6 +326,12 @@ def build_cycle_state(result: dict, inv_spec: dict, *, model_versions: list | No
         "drift": {"divergences": sum(1 for i in frontier if i["kind"] == "divergence"),
                   "stale_validations": len(stale_records(recs, inv_spec.get("validation_snapshot")))},
     }
+    # §5 (R4): the five explicit closure states alongside the boolean `closed`, derived from the
+    # closure + evidence state + any claim-declared required mechanisms (adequacy gate is opt-in).
+    from discovery_engine.projection.closure_states import closure_states_from_cycle
+    _cs = closure_states_from_cycle(clo, inv_spec, studies=studies, evidence_state=evidence_state)
+    state["closure_states"] = _cs["states"]
+    state["closure_reasons"] = _cs["reasons"]
     vrecs = [r for r in recs if r.get("type") == "visual" and r.get("scope") == "figure"]
     if vrecs:
         crit = lambda r: (r.get("criteria") or [None])[0]  # noqa: E731
