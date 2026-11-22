@@ -1680,7 +1680,8 @@ def _pending_design_studies(inv_spec: dict, studies: dict) -> list[str]:
 
 def advance_cycle(ws_root: Path | str, inv_slug: str, *, autonomous: bool = False,
                   runner=None, max_runs: int = 12, render_hook=None,
-                  worktree: Path | str | None = None, policy=None, build_hook=None) -> dict:
+                  worktree: Path | str | None = None, policy=None, build_hook=None,
+                  skip_targets=None) -> dict:
     """The cycle's ADVANCE phase — build-if-needed and RUN the open questions, so turning
     the crank moves the science forward instead of only describing it.
 
@@ -1704,8 +1705,8 @@ def advance_cycle(ws_root: Path | str, inv_slug: str, *, autonomous: bool = Fals
         max_runs = min(max_runs, pol.budget)
     ran: list[dict] = []
     needs_build: list[dict] = []
-    seen: set = set()
-    seen_slugs: set = set()
+    seen: set = set(skip_targets or ())   # targets the caller already tried this run (e.g. a
+    seen_slugs: set = set()               # persistently-failing run the campaign won't re-attempt)
     gated_ops: set = set()      # (op, source) already gated: not retried, but they do not claim the study
     _, inv0, st0 = load_cycle_inputs(ws_root, inv_slug)
     before = de.closure(_cycle_with_evidence(ws_root, inv_slug, inv0, st0), inv0)["open_items"]
