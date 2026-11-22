@@ -12,9 +12,10 @@ it requires has been established (each backed by an observation). Otherwise the 
 rejected, the supported weaker inference is named, the missing mechanisms are identified, and a
 model revision + a test to establish them are proposed. Pure.
 
-§4's acceptance: a model reproduces a metabolite-exchange increase but lacks heritable transmission;
-the engine must reject the stronger claim that endosymbiosis has evolved, identify inheritance as
-missing, and propose a model extension + a multigenerational test.
+§4's acceptance, in domain-neutral form: a model reproduces a measured effect but lacks a mechanism
+that a stronger claim requires; the engine must reject the stronger claim, identify the missing
+mechanism, and propose a model extension + a test that would establish it. (The concrete worked
+case lives in the test, not in this domain-agnostic framework module.)
 """
 from __future__ import annotations
 
