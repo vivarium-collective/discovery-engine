@@ -543,6 +543,25 @@ def main(argv: list[str] | None = None) -> int:
                                     "request's context['goal'] (overrides the investigation's "
                                     "durable discovery.goal)")
 
+    p_campaign = sub.add_parser("campaign",
+                                help="R1 unified cycle controller (run_discovery_campaign): one bounded loop that "
+                                     "project -> apply authorized model-revision proposals -> advance/execute + grade "
+                                     "-> persist, weaving generation + execution. Prints the typed stop reason, the "
+                                     "ActionRecord trail, and the five explicit closure states.")
+    p_campaign.add_argument("investigation", help="investigation slug")
+    p_campaign.add_argument("--autonomous", action="store_true",
+                            help="run in autonomous mode (otherwise human-in-the-loop)")
+    p_campaign.add_argument("--free-run", action="store_true",
+                            help="treat every request as auto (the free_run gate preset)")
+    p_campaign.add_argument("--generation-calls", type=int, default=None, dest="generation_calls",
+                            help="cap on generation (LLM) calls for the run")
+    p_campaign.add_argument("--simulation-runs", type=int, default=None, dest="simulation_runs",
+                            help="cap on simulation runs for the run")
+    p_campaign.add_argument("--model-builds", type=int, default=None, dest="model_builds",
+                            help="cap on model builds for the run")
+    p_campaign.add_argument("--max-iterations", type=int, default=8, dest="max_iterations",
+                            help="hard cap on loop iterations (default 8)")
+
     p_prop = sub.add_parser("propose",
                             help="DiscoveryAgent coordinator: route opportunities to scientific skills (dry-run by default; --fill runs the filler, records captures, applies auto-gated proposals under policy). Unlike 'requests --fill', --fill DOES run the filler on review-gated requests (to capture them for audit) but never auto-applies them")
     p_prop.add_argument("investigation", help="investigation slug")
@@ -1263,6 +1282,37 @@ def main(argv: list[str] | None = None) -> int:
                                max_iterations=args.max_iterations,
                                goal=getattr(args, "goal", None),
                                apply_cli_verb=subprocess_cli_applier())
+        print(_json.dumps(summary, indent=2, default=str))
+        return 0
+
+    if args.cmd == "campaign":
+        import json as _json
+
+        from discovery_engine.discover._policy import AUTONOMOUS, AutonomyPolicy
+        from discovery_engine.discover.budget import Budget
+        from discovery_engine.discover.campaign import run_discovery_campaign
+        from discovery_engine.phases.generation import GateConfig
+        from discovery_engine.phases.generation_apply import (
+            subprocess_cli_applier, subprocess_filler)
+        budget = Budget(generation_calls=args.generation_calls,
+                        simulation_runs=args.simulation_runs,
+                        model_builds=args.model_builds)
+        gates = GateConfig.preset("free_run") if getattr(args, "free_run", False) else None
+        autonomous = bool(getattr(args, "autonomous", False))
+        pol = AutonomyPolicy(mode=AUTONOMOUS) if autonomous else None
+        summary = run_discovery_campaign(ws, args.investigation, autonomous=autonomous,
+                                         budget=budget, policy=pol, gates=gates,
+                                         max_iterations=args.max_iterations,
+                                         fill=subprocess_filler(),
+                                         apply_cli_verb=subprocess_cli_applier())
+        # Surface the five explicit closure states (R4) from the persisted cycle_state.
+        try:
+            _ip, _inv, _st = load_cycle_inputs(ws, args.investigation)
+            _cs = (_inv.get("cycle_state") or {}).get("closure_states")
+            if _cs:
+                summary["closure_states"] = _cs
+        except Exception:  # noqa: BLE001 — the summary is still useful without the states
+            pass
         print(_json.dumps(summary, indent=2, default=str))
         return 0
 
