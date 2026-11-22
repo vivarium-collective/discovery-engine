@@ -899,6 +899,80 @@ def _check_runs_without_emitter(ctx: _LintContext) -> None:
     )
 
 
+def _run_identity_files(ws_root: Path, slug: str):
+    """Yield (path, identity_dict) for every ``run_identity.json`` under
+    studies/<slug>/ (the sidecar written by a simulator's run_provenance).
+    Silent/empty when the study dir or the files are absent or unreadable."""
+    import json as _json
+    try:
+        base = WorkspacePaths.load(ws_root).studies / slug
+    except Exception:  # noqa: BLE001 — a missing workspace layout is "no artifacts"
+        return
+    if not base.is_dir():
+        return
+    for p in sorted(base.rglob("run_identity.json")):
+        try:
+            with open(p) as fh:
+                data = _json.load(fh)
+            if isinstance(data, dict):
+                yield p, data
+        except Exception:  # noqa: BLE001 — an unreadable sidecar is not "provenanced"
+            continue
+
+
+def _check_run_provenance(ctx: _LintContext) -> None:
+    """Soft-WARN: every run must pin BOTH the code commit AND the model config
+    (version) so results are reproducible AND reversible from provenance alone.
+
+    A simulator writes a ``run_identity.json`` sidecar carrying ``code.commit``
+    (which code ran) and ``model_config`` (the active mechanism-toggle profile =
+    the model version). This check reads those sidecars under studies/<slug>/ and
+    warns when one is incomplete:
+
+    - ``code.commit`` missing/null -> the run is not reproducible;
+    - ``model_config`` empty -> the model version is unrecorded, so the run is
+      not reversible from provenance (which toggles were on is unknown);
+    - the tree was dirty (``code.dirty``) AND the study is Accepted/promoted -> an
+      accepted model version must run from a clean commit.
+
+    Warning-level and graceful: silent when a study has no ``run_identity.json``
+    sidecars (it may persist only via runs.db). This is the write-side half of
+    the model-evolution procedure's provenance contract
+    (docs/procedures/evolving-ecoli-baseline.md); escalate to a hard gate once
+    workspaces are migrated.
+    """
+    confidence = str(ctx.spec.get("confidence", "")).strip().lower()
+    accepted = confidence in ("accepted", "promoted")
+    for path, ident in _run_identity_files(ctx.ws_root, ctx.slug):
+        rid = (ident.get("design") or {}).get("experiment_id") or path.parent.name
+        code = ident.get("code") if isinstance(ident.get("code"), dict) else {}
+        model_config = ident.get("model_config")
+        if not code.get("commit"):
+            ctx.add(
+                level="warning", field_path=f"runs[{rid}].code.commit",
+                check="run_provenance",
+                message=(f"run {rid!r}: run_identity.json has no code.commit — the run is "
+                         "not reproducible. Record it via the simulator's run_provenance."),
+            )
+        if not model_config:
+            ctx.add(
+                level="warning", field_path=f"runs[{rid}].model_config",
+                check="run_provenance",
+                message=(f"run {rid!r}: run_identity.json has an empty model_config "
+                         "(model version / mechanism-toggle profile) — the run is not "
+                         "reversible from provenance. Populate it (e.g. v2ecoli "
+                         "run_provenance.model_config_from_configs)."),
+            )
+        if accepted and code.get("dirty"):
+            ctx.add(
+                level="warning", field_path=f"runs[{rid}].code.dirty",
+                check="run_provenance",
+                message=(f"run {rid!r} backs an Accepted/promoted study but ran on a DIRTY "
+                         "tree (code.dirty=true) — an accepted model version must run from a "
+                         "clean commit to be reproducible."),
+            )
+
+
 __all__ = [
     '_VIZ_CLASS_RE',
     '_VIZ_DEF_RE',
@@ -924,4 +998,6 @@ __all__ = [
     '_check_viz_stale_vs_latest_run',
     '_check_runs_yaml_vs_db_drift',
     '_check_runs_without_emitter',
+    '_run_identity_files',
+    '_check_run_provenance',
 ]

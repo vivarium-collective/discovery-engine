@@ -231,6 +231,7 @@ _CHECK_FUNCTIONS = (
     _check_study_missing_tests,
     _check_study_claim_empty,
     _check_runs_without_emitter,
+    _check_run_provenance,
     _check_reviewer_clarity_ambiguities,
     _check_viz_stale_vs_latest_run,
     _check_narrative_spine_completeness,
