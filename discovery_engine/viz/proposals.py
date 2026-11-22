@@ -23,9 +23,10 @@ from typing import Any
 
 CAP = 2
 TERMINAL = ("rejected", "built")
-_KIND_ORDER = {"gate_uncovered": 0, "discriminating_uncovered": 1, "disagreement_uncovered": 2}
+_KIND_ORDER = {"gate_uncovered": 0, "discriminating_uncovered": 1, "disagreement_uncovered": 2,
+               "finding_uncovered": 3}
 _FORM = {"gate_uncovered": "band_overlay", "discriminating_uncovered": "prediction_bands",
-         "disagreement_uncovered": "arm_comparison"}
+         "disagreement_uncovered": "arm_comparison", "finding_uncovered": "band_overlay"}
 
 
 def _as_list(v: Any) -> list:
@@ -96,7 +97,7 @@ def _build(kind, study, spec, observable, source, source_ref, viz_catalog, now) 
             "needs_author": not derivable,
             "effort": ("render-only" if runs else "needs-run") if derivable else "needs-author",
         },
-        "sharpens": {"finding": finding, "claim": f"claim:{study}"},
+        "sharpens": {"finding": finding or source.get("finding"), "claim": f"claim:{study}"},
         "approval": "review",
         "history": [{"at": now, "event": "proposed", "by": "engine"}],
         "built": None,
@@ -149,6 +150,32 @@ def propose_visualizations(inv_spec: dict, studies: dict, cycle_result: dict | N
             continue
         if obs not in covered_observables(spec, viz_catalog):
             add(_build("disagreement_uncovered", study, spec, obs, {}, None, viz_catalog, now))
+
+    # A finding that MEASURES an observable the composite emits, with no viz covering it, is a
+    # candidate for an auto-scaffolded chart of that observable — the figure its conclusion needs
+    # (the proposal complement of the finding_without_figure linter gate). Deduped by (study,
+    # observable) so a finding never double-proposes an observable a gate/discriminating/disagreement
+    # trigger already covers; it fills only the findings those triggers miss.
+    proposed = {(p["study"], p["source"]["observable"]) for p in cands.values()}
+    for study in sorted(studies):
+        spec = studies[study]
+        if not isinstance(spec, dict):
+            continue
+        cov = covered_observables(spec, viz_catalog)
+        for f in _as_list(spec.get("findings")):
+            if not isinstance(f, dict):
+                continue
+            measure = (f.get("evidence") or {}).get("measure")
+            if not measure:
+                continue
+            # a finding's evidence.measure is a measure spec (dict) OR a bare observable path (str)
+            obs_set = (required_observables_for_measure(measure, ws_root) if isinstance(measure, dict)
+                       else {measure} if isinstance(measure, str) and measure.strip() else set())
+            for obs in sorted(o for o in obs_set
+                              if o not in cov and (study, o) not in proposed):
+                add(_build("finding_uncovered", study, spec, obs, {"finding": f.get("id")},
+                           f.get("id"), viz_catalog, now))
+                proposed.add((study, obs))
 
     ordered = sorted((p for p in cands.values() if p["id"] not in done),
                      key=lambda p: (_KIND_ORDER[p["source"]["kind"]], p["id"]))

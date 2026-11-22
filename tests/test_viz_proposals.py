@@ -295,3 +295,46 @@ def test_decider_needs_author_or_no_rationale_is_gated(tmp_path, monkeypatch):
     assert _decide(ws, vp, None)["status"] == "gated-human"
     assert _disk(ws)["viz_proposals"][0]["status"] == "proposed"
     assert not yaml.safe_load((sd / "study.yaml").read_text()).get("visualizations")
+
+
+# --- finding_uncovered: a figure proposed for a finding's measured observable ----------------
+
+def _finding_spec(measure, vis=()):
+    return {"name": "s5", "behavior_tests": [], "runs": RUNS, "visualizations": list(vis),
+            "findings": [{"id": "f-fig", "evidence": {"measure": measure}}]}
+
+
+def test_finding_measuring_uncovered_observable_is_proposed():
+    ps = _prop(_finding_spec("obs/ppGpp"))
+    assert len(ps) == 1
+    p = ps[0]
+    assert p["source"] == {"kind": "finding_uncovered", "finding": "f-fig", "observable": "obs/ppGpp"}
+    assert p["sharpens"]["finding"] == "f-fig"
+    assert p["suggested"]["form"] == "band_overlay"
+    assert p["approval"] == "review"
+
+
+def test_finding_measure_as_dict_resolves_its_path():
+    assert [p["source"]["observable"] for p in _prop(_finding_spec({"kind": "final", "path": "obs/ppGpp"}))] \
+        == ["obs/ppGpp"]
+
+
+def test_finding_without_a_measure_is_not_proposed():
+    spec = {"name": "s5", "behavior_tests": [], "visualizations": [], "runs": RUNS,
+            "findings": [{"id": "f1", "evidence": {"source": "reasoning"}}]}
+    assert _prop(spec) == []
+
+
+def test_finding_observable_already_covered_is_not_proposed():
+    assert _prop(_finding_spec("obs/ppGpp",
+                               vis=[{"address": "v", "inputs_map": {"observable": "obs/ppGpp"}}])) == []
+
+
+def test_finding_does_not_double_propose_a_gated_observable():
+    # the same observable driven by a behavior_test (gate) AND measured by a finding -> ONE
+    # proposal (gate_uncovered), not also finding_uncovered.
+    spec = {"name": "s5", "runs": RUNS, "visualizations": [],
+            "behavior_tests": [_test("t-a", "obs/ppGpp")],
+            "findings": [{"id": "f1", "evidence": {"measure": "obs/ppGpp", "from_test": "t-a"}}]}
+    kinds = [p["source"]["kind"] for p in _prop(spec) if p["source"]["observable"] == "obs/ppGpp"]
+    assert kinds == ["gate_uncovered"]
