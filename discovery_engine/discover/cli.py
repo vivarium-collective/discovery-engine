@@ -164,13 +164,21 @@ def summarize(result: dict) -> str:
         cand_line = ", ".join(f"{v}={n}" for v, n in sorted(cand_tally.items()))
         verdict_line += (f"  (derived candidates, promote with set-verdict: {cand_line})")
     gate_line = ", ".join(f"{g['id']}:{g['verdict']}" for g in result["gates"]) or "none"
+    # Integrity advisories (unbacked run / overreaching verdict) count on their own line — these
+    # must be visible in status, not only inside the ranked opportunities, so an operator notices an
+    # unbacked `ran` or `supported` wherever they look.
+    _sig = result.get("signals") or {}
+    _repro, _overreach = len(_sig.get("reproducibility_gap") or []), len(_sig.get("verdict_overreach") or [])
+    _adv = (f"\nintegrity advisories: {_repro} reproducibility, {_overreach} verdict-overreach "
+            "— see `discover opportunities`" if (_repro or _overreach) else "")
     return (
         f"verdicts: {verdict_line}\n"
         f"claims: {len(result['argument']['claims'])}  edges: {len(result['argument']['edges'])}\n"
         f"narrative units: {len(result['narrative']['units'])}  "
         f"limitations: {len(result['narrative']['limitations'])}  "
         f"open_questions: {len(result['narrative']['open_questions'])}\n"
-        f"audit gaps: {len(result['audit'])}  open_calls: {len(result['open_calls'])}\n"
+        f"audit gaps: {len(result['audit'])}  open_calls: {len(result['open_calls'])}"
+        f"{_adv}\n"
         f"plan gates: {gate_line}"
     )
 

@@ -143,3 +143,31 @@ def test_reproducibility_gap_surfaces_via_the_opportunities_cli(tmp_path, capsys
     out = capsys.readouterr().out
     assert rc == 0
     assert "revalidate" in out and "s1" in out, f"reproducibility_gap not in CLI output:\n{out}"
+
+
+# --- operator visibility: advisories are always printed, even below the ranked fold ----------
+
+def _opp(kind, source, score, op="test", note=""):
+    return {"action_type": op, "source": source, "kind": kind, "priority": 44, "question": note,
+            "confidence": 0.4, "value": {"score": score, "info": 0.3, "impact": 0, "enable": 0,
+                                         "cost": 0.2, "discriminate": 0}}
+
+
+def test_summarize_opportunities_always_shows_advisories_below_the_fold():
+    # A busy frontier: two high-value ops crowd a low-ranked reproducibility_gap below the printed
+    # top-N. The gap (an unbacked run claim) must still appear, on a dedicated advisory line.
+    opps = [_opp("open_question", "claim:a", 0.9), _opp("open_question", "claim:b", 0.8),
+            _opp("reproducibility_gap", "s9", 0.03, op="revalidate",
+                 note="study records a run with no registered runs.db artifact")]
+    out = de.summarize_opportunities(opps, top=2)
+    assert "integrity advisory" in out
+    assert "revalidate" in out and "s9" in out
+    assert "no registered runs.db" in out          # the note is shown, not just the op
+
+
+def test_summarize_opportunities_does_not_double_list_a_top_ranked_advisory():
+    # an advisory already in the printed top-N is not repeated in the advisory section
+    opps = [_opp("reproducibility_gap", "s1", 0.9, op="revalidate", note="unbacked")]
+    out = de.summarize_opportunities(opps, top=10)
+    assert out.count("s1") == 1
+    assert "below the top" not in out
