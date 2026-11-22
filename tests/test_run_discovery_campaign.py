@@ -414,3 +414,53 @@ def test_campaign_summary_counts_generation_applies(tmp_path):
                    if a["kind"].startswith("generate:") and a["execution_status"] == "applied"]
     assert res["applied_generations"] == len(gen_applied) >= 1
     assert res["applied_total"] == res["applied"] + res["applied_generations"]
+
+
+def _challenge_ws(tmp_path):
+    """A workspace with a PERSISTING open_challenge (a `refutes` edge), so the interpret_finding
+    opportunity re-emits every iteration — interpreting a finding never retires the challenge."""
+    (tmp_path / "workspace.yaml").write_text("name: t\n", encoding="utf-8")
+    inv = tmp_path / "investigations" / "demo"
+    inv.mkdir(parents=True)
+    save_yaml_atomic(inv / "investigation.yaml", {
+        "name": "demo", "studies": ["s1", "s2"],
+        "hypotheses": [{"id": "h", "study": "s1", "status": "open"}]})
+    for slug, parents in (("s1", []), ("s2", [{"study": "s1", "relation": "refutes"}])):
+        sd = tmp_path / "studies" / slug
+        sd.mkdir(parents=True)
+        spec = {"schema_version": 4, "name": slug, "investigation": "demo", "claim": "X",
+                "baseline": [{"name": "b", "composite": "json.tool.main", "params": {}}],
+                "observables": ["obs.val"]}
+        if parents:
+            spec["parent_studies"] = parents
+        if slug == "s1":
+            spec["findings"] = [{"id": "f1", "statement": "", "evidence": {}}]
+        save_yaml_atomic(sd / "study.yaml", spec)
+    return inv / "investigation.yaml"
+
+
+def _interpret_fill(req):
+    from discovery_engine.phases.generation import GenerationResult
+    if req.kind == "interpret_finding" and req.target == "claim:s1/f1":
+        return GenerationResult(request_id=req.id, artifact={
+            "study": "s1", "finding": "f1", "statement": "adjudicated", "explanation": "because"})
+    return None
+
+
+def test_campaign_applies_a_persisting_generation_target_once(tmp_path):
+    # Idempotency/convergence: an applied interpretation does NOT retire the open_challenge it
+    # answers (interpretation is not evidence), so the same interpret_finding re-emits each
+    # iteration. The controller must apply each generation target ONCE and converge — not
+    # re-interpret the same target every iteration until the budget / max_iterations runs out.
+    from collections import Counter
+    from discovery_engine.phases.generation import GateConfig
+    _challenge_ws(tmp_path)
+    res = discover.run_discovery_campaign(
+        tmp_path, "demo", autonomous=True, runner=_noop_runner, fill=_interpret_fill,
+        gates=GateConfig.preset("free_run"),
+        budget=Budget(simulation_runs=0, model_builds=0, generation_calls=50), max_iterations=4)
+    applied = [a["target"] for a in res["actions"]
+               if a["kind"] == "generate:interpret_finding" and a["execution_status"] == "applied"]
+    assert applied, "interpret_finding never applied — the drive did not fire"
+    assert all(c == 1 for c in Counter(applied).values()), \
+        f"a generation target was re-applied across iterations: {Counter(applied)}"
