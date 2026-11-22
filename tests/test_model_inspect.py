@@ -136,3 +136,47 @@ def test_compose_flags_unknown_component_and_malformed_wire():
     assert any(i["kind"] == "unknown_component" for i in res["issues"])
     res2 = compose_and_validate_model(comps, [{"source": ["metab"], "target": ["metab", "x"]}])
     assert any(i["kind"] == "malformed_wire" for i in res2["issues"])
+
+
+# --- §2: register_model_version — content-addressed, with validation + lineage ---
+
+from discovery_engine.phases.model_inspect import register_model_version  # noqa: E402
+
+
+def _composed():
+    comps = {"metab": _Metabolic, "space": _Spatial}
+    wiring = [{"source": ["metab", "exchange_flux"], "target": ["space", "flux_in"]}]
+    return compose_and_validate_model(comps, wiring)
+
+
+def test_register_version_is_content_addressed_and_records_validation_and_lineage():
+    mv = register_model_version(_composed(), config={"uptake_rate": 0.2}, parent_ids=["mv:parent"])
+    assert mv["id"].startswith("mv:")
+    assert mv["validation"]["runnable"] is True          # validation recorded
+    assert set(mv["interface"]) == {"metab", "space"}    # interface contracts recorded
+    assert mv["dependencies"]                            # component modules
+    assert mv["parent_ids"] == ["mv:parent"]             # lineage recorded
+
+    # content-addressed: the same model + config reproduces the same id (bind runs to it)
+    mv_again = register_model_version(_composed(), config={"uptake_rate": 0.2})
+    assert mv_again["id"] == mv["id"]
+
+
+def test_register_version_id_changes_with_config_or_wiring():
+    base = register_model_version(_composed(), config={"uptake_rate": 0.2})
+
+    diff_cfg = register_model_version(_composed(), config={"uptake_rate": 0.9})
+    assert diff_cfg["id"] != base["id"]
+
+    other_wiring = compose_and_validate_model(
+        {"metab": _Metabolic, "space": _Spatial},
+        [{"source": ["metab", "biomass"], "target": ["space", "flux_in"]}])
+    diff_wire = register_model_version(other_wiring, config={"uptake_rate": 0.2})
+    assert diff_wire["id"] != base["id"]
+
+
+def test_register_version_of_a_single_component():
+    mv = register_model_version(_Metabolic, config={"uptake_rate": 0.1})
+    assert mv["id"].startswith("mv:")
+    assert "_Metabolic" in mv["interface"]
+    assert mv["validation"]["valid"] is True

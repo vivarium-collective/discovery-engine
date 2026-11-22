@@ -18,7 +18,10 @@ its class interface is read-only; no run is triggered. [0.7.2 plan §2 / §10]
 from __future__ import annotations
 
 import dataclasses
+import datetime as _dt
+import hashlib
 import importlib
+import json
 
 
 @dataclasses.dataclass
@@ -204,3 +207,61 @@ def compose_and_validate_model(components: dict, wiring: list, ws_root=None) -> 
     model = {"components": sorted(contracts), "wiring": list(wiring or []),
              "contracts": {n: c.to_dict() for n, c in contracts.items()}}
     return {"runnable": runnable, "issues": issues, "model": model}
+
+
+def _contracts_of(model, ws_root):
+    """Normalize register_model_version's ``model`` arg to (contracts, wiring, validation).
+    Accepts a compose_and_validate_model result, or a single component (class/callable/path)."""
+    if isinstance(model, dict) and isinstance(model.get("model"), dict) \
+            and "contracts" in model["model"]:
+        inner = model["model"]
+        return (inner["contracts"], inner.get("wiring") or [],
+                {"runnable": model.get("runnable"), "issues": model.get("issues") or []})
+    c = inspect_component(model, ws_root)
+    return ({c.component: c.to_dict()}, [], validate_composite(model, ws_root))
+
+
+def register_model_version(model, *, config=None, parent_ids=(), validation=None,
+                           origin=None, ws_root=None) -> dict:
+    """Register an immutable, content-addressed model version (§2).
+
+    ``model`` is a :func:`compose_and_validate_model` result (a composed model) or a single
+    component (a Process class/callable or dotted path). The returned record binds the
+    **implementation** (component modules + interface shapes), the **interface contracts**
+    (ports + parameters), the **configuration**, and the **dependencies** (component modules);
+    it also records the **validation results** and the **parent lineage**.
+
+    The ``id`` is a content hash over the model's identity — implementation + interface + config
+    + wiring + dependencies — and is therefore stable and reproducible, so runs bind to an exact
+    version. Validation results and parent lineage are recorded alongside but are *not* part of
+    the identity hash (a model does not change identity when it is re-validated); this matches
+    the existing ``model_architect.model_version`` philosophy."""
+    contracts, wiring, auto_val = _contracts_of(model, ws_root)
+    val = validation if validation is not None else auto_val
+
+    interface = {name: {"input_ports": ct.get("input_ports"),
+                        "output_ports": ct.get("output_ports"),
+                        "parameters": ct.get("parameters")}
+                 for name, ct in contracts.items()}
+    implementation = {name: {"module": ct.get("module"), "is_process": ct.get("is_process")}
+                      for name, ct in contracts.items()}
+    dependencies = sorted({ct.get("module") for ct in contracts.values() if ct.get("module")})
+    canon_cfg = {k: config[k] for k in sorted(config or {})}
+
+    identity = {"implementation": implementation, "interface": interface,
+                "config": canon_cfg, "wiring": wiring, "dependencies": dependencies}
+    digest = hashlib.sha256(json.dumps(identity, sort_keys=True, default=str).encode()).hexdigest()[:16]
+
+    return {
+        "id": f"mv:{digest}",
+        "components": sorted(contracts),
+        "implementation": implementation,
+        "interface": interface,
+        "config": dict(config or {}),
+        "dependencies": dependencies,
+        "wiring": wiring,
+        "validation": val,
+        "parent_ids": list(parent_ids),
+        "origin": origin,
+        "created": _dt.datetime.now(_dt.timezone.utc).isoformat(timespec="seconds"),
+    }
