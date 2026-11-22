@@ -150,9 +150,9 @@ def test_investigation_recognizes_adversarial_study():
 
 
 def test_pure_no_mutation_and_tolerant_of_empty():
-    # Empty / None specs must not raise.
-    assert study_rigor({})["score"]["total"] == 12
-    assert study_rigor(None)["score"]["total"] == 12
+    # Empty / None specs must not raise. (13 = 12 base dims + visualized_evidence, always present.)
+    assert study_rigor({})["score"]["total"] == 13
+    assert study_rigor(None)["score"]["total"] == 13
     assert investigation_rigor(None, None)["per_study"] == {}
 
 
@@ -164,6 +164,24 @@ def test_next_steps_dimension():
                 "next_steps") == OK
     # empty discovery_implications dict is still a gap
     assert _sev(study_rigor({"discovery_implications": {}}), "next_steps") == GAP
+
+
+def test_visualized_evidence_dimension():
+    # No visualizable findings -> nothing to chart -> OK.
+    assert _sev(study_rigor({"findings": [{"evidence": {"source": "reasoning"}}]}),
+                "visualized_evidence") == OK
+    assert _sev(study_rigor({}), "visualized_evidence") == OK
+    # A visualizable finding (measures an observable) with NO figure -> WARN.
+    vis = {"findings": [{"tier": "observation", "evidence": {"measure": "obs.v", "observed": 1.0}}]}
+    assert _sev(study_rigor(vis), "visualized_evidence") == WARN
+    # A finding resting on a graded behavior test is also visualizable -> WARN without a figure.
+    assert _sev(study_rigor({"findings": [{"evidence": {"from_test": "t"}}]}),
+                "visualized_evidence") == WARN
+    # Same visualizable finding, but the study carries a figure -> OK.
+    assert _sev(study_rigor({**vis, "visualizations": [{"address": "v"}]}),
+                "visualized_evidence") == OK
+    assert _sev(study_rigor({**vis, "embed_visualizations": [{"address": "v"}]}),
+                "visualized_evidence") == OK
 
 
 # ---------------------------------------------------------------------------

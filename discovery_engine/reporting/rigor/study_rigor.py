@@ -462,6 +462,19 @@ def _ledger_named_and_verified(ledger: Any) -> tuple[bool, bool]:
     return False, False
 
 
+def _finding_is_visualizable(f: dict) -> bool:
+    """A finding whose conclusion is quantitative — it measures an observable or rests on a graded
+    behavior test or a numeric observation — so a figure could SHOW it. A purely prose / structural
+    finding is not. Kept in sync with
+    :func:`discovery_engine.reporting.linter.checks_findings._is_visualizable_finding` so the
+    scorecard dimension and the finding-without-figure lint agree on what counts."""
+    ev = f.get("evidence") or {} if isinstance(f, dict) else {}
+    if not isinstance(ev, dict):
+        return False
+    return bool(ev.get("measure") or ev.get("from_test")
+                or isinstance(ev.get("observed"), (int, float)))
+
+
 def study_rigor(spec: dict) -> dict:
     """Compute the per-study rigor scorecard.
 
@@ -741,6 +754,29 @@ def study_rigor(spec: dict) -> dict:
                          f"{len(runs)} run(s) recorded but none carry an emitter "
                          "(sqlite/parquet/xarray) or a run-db reference — the trajectories are "
                          "not persisted; runs should emit via the workspace emitter", ["persistence"]))
+
+    # 13b. Visualized evidence — a visualizable finding (one that measures an observable or rests
+    #      on a graded behavior test / numeric observation) is far more defensible when the reader
+    #      can SEE the trajectory behind it. Parallels run persistence (a run is reproducible only
+    #      if persisted; a finding is legible only if shown). Mirrors the finding_without_figure
+    #      lint (checks_findings) and the finding_uncovered viz proposal, so gate, proposal, and
+    #      scorecard agree. OK when there are no visualizable findings (nothing to chart) or the
+    #      study carries figures; WARN when visualizable findings have no figure. Scored for every
+    #      mode (a reference deliverable benefits from figures too), so not NA'd for descriptive.
+    vis_findings = [f for f in findings if _finding_is_visualizable(f)]
+    has_figures = _nonempty(spec.get("visualizations")) or _nonempty(spec.get("embed_visualizations"))
+    if not vis_findings:
+        dims.append(_dim("visualized_evidence", "Visualized evidence", OK,
+                         "no visualizable findings — nothing to chart", ["viz"]))
+    elif has_figures:
+        dims.append(_dim("visualized_evidence", "Visualized evidence", OK,
+                         f"{len(vis_findings)} visualizable finding(s) and the study carries "
+                         "figure(s) to show the evidence", ["viz"]))
+    else:
+        dims.append(_dim("visualized_evidence", "Visualized evidence", WARN,
+                         f"{len(vis_findings)} visualizable finding(s) but the study has no "
+                         "visualizations — add a figure so the reader can see the evidence "
+                         "(the cycle proposes one as finding_uncovered)", ["viz"]))
 
     # 14. G2 — Statistical power for causal stochastic claims. Conditionally
     #     appended (like the confirmatory-only preregistration dim) so it only
