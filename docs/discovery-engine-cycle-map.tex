@@ -545,15 +545,15 @@ The plugin skills reach the engine either by shelling a \code{discover} verb, by
 \toprule
 \textbf{stage} & \textbf{skill} & \textbf{role \& how it reaches the engine}\\
 \midrule
-Author (inv)   & \code{/viva-investigation} & investigation CRUD, \code{scaffold-from-plan}, members, \code{run}; writes \code{investigation.yaml}; shells \code{import}/\code{reconcile}; owns \code{proposed\_inputs} discipline. Investigation $\equiv$ branch $\equiv$ worktree.\\
+Author (inv)   & \code{/viva:investigate} & investigation CRUD, \code{scaffold-from-plan}, members, \code{run}; writes \code{investigation.yaml}; shells \code{import}/\code{reconcile}; owns \code{proposed\_inputs} discipline. Investigation $\equiv$ branch $\equiv$ worktree.\\
 Author (study) & \code{/viva-study} & the primary \code{study.yaml} writer; Design$\rightarrow$Decide lifecycle via \code{/api/study-*}; inline \code{report\_linter} / \code{study.verdict}.\\
 Author (bands) & \code{/viva-cite-bands} & band provenance --- cites + calibration anchors into \code{study.yaml}; enforced by the report linter.\\
-Fill (seam)    & \code{/viva-fill} & the AI \textbf{filler} wired as \code{\$VIVA\_FILLER\_CMD}; one request in, one result out. The only skill that drives the generation/apply seam directly.\\
-Build (model)  & \code{/viva-expert} & wraps a simulator as a real composite; an accepted \code{acquire\_model} proposal feeds \code{required\_mechanisms} $\rightarrow$ the capability-gap build loop calls a workspace \code{build\_hook}.\\
+Fill (seam)    & \code{/viva:reason} & the AI \textbf{filler} wired as \code{\$VIVA\_FILLER\_CMD}; one request in, one result out. The only skill that drives the generation/apply seam directly.\\
+Build (model)  & \code{/viva:model} & wraps a simulator as a real composite; an accepted \code{acquire\_model} proposal feeds \code{required\_mechanisms} $\rightarrow$ the capability-gap build loop calls a workspace \code{build\_hook}.\\
 Evaluate       & \code{/viva-biology-forward} & the \code{interpret\_finding} realization --- populates the measured slots (deterministic) then authors the mechanism prose (AI). Via \code{/api/study-findings-populate-observations}.\\
-Grow / gate    & \code{/viva-harden-investigation} & the clearest CLI consumer --- shells \code{discover crank}, then \code{resolve}/\code{connect}/\code{relate} to drive the frontier to CLOSED.\\
+Grow / gate    & \code{/viva:harden} & the clearest CLI consumer --- shells \code{discover crank}, then \code{resolve}/\code{connect}/\code{relate} to drive the frontier to CLOSED.\\
 Report         & \code{/viva-report} & Pass A audit + Pass B lint + render, via \code{/api/report-lint} / \code{/api/render}; the engine owns the lint/render logic. Headless twin: \code{discover report}/\code{lint}.\\
-Navigate       & \code{/viva-navigate} & read-only \code{/api/linkage-index} + \code{/api/needs-attention} (``decisions needed''). Headless twin: \code{discover linkage}.\\
+Navigate       & \code{/viva:explore} & read-only \code{/api/linkage-index} + \code{/api/needs-attention} (``decisions needed''). Headless twin: \code{discover linkage}.\\
 Author (eng)   & \code{hypothesize} / \code{critique} / \code{acquire\_model} & the engine's own authoring contracts (\S\ref{sec:seam}); surfaced by the \code{anomaly}/\code{coverage\_gap}, \code{verdict\_overreach}, and \code{model\_acquisition} frontier kinds.\\
 \bottomrule
 \end{tabularx}

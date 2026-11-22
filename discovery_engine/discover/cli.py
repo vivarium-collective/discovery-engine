@@ -1223,7 +1223,7 @@ def main(argv: list[str] | None = None) -> int:
         # Opt-in end-to-end apply of the CLI-verb kinds (visualize / propose_study):
         # subprocess_cli_applier reads $VIVA_CLI_APPLIER_CMD and declines (None) when
         # it is unset, so the drive queues those kinds as before UNLESS the caller
-        # (e.g. the /viva:drive-engine skill) exports that command — then the drive
+        # (e.g. the /viva:discover skill) exports that command — then the drive
         # lands rendered viz + seeded studies via the skill. Purely additive.
         summary = _investigate(ws, args.investigation, fill=subprocess_filler(),
                                budget=budget, policy=pol, gates=gates,

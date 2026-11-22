@@ -70,7 +70,7 @@ def _investigation_yaml(ws_root: Path, slug: str) -> Path:
     if not p.is_file():
         raise FileNotFoundError(
             f"Investigation '{slug}' not found at {p}. Run "
-            f"'/viva-investigation new <slug>' to create it."
+            f"'/viva:investigate new <slug>' to create it."
         )
     return p
 
@@ -334,7 +334,7 @@ def close_investigation(
     if rc != 0:
         raise FileNotFoundError(
             f"branch {branch!r} not found (Investigation ≡ branch "
-            f"convention). Either create it via /viva-investigation new "
+            f"convention). Either create it via /viva:investigate new "
             f"or rename the existing branch."
         )
 
@@ -586,7 +586,7 @@ def close_investigation(
 
 
 # ---------------------------------------------------------------------------
-# CLI entry point — invoked by /viva-investigation close <slug>
+# CLI entry point — invoked by /viva:investigate close <slug>
 # ---------------------------------------------------------------------------
 
 

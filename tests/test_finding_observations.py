@@ -1103,7 +1103,7 @@ def test_golden_dnaa2_v2einvest_untouched(tmp_path):
 
 
 # ---------------------------------------------------------------------------
-# Task 3: biology-forward aspect tests (folded into /viva-harden-investigation
+# Task 3: biology-forward aspect tests (folded into /viva:harden
 # from the standalone /viva-biology-forward skill — see skills/
 # viva-harden-investigation/SKILL.md, "### Aspect: biology-forward")
 # ---------------------------------------------------------------------------

@@ -778,7 +778,7 @@ def scaffold_workspace_in_place(
         else:
             raise click.ClickException(f"git commit failed: {stderr}")
 
-    # Register in the workspace catalog so /viva-navigate status etc. find this workspace.
+    # Register in the workspace catalog so /viva:explore status etc. find this workspace.
     try:
         from discovery_engine.integration import workspace_catalog
         workspace_catalog.add(workspace_root, name=workspace_name)
