@@ -52,7 +52,7 @@ audit, gates, validators, suggestions. Over it:
 |---|---|
 | `frontier` | the prioritized unresolved items (by kind: `unaddressed_criterion`, `narrative_gap`, `pending_gate`, `open_question`, `open_challenge`, `open_decision`, `pending_feedback`) |
 | `closure` | the machine-checkable closure test — `{closed, open_items, …}` |
-| `opportunities` / `next_action` | value-ranked frontier (info · impact · enable · closure − cost) |
+| `opportunities` / `next_action` | value-ranked frontier (**discriminate** · info · impact · enable · closure − cost; `discriminate`, weight 0.50, is the largest term — a test/branch whose study carries competing hypotheses one run would separate) |
 | `diagnose` | the crank's productivity bottlenecks |
 | `run_readiness` | is a study materially ready to produce an evaluable, rendered result? (composite imports, observables emittable, measures resolvable, viz rendered) |
 | `execute_action` / `advance_cycle` | carry out / run the next move, consequence- and autonomy-gated |
@@ -119,10 +119,15 @@ resolved history, not a live caveat. `discovery_delta` is the per-cycle record o
 added/qualified claims, gated studies, disagreements, anomalies, and recorded
 regressions.
 
-A **Discovery** (`discovery_record`, `detect_discoveries`) is recorded for each
-claim verdict that flips to a *settled* outcome (`supported`/`contested`) on
-**verified** evidence since the previous snapshot — passing a gate is not a
-discovery, and a flip on merely provisional evidence is not either. On a
+A claim verdict that flips to a *settled* outcome (`supported`/`contested`) on
+**verified** evidence since the previous snapshot mints a **FindingCandidate**
+(`detect_finding_candidates`) — a *pending nomination*, not yet a Discovery;
+passing a gate does not mint one, and a flip on merely provisional evidence does
+not either. A FindingCandidate becomes a first-class **Discovery**
+(`discovery_record`) only through a **reviewed promotion** (`discover
+review-findings --promote`, with novelty + counter-evidence assessment) — the one
+path that writes `discoveries[]`. (The legacy `detect_discoveries` auto-record
+path is superseded by this candidate→promotion flow.) On a
 **refutation**, model-error diagnosis (`model_error.diagnose_refutation`) emits a
 typed **EvidenceUpdate** — `revise-model` (competing model arms disagree on the
 refuting observable, so the model is implicated) vs `revise-hypothesis` (no live

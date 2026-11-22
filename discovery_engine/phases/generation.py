@@ -22,9 +22,11 @@ import json
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
-# The seven generative acts every GenerationRequest is one of. They project from
-# the engine's seven frontier ops (revalidate, test, branch, reconcile, revise,
-# steer, synthesize) via the mapping in generation_emit.generation_requests.
+# The nine generative acts every GenerationRequest is one of (the KINDS below).
+# They project from the engine's frontier ops via the mapping in
+# generation_emit.generation_requests — not 1:1: hypothesize, critique, and
+# visualize were added beyond the original seven (revalidate, test, branch,
+# reconcile, revise, steer, synthesize).
 KINDS = (
     "propose_study",
     "acquire_model",
