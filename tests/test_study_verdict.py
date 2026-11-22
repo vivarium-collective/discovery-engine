@@ -158,6 +158,28 @@ class TestDivergesFromAuthored:
         spec["gate_status"] = "whatever"
         assert diverges_from_authored(spec) is False
 
+    def test_authored_supported_over_no_runs_is_divergent(self):
+        # discovery-engine integrity gap: a study that asserts an evaluation verdict of `supported`
+        # (via verdict/result, NOT gate_status) with NO run graded any evidence claims a settled
+        # result over nothing. The derived roll-up is not_started — the claim outruns its evidence
+        # and must register as a divergence (-> verdict_overreach), even with no gate_status.
+        spec = {"name": "s", "behavior_tests": [], "runs": [],
+                "verdict": "supported", "result": "supported"}
+        assert roll_up_verdict(spec)["result"] == "not_started"
+        assert diverges_from_authored(spec) is True
+
+    def test_authored_supported_backed_by_passing_run_is_not_divergent(self):
+        # The complement: a `supported` verdict BACKED by a passing run is not overreach.
+        spec = _spec(_named("t1"), {"t1": {"result": "PASS"}})
+        spec["verdict"] = "supported"
+        assert diverges_from_authored(spec) is False
+
+    def test_provisional_verdict_over_no_runs_is_not_overreach(self):
+        # A hedged verdict acknowledges its own uncertainty — not a settled claim, not overreach.
+        spec = {"name": "s", "behavior_tests": [], "runs": [],
+                "verdict": "provisionally-supported"}
+        assert diverges_from_authored(spec) is False
+
     def test_blocked_agent_graded_only_is_not_divergent(self):
         # A run is present but grades ZERO outcomes, and every test is
         # AGENT-GRADED (no committed/code-gradable field) → roll_up_verdict is

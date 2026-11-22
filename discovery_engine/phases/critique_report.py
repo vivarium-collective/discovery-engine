@@ -140,9 +140,13 @@ def critique_triggers(study_specs: list[dict]) -> list[dict]:
                 "id": _critique_id(slug, "verdict_divergence").replace("cr:", "ct:"),
                 "kind": "verdict_divergence",
                 "study": slug,
-                "authored": str(spec.get("gate_status") or "").strip(),
+                # name the authored claim whichever field expresses it (gate_status OR the
+                # evaluation verdict / result), so a `supported`-over-0-runs overreach reads clearly.
+                "authored": (str(spec.get("gate_status") or "").strip()
+                             or str((spec.get("report") or {}).get("verdict")
+                                    or spec.get("verdict") or spec.get("result") or "").strip()),
                 "derived": roll_up_verdict(spec)["result"],
-                "note": "authored gate_status disagrees with the computed verdict — the "
+                "note": "authored verdict disagrees with the computed verdict — the "
                         "claimed result outruns the evidence",
             })
         if confidence_diverges_from_derived(spec):
