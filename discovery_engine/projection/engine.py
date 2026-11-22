@@ -53,6 +53,7 @@ _PRIORITY = {
     "model_disagreement": 48,      # arms disagree on an observable (no proposal yet)
     "anomaly": 48,                 # an observation outside every live hypothesis band
     "verdict_overreach": 46,       # a verdict/confidence that outruns its evidence (advisory critique)
+    "reproducibility_gap": 44,     # a recorded run with no registered runs.db artifact (advisory)
     # Visualization loop (NON-blocking): a declared figure that is broken/missing/stale.
     "viz_broken": 47, "viz_missing": 46, "viz_proposed": 44, "viz_stale": 38,
     # Viz appropriateness (NON-blocking, review tier): a figure shown where it does not belong.
@@ -82,6 +83,7 @@ _OP = {
     "model_disagreement": "revise_model",
     "anomaly": "revise_model",
     "verdict_overreach": "critique",     # author an advisory CritiqueReport; never engine-executed
+    "reproducibility_gap": "revalidate",  # re-run to back the claim, or acknowledge; never auto-run
     "viz_broken": "refine_viz", "viz_missing": "build_viz",
     "viz_proposed": "build_viz", "viz_stale": "refine_viz",
     "viz_misplaced": "relocate_viz", "viz_duplicated": "relocate_viz", "viz_untied": "relocate_viz",
@@ -293,6 +295,16 @@ def frontier(cycle_result: dict, inv_spec: dict) -> list[dict]:
             continue
         add("verdict_overreach", study,
             t.get("note") or "a verdict/confidence outruns its evidence — critique it")
+
+    # 6b. reproducibility gaps (non-blocking, advisory): a study records a run with no registered
+    #     runs.db artifact. Surfaced so the unbacked `ran` claim is visible, never auto-re-run
+    #     (a read-only snapshot legitimately lacks runs.db). Discharged by a resolution record.
+    for g in sig.get("reproducibility_gap") or []:
+        study = g.get("study")
+        if not study:
+            continue
+        add("reproducibility_gap", study,
+            g.get("note") or "a recorded run has no registered runs.db artifact — unreproducible")
 
     # 7. visualization loop (non-blocking): one typed item per non-fresh declared figure.
     #    fresh emits nothing (derivation discharge).

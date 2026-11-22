@@ -1,0 +1,69 @@
+"""reproducibility_gap: a study that RECORDS a run in its YAML but has NO registered runs.db
+artifact asserts an unbacked `ran` — the run-side twin of an authored verdict with no evidence.
+advance keys off the YAML run record and would skip it as "ran"; the engine must instead surface
+the gap on the frontier (advisory, non-blocking, resolvable), never silently trust it."""
+from __future__ import annotations
+
+from discovery_engine import discover
+from discovery_engine.projection import engine as de
+from discovery_engine.phases.evidence_integrity import reconcile_evidence_state
+
+_INV = {"studies": ["s1"]}
+
+
+def _study(runs=None):
+    s = {"name": "s1", "baseline": [{"name": "b", "composite": "x.y.z", "params": {}}]}
+    if runs is not None:
+        s["runs"] = runs
+    return s
+
+
+# --- detection in reconcile (has both the YAML records and the registered runs) -------------
+
+def test_recorded_run_without_registered_artifact_is_a_gap():
+    ev = reconcile_evidence_state(_INV, {"s1": _study(runs=[{"name": "r0", "run_id": "r0"}])},
+                                  runs_by_study={"s1": []})   # no registered run on disk
+    gaps = ev["reproducibility_gaps"]
+    assert len(gaps) == 1
+    assert gaps[0]["study"] == "s1" and gaps[0]["recorded_runs"] == ["r0"]
+    assert "unreproducible" in gaps[0]["note"]
+
+
+def test_registered_run_is_not_a_gap():
+    ev = reconcile_evidence_state(_INV, {"s1": _study(runs=[{"name": "r0", "run_id": "r0"}])},
+                                  runs_by_study={"s1": [{"run_id": "r0"}]})   # backed on disk
+    assert ev["reproducibility_gaps"] == []
+
+
+def test_no_recorded_run_is_not_a_gap():
+    ev = reconcile_evidence_state(_INV, {"s1": _study(runs=[])}, runs_by_study={"s1": []})
+    assert ev["reproducibility_gaps"] == []
+
+
+# --- surfacing on the frontier (advisory, non-blocking, resolvable) --------------------------
+
+def _cyc():
+    return {"signals": {"reproducibility_gap": [
+        {"study": "s1", "recorded_runs": ["r0"], "note": "unreproducible run"}]}}
+
+
+def test_reproducibility_gap_surfaces_on_the_frontier():
+    (it,) = [i for i in de.frontier(_cyc(), {}) if i["kind"] == "reproducibility_gap"]
+    assert it["target"] == "s1"
+    assert it["op"] == "revalidate"
+    assert it["priority"] == de._PRIORITY["reproducibility_gap"] == 44
+
+
+def test_reproducibility_gap_is_advisory_non_blocking():
+    # it must NOT be auto-dispatched by advance, and must not keep the investigation open
+    from discovery_engine.discover.cycle import _ADVANCE_OPS
+    assert "revalidate" not in _ADVANCE_OPS
+    assert "reproducibility_gap" not in de._CLOSURE_BLOCKING
+    assert de.closure(_cyc(), {})["closed"] is True
+
+
+def test_reproducibility_gap_is_resolvable():
+    assert "reproducibility_gap" in discover.RESOLUTION_KINDS
+    inv = {"resolutions": [{"kind": "reproducibility_gap", "target": "s1",
+                            "rationale": "acknowledged read-only snapshot"}]}
+    assert not [i for i in de.frontier(_cyc(), inv) if i["kind"] == "reproducibility_gap"]
