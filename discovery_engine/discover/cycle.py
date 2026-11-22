@@ -1781,7 +1781,8 @@ def advance_cycle(ws_root: Path | str, inv_slug: str, *, autonomous: bool = Fals
             else:
                 gated_ops.add((target_op, target))
             ran.append({"target": target, "status": rec["status"],
-                        "outcome": (rec.get("outcome") or {}).get("detail")})
+                        "outcome": ((rec.get("outcome") or {}).get("detail")
+                                    or (rec.get("outcome") or {}).get("tail"))})
             continue
         if target_op in ("seed", "build_process", "reopen"):
             # seed wrote a NEW study; build_process ran the workspace build_hook and wrote a
@@ -1793,7 +1794,8 @@ def advance_cycle(ws_root: Path | str, inv_slug: str, *, autonomous: bool = Fals
             else:
                 gated_ops.add((target_op, target))
             ran.append({"target": target, "status": rec["status"],
-                        "outcome": (rec.get("outcome") or {}).get("detail")})
+                        "outcome": ((rec.get("outcome") or {}).get("detail")
+                                    or (rec.get("outcome") or {}).get("tail"))})
             continue
         if rec["status"] == "gated":
             gated_ops.add((target_op, target))
@@ -1802,7 +1804,8 @@ def advance_cycle(ws_root: Path | str, inv_slug: str, *, autonomous: bool = Fals
         if rec["status"] == "executed":
             _post_run_sync(sdir, before_runs)
         ran.append({"target": target, "status": rec["status"],
-                    "outcome": (rec.get("outcome") or {}).get("detail")})
+                    "outcome": ((rec.get("outcome") or {}).get("detail")
+                                or (rec.get("outcome") or {}).get("tail"))})
         if rec["status"] == "gated":
             continue            # a gated op neither stops the loop nor claims its study
         seen_slugs.add(target_slug)   # only a dispatched target claims its study

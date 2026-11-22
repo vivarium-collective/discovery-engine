@@ -464,3 +464,26 @@ def test_campaign_applies_a_persisting_generation_target_once(tmp_path):
     assert applied, "interpret_finding never applied — the drive did not fire"
     assert all(c == 1 for c in Counter(applied).values()), \
         f"a generation target was re-applied across iterations: {Counter(applied)}"
+
+
+def test_failed_run_actionrecord_carries_the_failure_reason(tmp_path):
+    # Legibility: a failed run must record WHY it failed (the runner's stderr tail), so a
+    # failed_execution ActionRecord is self-diagnosing instead of a dead end for the operator.
+    _ws(tmp_path)
+
+    class FailRunner:
+        def __init__(self):
+            self.calls = []
+
+        def __call__(self, cmd, ws, **_kw):
+            self.calls.append(cmd)
+            return {"ok": False, "returncode": 1, "run_id": None,
+                    "tail": "ModuleNotFoundError: No module named 'viva_island_biogeography'"}
+
+    res = discover.run_discovery_campaign(
+        tmp_path, "og", autonomous=True, runner=FailRunner(),
+        budget=Budget(simulation_runs=4, model_builds=2, generation_calls=0), max_iterations=2)
+    failed = [a for a in res["actions"]
+              if a["kind"] == "run" and a["execution_status"] == "failed_execution"]
+    assert failed, "no failed_execution run recorded"
+    assert all(a.get("detail") and "ModuleNotFoundError" in a["detail"] for a in failed)

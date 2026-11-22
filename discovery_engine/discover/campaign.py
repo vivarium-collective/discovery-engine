@@ -37,6 +37,7 @@ class ActionRecord:
     input_hash: str
     artifacts: list               # child studies, run ids, model versions
     depends_on: list
+    detail: str | None = None     # why a run failed/was gated (e.g. the stderr tail) — self-diagnosing
 
     def to_dict(self) -> dict:
         return dataclasses.asdict(self)
@@ -261,12 +262,15 @@ def run_discovery_campaign(ws_root: Path | str, inv_slug: str, *, autonomous: bo
             else:
                 kind = "run"
                 es = _run_execution_state(st, ws_root, inv_slug, r.get("target"))
+            # Surface WHY a run failed/was gated (the runner's stderr tail or the gate detail) so a
+            # failed_execution record is self-diagnosing instead of a dead end for the operator.
+            detail = r.get("outcome") if es in ("failed_execution", "blocked", "gated") else None
             _record(ActionRecord(
                 id=_hash(kind, r.get("target") or r.get("command")), kind=kind,
                 target=r.get("target"), cycle_index=i, policy_decision="autonomous",
                 execution_status=es, input_hash=_hash(r.get("target") or r.get("command")),
                 artifacts=r.get("run_ids") or ([r["run_id"]] if r.get("run_id") else []),
-                depends_on=[]))
+                depends_on=[], detail=detail))
             ran = es in ("completed", "refuted", "inconclusive")   # the run actually executed
             if is_reopen and st == "executed":
                 progressed = True
