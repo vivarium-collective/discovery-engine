@@ -150,7 +150,7 @@ def build_finding_candidate(study: str, from_verdict, to_verdict: str, study_spe
     flip rests on (claim, evidence_refs, counterevidence) but makes NO novelty claim —
     that is the reviewer's job (:func:`assess_finding_candidate`)."""
     claim = (study_spec or {}).get("claim") or (study_spec or {}).get("question") or study
-    return {
+    cand = {
         "id": _candidate_id(study, to_verdict, fingerprint),
         "kind": "finding_candidate",
         "study": study,
@@ -164,6 +164,12 @@ def build_finding_candidate(study: str, from_verdict, to_verdict: str, study_spe
         "status": CANDIDATE,
         "at": at or _now(),
     }
+    # §4: carry the claim's declared required mechanisms (opt-in), so the reviewed promotion can
+    # gate on model adequacy — a candidate whose claim overreaches is not minted as a Discovery.
+    requires = (study_spec or {}).get("requires")
+    if requires:
+        cand["requires"] = [str(m) for m in requires]
+    return cand
 
 
 def detect_finding_candidates(prev_snapshot: dict | None, new_snapshot: dict | None,
