@@ -40,6 +40,34 @@ def test_no_recorded_run_is_not_a_gap():
     assert ev["reproducibility_gaps"] == []
 
 
+def _study_status(**kw):
+    s = {"name": "s1", "baseline": [{"name": "b", "composite": "x.y.z", "params": {}}]}
+    s.update(kw)
+    return s
+
+
+def test_completed_status_without_registered_run_is_a_gap():
+    # `completed` implies a run; with none registered (no runs[], no runs.db, no run log) it is an
+    # unbacked completion claim — a reproducibility gap even without a recorded runs[] entry.
+    for field in ("execution_status", "status"):
+        ev = reconcile_evidence_state(_INV, {"s1": _study_status(**{field: "completed"})},
+                                      runs_by_study={"s1": []})
+        assert len(ev["reproducibility_gaps"]) == 1, field
+        assert "completed/ran" in ev["reproducibility_gaps"][0]["note"]
+
+
+def test_running_status_is_not_a_gap():
+    # an in-progress study claims no completion
+    ev = reconcile_evidence_state(_INV, {"s1": _study_status(status="running")}, runs_by_study={"s1": []})
+    assert ev["reproducibility_gaps"] == []
+
+
+def test_completed_status_with_registered_run_is_not_a_gap():
+    ev = reconcile_evidence_state(_INV, {"s1": _study_status(status="completed")},
+                                  runs_by_study={"s1": [{"run_id": "r0"}]})
+    assert ev["reproducibility_gaps"] == []
+
+
 # --- surfacing on the frontier (advisory, non-blocking, resolvable) --------------------------
 
 def _cyc():

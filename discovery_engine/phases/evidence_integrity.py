@@ -41,6 +41,10 @@ VERIFIED = "verified"
 PROVISIONAL = "provisional"
 CONTRADICTED = "contradicted"
 UNSUPPORTED = "unsupported"
+
+# Terminal "this study has run" claims (execution_status / lifecycle status). `running`/`planning`
+# are deliberately excluded — they claim no completion, so they are never a reproducibility gap.
+_COMPLETED_STATES = frozenset({"completed", "complete", "ran", "executed"})
 _STATUSES = (VERIFIED, PROVISIONAL, CONTRADICTED, UNSUPPORTED)
 
 # Evidence source types (DE-11, plan §7 EvidenceRecord / §13 multi-source). The
@@ -377,18 +381,25 @@ def reconcile_evidence_state(inv_spec: dict, studies: dict,
         if not isinstance(spec, dict):
             continue
         reg = _registered_run_ids(runs_by_study.get(slug))
-        # Reproducibility gap: the study records a run in its YAML but NO run of this study is
-        # registered on disk (runs.db). advance keys off the YAML run record, so such a study is
-        # treated as "ran" and skipped — an unbacked `ran` claim indistinguishable from a real run,
-        # the run-side twin of an authored verdict with no evidence. Surface it, don't trust it.
+        # Reproducibility gap: the study ASSERTS a run — either a recorded ``runs[]`` entry OR a
+        # ``completed`` / ``ran`` execution/lifecycle status — but NO run of this study is registered
+        # (runs.db / run log). advance keys off those claims, so such a study is treated as "ran"
+        # and skipped: an unbacked ``ran`` claim indistinguishable from a real run, the run-side twin
+        # of an authored verdict with no evidence. `completed` implies a run; without one it is an
+        # inconsistency. Surface it, don't trust it.
         recorded_runs = [r for r in (spec.get("runs") or []) if isinstance(r, dict)]
-        if recorded_runs and not reg:
+        claims_completed = (str(spec.get("execution_status") or "").strip().lower() in _COMPLETED_STATES
+                            or str(spec.get("status") or "").strip().lower() in _COMPLETED_STATES)
+        if (recorded_runs or claims_completed) and not reg:
+            note = ("study records a run with no registered runs.db artifact — the run is "
+                    "unreproducible and its evidence can never be verified") if recorded_runs else (
+                    "study is marked completed/ran but no run is registered (runs.db / run log) — "
+                    "the completion claim is unbacked")
             repro_gaps.append({
                 "study": slug,
                 "recorded_runs": [r.get("name") or r.get("run_id") or r.get("id")
                                   for r in recorded_runs],
-                "note": "study records a run with no registered runs.db artifact — the run is "
-                        "unreproducible and its evidence can never be verified"})
+                "note": note})
         rows = []
         for f in _findings(spec):
             row = classify_finding_evidence(f, spec, reg, _run_rows(spec))
