@@ -58,7 +58,7 @@ the stages, the functions, the skills, and the flow into investigations, studies
 \vspace{1.1em}
 {\large\color{ink}\textbf{Question \,$\rightarrow$\, Hypothesize \,$\rightarrow$\, Model \,$\rightarrow$\, Experiment \,$\rightarrow$\, Evaluate \,$\rightarrow$\, Synthesize}\par}
 \vspace{2.4cm}
-{\large discovery-engine \textbf{0.7.2} \; (\code{main})\par}
+{\large discovery-engine \textbf{0.7.5} \; (\code{main})\par}
 \vspace{0.4em}
 {\color{muted} 2026-11-21\par}
 \vspace{2cm}
@@ -174,6 +174,25 @@ it); \code{closure\_states} resolves five explicit axes --- \code{workflow\_comp
 \code{evidence\_sufficient}, \code{model\_adequate}, \code{scientifically\_resolved},
 \code{discovery\_active} --- each with a stated reason; and \code{build\_scientific\_explanation}
 fingerprints a resolution to its evidence, so a settled claim re-opens when the evidence under it moves.
+
+\paragraph{Integrity hardening (0.7.3--0.7.5).} The honesty rules gained teeth so a fabricated
+result cannot project clean. \textbf{Verdict overreach} now fires three ways: an authored
+\emph{evaluation} verdict (\code{supported}/\code{contested}, not just \code{gate\_status}) asserted
+over a \code{not\_started} roll-up with no graded run, and (\code{composite\_overreach\_triggers}) a
+settled verdict whose baseline composite does not resolve --- a study whose model cannot be
+reconstructed cannot be \code{supported}. \textbf{Reproducibility:} a study that records, or is marked
+\code{completed}/\code{ran} with, no registered run (no \code{runs.db}, no \code{.pbg/runs.jsonl}
+run-log entry) surfaces an advisory \code{reproducibility\_gap} --- the run-side twin of an unbacked
+verdict --- instead of being silently trusted as ``ran''. \textbf{Closure coupling:} evidence
+sufficiency is now a precondition for resolution, so \code{scientifically\_resolved} can no longer read
+true while \code{evidence\_sufficient} is false --- the fix that stops the autonomous controller from
+closing over a live frontier. \textbf{The campaign converges:} it forwards the gate policy into
+generation (so \code{-{}-free-run} reaches the frontier and native kinds route through the filler),
+applies each generation target once, never re-attempts a run that already failed, stops honestly on
+the five closure states, reports \code{applied\_generations}/\code{applied\_total}, and carries a failed
+run's stderr tail on its \code{ActionRecord} so a failure is self-diagnosing. And integrity advisories
+are always printed in \code{discover opportunities}/\code{status}, regardless of value-rank, so an
+unbacked run or verdict can never hide below the ranked fold.
 
 % ===========================================================================
 \section{The cycle at a glance}
@@ -305,7 +324,7 @@ read ``met'' through a gate.
 \section{Field-level information flow --- what each stage reads and writes}
 
 The substrate above names the artifact classes; this table names the \emph{specific
-fields} each stage touches, verified against the 0.7.2 source. Reads/writes are split by
+fields} each stage touches, verified against the 0.7.5 source. Reads/writes are split by
 artifact: \textbf{inv} = \code{investigation.yaml}, \textbf{st} = \code{study.yaml},
 \textbf{db} = \code{runs.db}. A dash is ``nothing direct --- it arrives through the
 in-memory cycle bundle.'' Every write is atomic and comment-preserving; a derive-first
