@@ -125,3 +125,45 @@ def enumerate_perturbations(space, *, limit: int | None = None) -> list[dict]:
             if limit is not None and len(points) >= limit:
                 break
     return points
+
+
+def _intervention_params(space) -> list:
+    ivs = space.interventions if isinstance(space, ExperimentSearchSpace) \
+        else (space or {}).get("interventions") or []
+    return [iv["parameter"] for iv in ivs if isinstance(iv, dict) and iv.get("parameter")]
+
+
+def search_discriminating_perturbation(hypotheses, search_space, *, predict,
+                                       min_score: float = 0.5, limit: int | None = None) -> dict:
+    """Invent a discriminating experiment (§3): enumerate candidate perturbations over
+    ``search_space``, score how well each separates the competing ``hypotheses``' predictions with
+    the existing EIG scorer (:func:`experiment_utility.best_experiment`), and return the
+    most-separating regime — or a reasoned abstention WITH a concrete data/model requirement when
+    none separates them.
+
+    ``predict(hypothesis, perturbation)`` returns that hypothesis's prediction under the
+    perturbation (a number, ``{value, uncertainty}``, or ``{low, high}`` band) — the model's job,
+    injected so this stays pure. Returns ``best_experiment``'s shape augmented with
+    ``method: 'perturbation-search'`` and ``n_candidates``; on abstention it adds a concrete
+    ``requirement`` (§3 acceptance 2). An ``experiment`` outcome is the found divergent regime
+    (acceptance 1)."""
+    from discovery_engine.phases.experiment_utility import best_experiment
+
+    perturbations = enumerate_perturbations(search_space, limit=limit)
+    res = dict(best_experiment(hypotheses or [], perturbations, predict=predict, min_score=min_score))
+    res["method"] = "perturbation-search"
+    res["n_candidates"] = len(perturbations)
+    if res.get("outcome") == "experiment":
+        return res
+
+    params = sorted(set(_intervention_params(search_space)))
+    if not perturbations:
+        res["requirement"] = ("the search space enumerated no candidate perturbations — declare "
+                              "controllable interventions with explicit values or a [lo, hi] range")
+    else:
+        res["requirement"] = (
+            f"no enumerated perturbation (of {len(perturbations)}) separates the hypotheses beyond "
+            f"{min_score}; need an additional observable that distinguishes the mechanisms, a wider "
+            f"range on {params or 'the interventions'}, or a model whose predictions respond to the "
+            "controllable parameters")
+    return res
