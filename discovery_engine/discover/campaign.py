@@ -228,13 +228,17 @@ def run_discovery_campaign(ws_root: Path | str, inv_slug: str, *, autonomous: bo
 
         # 2) Advance: build-if-needed, run the ready studies, and grade them (compute_outcomes).
         #    Never counts a run as measured before runs.db confirms it — that is advance's job.
+        #    A simulation budget of 0 is *projection-only*, not an exhausted budget: skip advance
+        #    without halting (generation/revision still run, the stop reason stays honest). Only an
+        #    actually-spent budget (runs were used) is the `budget_exhausted` stop.
         remaining = None if sim_budget is None else max(0, sim_budget - runs_done)
-        if remaining == 0:
+        if remaining == 0 and runs_done > 0:
             stop_reason = "budget_exhausted"
             break
-        adv = advance_cycle(ws_root, inv_slug, policy=pol, runner=runner, render_hook=render_hook,
-                            build_hook=build_hook, worktree=worktree,
-                            **({"max_runs": remaining} if remaining is not None else {}))
+        adv = ({} if remaining == 0 else
+               advance_cycle(ws_root, inv_slug, policy=pol, runner=runner, render_hook=render_hook,
+                             build_hook=build_hook, worktree=worktree,
+                             **({"max_runs": remaining} if remaining is not None else {})))
         for r in adv.get("runs", []):
             st = r.get("status")
             # advance also dispatches the `reopen` op (staged feedback); record it as a typed
@@ -268,7 +272,7 @@ def run_discovery_campaign(ws_root: Path | str, inv_slug: str, *, autonomous: bo
 
         # 3) Stop conditions (the next iteration's top persist, or the final persist below,
         #    captures this iteration's advance into cycle_state).
-        if sim_budget is not None and runs_done >= sim_budget:
+        if sim_budget is not None and runs_done >= sim_budget and runs_done > 0:
             stop_reason = "budget_exhausted"
             break
         if not progressed:

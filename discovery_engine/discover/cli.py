@@ -1305,12 +1305,15 @@ def main(argv: list[str] | None = None) -> int:
                                          max_iterations=args.max_iterations,
                                          fill=subprocess_filler(),
                                          apply_cli_verb=subprocess_cli_applier())
-        # Surface the five explicit closure states (R4) from the persisted cycle_state.
+        # Surface the five explicit closure states (R4) + their reasons from the persisted
+        # cycle_state, so a false axis (e.g. evidence_sufficient) shows *why*, not just the bit.
         try:
             _ip, _inv, _st = load_cycle_inputs(ws, args.investigation)
-            _cs = (_inv.get("cycle_state") or {}).get("closure_states")
-            if _cs:
-                summary["closure_states"] = _cs
+            _cstate = _inv.get("cycle_state") or {}
+            if _cstate.get("closure_states"):
+                summary["closure_states"] = _cstate["closure_states"]
+                if _cstate.get("closure_reasons"):
+                    summary["closure_reasons"] = _cstate["closure_reasons"]
         except Exception:  # noqa: BLE001 — the summary is still useful without the states
             pass
         print(_json.dumps(summary, indent=2, default=str))
