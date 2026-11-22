@@ -35,7 +35,7 @@ Node = {
   label:     string,              // short diagram label
   band:      Band,                // which ring/zone it sits in (layout + color)
   functions: [{name, module}],    // engine functions, with file anchor
-  skills:    [string],            // /viva-* or engine authoring skills that drive it
+  skills:    [string],            // /viva:* or engine authoring skills that drive it
   consumes:  string,              // one line
   produces:  string,              // one line
   writes:    [ArtifactId],        // which substrate artifacts it mutates (often [])
@@ -68,9 +68,10 @@ ArtifactId = "investigation" | "study" | "runs" | "modelversions"
 | `plan` | B · Plan | phase | `plan_candidate_actions`, `select_portfolio` (phases/candidate_action.py) | — | real / pure |
 | `design` | C · Design | phase | `design_discriminating_study` (phases/experiment_design.py) | — | conditional / pure |
 | `build` | D · Build | phase | `build_catalog`, `bind_model_versions`, `model_version` (phases/model_architect.py) | `/viva:model` | real / pure |
-| `grade` | Grading | phase | `compute_outcomes` (study/evaluator/outcomes.py) | `/viva-study` | real / **mutating** |
-| `evaluate` | F · Evaluate | phase | `compare_hypotheses` (phases/evaluation.py), `detect_finding_candidates` (phases/discovery_record.py), `diagnose_refutation` (phases/model_error.py) | `/viva-biology-forward` | conditional / pure |
-| `gate` | Gates | gate | `frontier`, `closure`, `next_action`, `opportunities`, `execute_plan`, `AutonomyPolicy` (projection/engine.py, discover/_policy.py) | `/viva:harden`, `/viva:explore` | real / pure |
+| `inspect` | M · Inspect | phase | `inspect_component`, `compose_and_validate_model`, `assess_mechanism_coverage`, `assess_gap_closure` (phases/model_inspect.py) | `/viva:model` | real / pure |
+| `grade` | Grading | phase | `compute_outcomes` (study/evaluator/outcomes.py) | `/viva:study` | real / **mutating** |
+| `evaluate` | F · Evaluate | phase | `compare_hypotheses` (phases/evaluation.py), `detect_finding_candidates` (phases/discovery_record.py), `diagnose_refutation` (phases/model_error.py) | `/viva:validate` | conditional / pure |
+| `gate` | Gates | gate | `frontier`, `closure`, `next_action`, `opportunities`, `execute_plan`, `AutonomyPolicy` (projection/engine.py, discover/_policy.py) | `/viva:validate`, `/viva:explore` | real / pure |
 | `emit` | Generate · emit | seam | `generation_requests` (phases/generation_emit.py) | — | real / pure |
 | `fill` | Generate · fill | seam | `subprocess_filler` (phases/generation_apply.py) | **`/viva:reason`** | real / mutating (subprocess) |
 | `apply` | Generate · apply | seam | `apply_result`, `run_requests` (phases/generation_apply.py) | `hypothesize`, `critique`, `acquire_model` | real / mutating |
@@ -79,8 +80,9 @@ ArtifactId = "investigation" | "study" | "runs" | "modelversions"
 | `seed` | Grow · seed | growth | `build_seeded_study`, `build_child_seed_from_finding` (growth/seeding.py, growth/seed_from_followup.py) | — | real / pure |
 | `refine` | Grow · refine | growth | `refine_study` (growth/refinement.py) | — | real / pure |
 | `reopen` | Reopen | reopen | `reconcile_and_reopen` (feedback/compiler.py), `ingest_feedback` | — | real / pure-planner |
-| `execute` | E · Execute | execute | `advance_cycle` (discover/cycle.py) | `/viva:harden` | real / **mutating** |
-| `discovery` | Discovery | discovery | `detect_finding_candidates`, `review_findings`/`promote_finding_candidate` (discover/actions.py) | — | real / mutating (on promote) |
+| `execute` | E · Execute | execute | `advance_cycle` (discover/cycle.py), `run_discovery_campaign` (discover/campaign.py) | `/viva:validate`, `/viva:discover` | real / **mutating** |
+| `discovery` | Discovery | discovery | `detect_finding_candidates`, `review_findings`/`promote_finding_candidate` (discover/actions.py), `assess_model_adequacy` (phases/model_adequacy.py) | — | real / mutating (on promote) |
+| `explain` | Explain | discovery | `build_scientific_explanation`, `evidence_fingerprint`, `resolution_is_stale` (phases/scientific_explanation.py) | — | real / pure |
 
 > The nine generation **KINDS** are a sub-object of the `apply` node, rendered as a table
 > in its panel: interpret_finding, explain, author_tests, resolve_decision (native);
@@ -292,7 +294,7 @@ Keyboard: arrow keys move selection along the ring; Esc closes the panel; `/` fo
 - `propose_study` and `visualize` are **queued** at the apply seam, not native-wired.
 - The three blocking frontier kinds are exactly `unaddressed_criterion`, `narrative_gap`,
   `open_challenge`.
-- Keep `/viva-suggest` and `/viva-run` labeled "not part of the cycle."
+- Keep `/viva:suggest` and `/viva:run` labeled "not part of the cycle."
 
 ---
 
