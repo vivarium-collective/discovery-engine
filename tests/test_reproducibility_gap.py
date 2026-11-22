@@ -67,3 +67,31 @@ def test_reproducibility_gap_is_resolvable():
     inv = {"resolutions": [{"kind": "reproducibility_gap", "target": "s1",
                             "rationale": "acknowledged read-only snapshot"}]}
     assert not [i for i in de.frontier(_cyc(), inv) if i["kind"] == "reproducibility_gap"]
+
+
+# --- end-to-end: the LIVE operator path (_cycle_with_evidence -> signals -> opportunities) -----
+
+def test_reproducibility_gap_surfaces_on_the_live_cycle(tmp_path):
+    """Regression for the integration seam: the detector feeds reconcile_evidence_state, which
+    feeds run_cycle's signals via _cycle_with_evidence, which feeds opportunities. A study that
+    records a run with NO registered run (no runs.db, no run-log entry) must surface a
+    reproducibility_gap on the LIVE cycle an operator sees — not just via a hand-fed signal."""
+    from discovery_engine.study.io import save_yaml_atomic
+    from discovery_engine.discover.cycle import load_cycle_inputs, _cycle_with_evidence
+    (tmp_path / "workspace.yaml").write_text("name: t\n", encoding="utf-8")
+    inv = tmp_path / "investigations" / "demo"
+    (tmp_path / "studies" / "s1").mkdir(parents=True)
+    inv.mkdir(parents=True)
+    save_yaml_atomic(inv / "investigation.yaml", {"name": "demo", "studies": ["s1"]})
+    save_yaml_atomic(tmp_path / "studies" / "s1" / "study.yaml", {
+        "schema_version": 4, "name": "s1", "investigation": "demo", "claim": "X",
+        "baseline": [{"name": "b", "composite": "json.tool.main", "params": {}}],
+        "observables": ["obs.val"],
+        "runs": [{"name": "r0", "run_id": "r0", "params": {}}]})   # recorded, but no runs.db / run-log
+
+    _, inv_spec, studies = load_cycle_inputs(str(tmp_path), "demo")
+    result = _cycle_with_evidence(str(tmp_path), "demo", inv_spec, studies)
+    assert [g["study"] for g in result["signals"]["reproducibility_gap"]] == ["s1"]
+    opps = de.opportunities(result, inv_spec)
+    assert any(o.get("action_type") == "revalidate" and str(o.get("source", "")).endswith("s1")
+               for o in opps), "reproducibility_gap did not reach the live opportunities"
