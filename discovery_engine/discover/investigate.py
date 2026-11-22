@@ -42,79 +42,12 @@ def _steer_fill(fill, goal: str | None):
     return steered
 
 
-def _resource_fill(fill, resources):
-    """Wrap a filler so every request carries the run's knowledge ``resources`` in its
-    ``context["resources"]`` before it reaches the filler. The engine surfaces the grounding the
-    author declared (via ``--resources``) into the seam, so the filler reasons from engine-supplied
-    background instead of reaching outside the request. Like :func:`_steer_fill`, it uses
-    ``dataclasses.replace`` so the content-addressed request ``id`` (derived from
-    ``(kind, target, provenance)``, not ``context``) is unchanged."""
-    if not resources or fill is None:
-        return fill
-    import dataclasses
-
-    def grounded(request):
-        return fill(dataclasses.replace(
-            request, context={**(request.context or {}), "resources": resources}))
-
-    return grounded
-
-
-def _result_summary(result):
-    """A JSON-safe summary of a ``GenerationResult`` (or ``None``) for the transcript."""
-    if result is None:
-        return None
-    if isinstance(result, dict):
-        return result
-    return {k: getattr(result, k, None)
-            for k in ("request_id", "artifact", "filler", "rationale", "confidence")
-            if hasattr(result, k)}
-
-
-def _recording_fill(fill, transcript_path):
-    """Wrap a filler so every ``(request, result)`` is appended to ``transcript_path`` (JSONL).
-    The transcript makes a run's controlled prompts and the filler's responses an auditable,
-    reproducible artifact --- the generative inputs become part of the record, not ephemeral
-    prompt text. Transparent: it records and returns the result unchanged, and a write failure
-    never blocks a fill."""
-    if not transcript_path or fill is None:
-        return fill
-    import datetime
-    import json
-    from pathlib import Path as _Path
-
-    path = _Path(transcript_path)
-
-    def recorded(request):
-        result = fill(request)
-        try:
-            path.parent.mkdir(parents=True, exist_ok=True)
-            with open(path, "a", encoding="utf-8") as f:
-                f.write(json.dumps({
-                    "ts": datetime.datetime.now().isoformat(),
-                    "request": {"id": getattr(request, "id", None),
-                                "kind": getattr(request, "kind", None),
-                                "target": getattr(request, "target", None),
-                                "context": getattr(request, "context", None) or {}},
-                    "result": _result_summary(result),
-                }, default=str) + "\n")
-        except Exception:  # noqa: BLE001 — recording is best-effort, never block the loop
-            pass
-        return result
-
-    return recorded
-
-
-def load_resources(resources_dir):
-    """Load declared text resources (``*.md``) from a directory into a JSON-safe list the engine
-    injects as ``context["resources"]`` --- ``[{"name": str, "content": str}, ...]``. Returns an
-    empty list when the directory is absent or empty, so ``--resources`` on a bad path is a no-op."""
-    from pathlib import Path as _Path
-    d = _Path(resources_dir) if resources_dir else None
-    if not d or not d.is_dir():
-        return []
-    return [{"name": p.name, "content": p.read_text(encoding="utf-8")}
-            for p in sorted(d.glob("*.md")) if p.is_file()]
+# The reusable isolation wrappers (grounding + transcript recording) live in fill_isolation, so the
+# campaign and any other driver share them; load_resources is re-exported here for back-compat.
+from discovery_engine.discover.fill_isolation import (  # noqa: E402
+    isolate_fill,
+    load_resources,
+)
 
 
 # Goal cue words → the request KIND they gesture at. A goal names what it WANTS
@@ -219,7 +152,7 @@ def investigate(ws_root, inv_slug, *, fill, budget=None, policy=None, gates=None
         reqs = _goal_order(reqs, eff_goal)       # on-goal requests fill first under the budget
         # Compose the seam wrappers so the transcript captures the fully-injected request:
         # steer (goal) -> ground (resources) -> record (request + result) -> the real filler.
-        seam = _steer_fill(_resource_fill(_recording_fill(fill, transcript), resources), eff_goal)
+        seam = _steer_fill(isolate_fill(fill, resources=resources, transcript=transcript), eff_goal)
         outs = run_requests(reqs, fill=seam, ws_root=ws_root,
                             inv_slug=inv_slug, budget=budget, apply_cli_verb=apply_cli_verb)
         applied_here = 0
