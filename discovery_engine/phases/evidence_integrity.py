@@ -369,6 +369,7 @@ def reconcile_evidence_state(inv_spec: dict, studies: dict,
     order = {s: i for i, s in enumerate((VERIFIED, PROVISIONAL, CONTRADICTED, UNSUPPORTED))}
     ledger: list[dict] = []
     by_study: dict[str, dict] = {}
+    repro_gaps: list[dict] = []
     summary = {s: 0 for s in _STATUSES}
     member_slugs = [s for s in (_as_list(inv_spec.get("studies")) if inv_spec else []) if isinstance(s, str)]
     for slug in (member_slugs or list(studies)):
@@ -376,6 +377,18 @@ def reconcile_evidence_state(inv_spec: dict, studies: dict,
         if not isinstance(spec, dict):
             continue
         reg = _registered_run_ids(runs_by_study.get(slug))
+        # Reproducibility gap: the study records a run in its YAML but NO run of this study is
+        # registered on disk (runs.db). advance keys off the YAML run record, so such a study is
+        # treated as "ran" and skipped — an unbacked `ran` claim indistinguishable from a real run,
+        # the run-side twin of an authored verdict with no evidence. Surface it, don't trust it.
+        recorded_runs = [r for r in (spec.get("runs") or []) if isinstance(r, dict)]
+        if recorded_runs and not reg:
+            repro_gaps.append({
+                "study": slug,
+                "recorded_runs": [r.get("name") or r.get("run_id") or r.get("id")
+                                  for r in recorded_runs],
+                "note": "study records a run with no registered runs.db artifact — the run is "
+                        "unreproducible and its evidence can never be verified"})
         rows = []
         for f in _findings(spec):
             row = classify_finding_evidence(f, spec, reg, _run_rows(spec))
@@ -392,7 +405,8 @@ def reconcile_evidence_state(inv_spec: dict, studies: dict,
             "status": worst,  # the study's evidence is only as strong as its weakest numeric finding
             "statuses": {s: sum(1 for r in rows if r["status"] == s) for s in _STATUSES},
         }
-    return {"ledger": ledger, "summary": summary, "by_study": by_study}
+    return {"ledger": ledger, "summary": summary, "by_study": by_study,
+            "reproducibility_gaps": repro_gaps}
 
 
 def trace_claim_to_runs(finding_id: str, studies: dict,

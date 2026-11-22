@@ -184,6 +184,11 @@ def run_cycle(inv_spec: dict, studies_by_slug: dict[str, dict], *,
         # already flagged `bad` (contradicted -> REPAIR) is excluded, mirroring the other signals.
         "verdict_overreach": [t for t in critique_triggers(list(studies_by_slug.values()))
                               if t.get("study") not in bad],
+        # A study records a run with no registered runs.db artifact — an unbacked `ran` claim.
+        # Advisory + non-blocking (a read-only snapshot legitimately ships without runs.db), so it
+        # is surfaced for review, never silently trusted or auto-re-run.
+        "reproducibility_gap": [g for g in ((evidence_state or {}).get("reproducibility_gaps") or [])
+                                if g.get("study") not in bad],
     }
     # Typed, sourced triggers for generated hypotheses (anomalies + live model disagreements),
     # derived from the signals above so a `hypothesize` act names the surprise it must explain.
