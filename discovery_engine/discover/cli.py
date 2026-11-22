@@ -550,6 +550,14 @@ def main(argv: list[str] | None = None) -> int:
                                help="free-text steering prompt threaded into every generation "
                                     "request's context['goal'] (overrides the investigation's "
                                     "durable discovery.goal)")
+    p_investigate.add_argument("--resources", default=None,
+                               help="directory of text resources (*.md) injected into every "
+                                    "generation request's context['resources'] as grounding "
+                                    "(the engine surfaces declared background to the filler)")
+    p_investigate.add_argument("--transcript", default=None,
+                               help="path to a JSONL transcript: every (request, result) at the "
+                                    "filler seam is appended, making the run's prompts + responses "
+                                    "an auditable, reproducible record")
 
     p_campaign = sub.add_parser("campaign",
                                 help="R1 unified cycle controller (run_discovery_campaign): one bounded loop that "
@@ -1285,11 +1293,14 @@ def main(argv: list[str] | None = None) -> int:
         # it is unset, so the drive queues those kinds as before UNLESS the caller
         # (e.g. the /viva:discover skill) exports that command — then the drive
         # lands rendered viz + seeded studies via the skill. Purely additive.
+        from discovery_engine.discover.investigate import load_resources
         summary = _investigate(ws, args.investigation, fill=subprocess_filler(),
                                budget=budget, policy=pol, gates=gates,
                                max_iterations=args.max_iterations,
                                goal=getattr(args, "goal", None),
-                               apply_cli_verb=subprocess_cli_applier())
+                               apply_cli_verb=subprocess_cli_applier(),
+                               resources=load_resources(getattr(args, "resources", None)),
+                               transcript=getattr(args, "transcript", None))
         print(_json.dumps(summary, indent=2, default=str))
         return 0
 
