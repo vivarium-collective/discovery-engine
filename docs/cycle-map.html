@@ -997,14 +997,18 @@ footer{color:var(--faint);font-size:.72rem;text-align:center;padding:4px 0 26px;
         [
           "generation_requests",
           "phases/generation_emit.py"
+        ],
+        [
+          "_declared_model_contract",
+          "phases/generation_emit.py"
         ]
       ],
       "skills": [],
       "reads": [],
       "writes": [],
       "consumes": "each frontier opportunity's action_type",
-      "produces": "a typed GenerationRequest {kind, produces, gate}",
-      "blurb": "Maps every frontier opportunity to one of nine typed GenerationRequest kinds and its produces-contract, with a gate of auto or review. Pure, no LLM. A hypothesize request also carries the typed Discrepancy (the measured anomaly / model-disagreement it must explain), so a generated alternative is tied to evidence, not a prompt. The first of the three act-on-the-frontier moves: Generate."
+      "produces": "a typed GenerationRequest {kind, produces, gate, context}",
+      "blurb": "Maps every frontier opportunity to one of nine typed GenerationRequest kinds and its produces-contract, with a gate of auto or review. Pure, no LLM. It also GROUNDS each request's context from declared evidence: a hypothesize request carries the typed Discrepancy (the measured anomaly / model-disagreement it must explain), and a study-targeted request carries that study's declared model contract (baseline composite, observables, authored process_contracts) — so a generated alternative is tied to evidence and the filler reasons from the model's real interface, not a prompt. Declared fields only; nothing resolved or fabricated. The first of the three act-on-the-frontier moves: Generate."
     },
     {
       "id": "fill",
@@ -1020,6 +1024,10 @@ footer{color:var(--faint);font-size:.72rem;text-align:center;padding:4px 0 26px;
         [
           "subprocess_filler",
           "phases/generation_apply.py"
+        ],
+        [
+          "isolate_fill",
+          "discover/fill_isolation.py"
         ]
       ],
       "skills": [
@@ -1029,7 +1037,7 @@ footer{color:var(--faint);font-size:.72rem;text-align:center;padding:4px 0 26px;
       "writes": [],
       "consumes": "one GenerationRequest JSON (stdin)",
       "produces": "one GenerationResult JSON (stdout)",
-      "blurb": "The one place an LLM runs. Shells out to $VIVA_FILLER_CMD passing the request on stdin and reading the result on stdout, then validates the shape. No command configured → None, and nothing auto-fills. Honesty rules are non-negotiable: no fabricated numbers, provided-mechanisms-only, interpretation ≠ evidence."
+      "blurb": "The one place an LLM runs. Shells out to $VIVA_FILLER_CMD passing the request on stdin and reading the result on stdout, then validates the shape. No command configured → None, and nothing auto-fills. An isolation seam can wrap the filler (isolate_fill): inject author-declared --resources into the request's context as grounding, and append each (request, result) to a JSONL --transcript so the run's prompts + responses are an auditable, reproducible record — identity when unused, so a run without them is byte-identical. Honesty rules are non-negotiable: no fabricated numbers, provided-mechanisms-only, interpretation ≠ evidence."
     },
     {
       "id": "apply",

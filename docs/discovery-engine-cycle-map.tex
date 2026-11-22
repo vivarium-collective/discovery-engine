@@ -532,8 +532,8 @@ Where the engine needs a judgement it cannot derive, it does not call an LLM inl
 \toprule
 \textbf{step} & \textbf{function} \scriptsize(module) & \textbf{what it does}\\
 \midrule
-emit  & \code{generation\_requests} \scriptsize(phases/generation\_emit.py) & maps each frontier opportunity's \code{action\_type} to a \code{GenerationRequest.kind} + its \code{produces} contract and a \code{gate} (\code{auto}/\code{review}). Pure, no LLM.\\
-fill  & \code{subprocess\_filler} \scriptsize(phases/generation\_apply.py) & shells out to \code{\$VIVA\_FILLER\_CMD}, request JSON on stdin, result JSON on stdout; validates the result shape. The one place an LLM runs. No command $\rightarrow$ \code{None} (nothing auto-fills).\\
+emit  & \code{generation\_requests} \scriptsize(phases/generation\_emit.py) & maps each frontier opportunity's \code{action\_type} to a \code{GenerationRequest.kind} + its \code{produces} contract and a \code{gate} (\code{auto}/\code{review}), and grounds the request's \code{context} from declared evidence (Discrepancy, model contract). Pure, no LLM.\\
+fill  & \code{subprocess\_filler} \scriptsize(phases/generation\_apply.py) & shells out to \code{\$VIVA\_FILLER\_CMD}, request JSON on stdin, result JSON on stdout; validates the result shape. The one place an LLM runs. No command $\rightarrow$ \code{None} (nothing auto-fills). An optional isolation seam (\code{isolate\_fill}) grounds the request in \code{-{}-resources} and records a \code{-{}-transcript}.\\
 apply & \code{apply\_result} / \code{run\_requests} \scriptsize(generation\_apply.py) & gates each: \code{review} $\rightarrow$ \code{queued\_for\_review}; \code{auto} $\rightarrow$ fill + apply via a native handler or the SkillRegistry adapter. A malformed artifact is recorded \code{error}, never applied.\\
 \bottomrule
 \end{tabularx}
@@ -577,6 +577,18 @@ review: the \textbf{evidence-authority} check wraps every study write so an appl
 never overwrite a finding's \code{observed} or a run's \code{computed\_outcomes} (interpretation is
 never evidence); and an honest no-answer \emph{abstains} --- a filler that returns nothing
 \code{queues}, a malformed artifact is an \code{error}, and neither fabricates.
+
+\paragraph{Grounding the request (model contract + isolation seam).} Beyond the Discrepancy,
+emission grounds a study-targeted request in that study's \textbf{declared model contract}
+(\code{context["model\_contract"]}: the baseline composite, declared observables, and authored
+\code{process\_contracts}) via \code{\_declared\_model\_contract} --- declared fields only, nothing
+resolved or imported --- so the filler authors tests / interprets a finding / acquires a model
+against the ports the model actually declares, not a guess. At the \code{fill} seam a reusable
+\textbf{isolation} tool (\code{isolate\_fill}) can wrap the filler to inject author-declared
+\code{-{}-resources} into every request's \code{context} and append each \code{(request, result)}
+to a JSONL \code{-{}-transcript}, making a run's grounded prompts and responses an auditable,
+reproducible artifact. Both are identity when unused, so a run without them is byte-identical, and
+neither touches the frontier, gates, budget, or the honesty rules.
 
 % ===========================================================================
 \section{The skills --- who drives each stage}\label{sec:skills}
