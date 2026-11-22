@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import dataclasses
 import hashlib
+import json
 from pathlib import Path
 
 
@@ -43,6 +44,31 @@ class ActionRecord:
 
 def _hash(*parts) -> str:
     return hashlib.sha256("|".join(str(p) for p in parts).encode()).hexdigest()[:16]
+
+
+def _ledger_path(inv_path: Path | str) -> Path:
+    """The durable, append-only ActionRecord ledger for one investigation. Per-investigation
+    (next to investigation.yaml) so parallel campaigns on sibling investigations never share
+    one."""
+    return Path(inv_path).parent / "campaign_ledger.jsonl"
+
+
+def _load_ledger(path: Path) -> dict:
+    """Read the ledger as {action_id -> record}. A crash mid-write leaves at worst a partial
+    final line, which is skipped — the ledger is only ever appended to."""
+    recs: dict = {}
+    if not path.exists():
+        return recs
+    for line in path.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            r = json.loads(line)
+            recs[r["id"]] = r
+        except (ValueError, KeyError):
+            continue  # torn last line from a crash mid-append — ignore
+    return recs
 
 
 def run_discovery_campaign(ws_root: Path | str, inv_slug: str, *, autonomous: bool = False,
@@ -71,10 +97,27 @@ def run_discovery_campaign(ws_root: Path | str, inv_slug: str, *, autonomous: bo
 
     actions: list[ActionRecord] = []
     applied_total = 0
-    runs_done = 0
     stop_reason = None
-    inv_path = None
     i = 0
+
+    # Resolve the investigation + load the durable ActionRecord ledger up front, so a resume
+    # (a fresh process after a crash) reconstructs what already happened: the simulation-budget
+    # charge is replayed from prior executed runs, and each action is appended at most once.
+    inv_path, _inv0, _st0 = load_cycle_inputs(ws_root, inv_slug)
+    ledger_file = _ledger_path(inv_path)
+    ledger = _load_ledger(ledger_file)
+    recorded_ids = set(ledger)
+    runs_done = sum(1 for r in ledger.values()
+                    if r.get("kind") == "run" and r.get("execution_status") == "executed")
+
+    def _record(rec: ActionRecord) -> ActionRecord:
+        actions.append(rec)
+        if rec.id not in recorded_ids:          # durable, append-only, de-duplicated by id
+            recorded_ids.add(rec.id)
+            ledger_file.parent.mkdir(parents=True, exist_ok=True)
+            with ledger_file.open("a", encoding="utf-8") as fh:
+                fh.write(json.dumps(rec.to_dict()) + "\n")
+        return rec
 
     def _persist(ip, spec, sts):
         evs = ei.reconcile_evidence_state(
@@ -104,8 +147,8 @@ def run_discovery_campaign(ws_root: Path | str, inv_slug: str, *, autonomous: bo
             if prop is None or prop.get("status", "proposed") != "proposed":
                 continue  # idempotent: already approved/applied/evaluated — never re-apply
             if not (pol.is_autonomous and pol.allows(consequence="authoring", target=pid)):
-                actions.append(ActionRecord(
-                    id=_hash("revision_apply", pid, i), kind="revision_apply", target=pid,
+                _record(ActionRecord(
+                    id=_hash("revision_apply", pid), kind="revision_apply", target=pid,
                     cycle_index=i, policy_decision="gated", execution_status="skipped",
                     input_hash=_hash(pid), artifacts=[], depends_on=[]))
                 continue
@@ -115,8 +158,8 @@ def run_discovery_campaign(ws_root: Path | str, inv_slug: str, *, autonomous: bo
             hist = (rep.get("history") or [{}])[-1]
             child, mv = hist.get("child_study"), hist.get("model_version")
             status = "applied" if rep.get("status") == "applied" else "blocked"
-            actions.append(ActionRecord(
-                id=_hash("revision_apply", pid, i), kind="revision_apply", target=pid,
+            _record(ActionRecord(
+                id=_hash("revision_apply", pid), kind="revision_apply", target=pid,
                 cycle_index=i, policy_decision="autonomous", execution_status=status,
                 input_hash=_hash(pid), artifacts=[a for a in (child, mv) if a], depends_on=[]))
             if status == "applied":
@@ -137,8 +180,8 @@ def run_discovery_campaign(ws_root: Path | str, inv_slug: str, *, autonomous: bo
                 oc = o.get("outcome")
                 es = {"applied": "applied", "stop": "blocked",
                       "queued": "skipped"}.get(oc, oc or "skipped")
-                actions.append(ActionRecord(
-                    id=_hash("generate", o.get("request_id"), i),
+                _record(ActionRecord(
+                    id=_hash("generate", o.get("request_id")),
                     kind=f"generate:{o.get('kind')}", target=o.get("request_id"),
                     cycle_index=i, policy_decision="autonomous", execution_status=es,
                     input_hash=_hash(o.get("request_id")),
@@ -163,8 +206,8 @@ def run_discovery_campaign(ws_root: Path | str, inv_slug: str, *, autonomous: bo
             # summarized rec carries no command, so key off advance's reopen outcome marker.
             is_reopen = "reopened the investigation" in (r.get("outcome") or "")
             kind = "reopen" if is_reopen else "run"
-            actions.append(ActionRecord(
-                id=_hash(kind, r.get("target") or r.get("command"), i), kind=kind,
+            _record(ActionRecord(
+                id=_hash(kind, r.get("target") or r.get("command")), kind=kind,
                 target=r.get("target"), cycle_index=i, policy_decision="autonomous",
                 execution_status=es, input_hash=_hash(r.get("target") or r.get("command")),
                 artifacts=r.get("run_ids") or ([r["run_id"]] if r.get("run_id") else []),
@@ -174,8 +217,8 @@ def run_discovery_campaign(ws_root: Path | str, inv_slug: str, *, autonomous: bo
                 if not is_reopen:
                     runs_done += 1
         for nb in adv.get("needs_build", []):
-            actions.append(ActionRecord(
-                id=_hash("needs_build", nb.get("study"), i), kind="run",
+            _record(ActionRecord(
+                id=_hash("needs_build", nb.get("study")), kind="run",
                 target=nb.get("study"), cycle_index=i, policy_decision="autonomous",
                 execution_status="blocked", input_hash=_hash(nb.get("study")),
                 artifacts=[], depends_on=[]))
@@ -198,4 +241,5 @@ def run_discovery_campaign(ws_root: Path | str, inv_slug: str, *, autonomous: bo
         _persist(_ip, _spec, _sts)
     return {"iterations": i, "stop_reason": stop_reason, "applied": applied_total,
             "runs": runs_done, "actions": [a.to_dict() for a in actions],
-            "inv_path": str(inv_path) if inv_path else None}
+            "inv_path": str(inv_path) if inv_path else None,
+            "ledger_path": str(ledger_file)}

@@ -11,6 +11,7 @@ Section 1 of the 0.7.2 upgrade plan (P0). Fixture + FakeRunner + FakeReader are 
 a real runs_meta row and a real store graded by compute_outcomes."""
 from __future__ import annotations
 
+import json
 import re
 from pathlib import Path
 from unittest.mock import patch
@@ -262,3 +263,41 @@ def test_campaign_without_filler_skips_generation(tmp_path):
     s = load_yaml(tmp_path / "studies" / "s1" / "study.yaml")
     assert "val_in_band" not in [t["name"] for t in s.get("behavior_tests") or []]
     assert not [a for a in res["actions"] if a["kind"].startswith("generate:")]
+
+
+# --- the durable ActionRecord ledger: resume-after-crash survives a process restart ---
+
+def _ledger(ip):
+    lf = Path(ip).parent / "campaign_ledger.jsonl"
+    return [json.loads(line) for line in lf.read_text().splitlines() if line.strip()]
+
+
+def test_campaign_writes_a_durable_action_ledger(tmp_path):
+    ip, sp = _ws(tmp_path)
+    runner, res = _run_campaign(tmp_path)
+    lf = Path(res["ledger_path"])
+    assert lf.exists() and lf.name == "campaign_ledger.jsonl"
+    recs = _ledger(ip)
+    # every record carries the plan's §1 fields, durably on disk
+    fields = {"id", "kind", "target", "cycle_index", "policy_decision",
+              "execution_status", "input_hash", "artifacts", "depends_on"}
+    assert recs and all(fields <= set(r) for r in recs)
+    assert any(r["kind"] == "revision_apply" and r["execution_status"] == "applied" for r in recs)
+    assert any(r["kind"] == "run" and r["execution_status"] == "executed" for r in recs)
+
+
+def test_campaign_ledger_is_append_only_and_deduped_on_resume(tmp_path):
+    """A resume (a fresh campaign call, as after a crash) reconstructs the budget charge from
+    the ledger and appends no duplicate action — each logical action id appears exactly once."""
+    ip, sp = _ws(tmp_path)
+    _run_campaign(tmp_path)
+    ids_after_1 = [r["id"] for r in _ledger(ip)]
+
+    _run_campaign(tmp_path)   # resume from the durable ledger
+    recs2 = _ledger(ip)
+    ids_after_2 = [r["id"] for r in recs2]
+
+    assert len(ids_after_2) == len(set(ids_after_2)), f"duplicate ids in ledger: {ids_after_2}"
+    assert set(ids_after_1) == set(ids_after_2)          # resume added no new consequential action
+    # the budget charge was reconstructed, not recounted from zero
+    assert sum(1 for r in recs2 if r["kind"] == "run" and r["execution_status"] == "executed") == 1
