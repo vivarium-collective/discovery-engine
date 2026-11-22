@@ -143,6 +143,11 @@ def run_discovery_campaign(ws_root: Path | str, inv_slug: str, *, autonomous: bo
     # so the same opportunity re-emits every iteration. Re-applying it would re-interpret the same
     # target endlessly; instead the controller applies each generation target once and converges.
     applied_gen_ids: set[str] = set()
+    # Run targets that already FAILED this run. Like applied_gen_ids for generation, this converges
+    # the execute half: a persistently-failing run (e.g. a figure whose render env is broken) is
+    # tried once, not re-attempted every iteration while other work progresses. A transient failure
+    # is retried by re-running the campaign (a fresh run starts with an empty set).
+    failed_run_targets: set[str] = set()
     stop_reason = None
     i = 0
 
@@ -248,7 +253,7 @@ def run_discovery_campaign(ws_root: Path | str, inv_slug: str, *, autonomous: bo
             break
         adv = ({} if remaining == 0 else
                advance_cycle(ws_root, inv_slug, policy=pol, runner=runner, render_hook=render_hook,
-                             build_hook=build_hook, worktree=worktree,
+                             build_hook=build_hook, worktree=worktree, skip_targets=failed_run_targets,
                              **({"max_runs": remaining} if remaining is not None else {})))
         for r in adv.get("runs", []):
             st = r.get("status")
@@ -272,6 +277,8 @@ def run_discovery_campaign(ws_root: Path | str, inv_slug: str, *, autonomous: bo
                 artifacts=r.get("run_ids") or ([r["run_id"]] if r.get("run_id") else []),
                 depends_on=[], detail=detail))
             ran = es in ("completed", "refuted", "inconclusive")   # the run actually executed
+            if es == "failed_execution" and r.get("target"):
+                failed_run_targets.add(r["target"])   # don't re-attempt it in a later iteration
             if is_reopen and st == "executed":
                 progressed = True
             elif ran:
