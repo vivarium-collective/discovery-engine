@@ -180,7 +180,7 @@
     ["60", "open_decision", "steer", ""], ["59", "pending_feedback", "reopen", ""], ["58", "revision_proposed", "revise_model", ""],
     ["55", "stale_validation", "revalidate", ""], ["50", "divergence", "reconcile", ""], ["48", "model_disagreement / anomaly", "revise_model", ""],
     ["47", "viz_broken", "refine_viz", ""], ["46", "viz_missing", "build_viz", ""], ["46", "verdict_overreach", "critique", ""],
-    ["44", "reproducibility_gap", "revalidate", ""],
+    ["44", "reproducibility_gap", "revalidate", ""], ["39", "study_edge_proposed", "relate", ""],
     ["45", "validation_finding", "revise", ""], ["44", "viz_proposed", "build_viz", ""], ["43", "capability_gap", "build_process", ""],
     ["43", "model_acquisition", "accept_model_acquisition", ""], ["42", "pending_gate", "test", ""], ["40", "open_question", "test", ""],
     ["39", "proposed_study", "seed", ""], ["38", "viz_stale", "refine_viz", ""], ["37–35", "viz_misplaced / duplicated / untied", "relocate_viz", ""],

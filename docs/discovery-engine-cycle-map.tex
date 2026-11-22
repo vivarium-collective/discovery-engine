@@ -192,7 +192,12 @@ applies each generation target once, never re-attempts a run that already failed
 the five closure states, reports \code{applied\_generations}/\code{applied\_total}, and carries a failed
 run's stderr tail on its \code{ActionRecord} so a failure is self-diagnosing. And integrity advisories
 are always printed in \code{discover opportunities}/\code{status}, regardless of value-rank, so an
-unbacked run or verdict can never hide below the ranked fold.
+unbacked run or verdict can never hide below the ranked fold. The projection also recovers structure
+latent in the prose: \code{propose\_study\_edges} reads each study's claim / findings and, where one
+study explicitly names another member study it does not yet declare a relation to, raises a
+\code{study\_edge\_proposed} advisory (\code{builds-on}, accepted via \code{discover relate}) --- so a
+hand-authored graph with real but unwired dependencies is surfaced for accept, never auto-wired, and
+never onto a refuted parent.
 
 % ===========================================================================
 \section{The cycle at a glance}
