@@ -62,3 +62,52 @@ def closure_states(closure_result, *, provisional_claims=None, inadequate_claims
     if closed is None:
         closed = states["workflow_complete"] and not challenges
     return {"states": states, "reasons": reasons, "closed": bool(closed)}
+
+
+def _established_mechanisms(inv_spec, studies, evidence_state) -> set:
+    """Mechanisms the evidence has established: a finding that declares a ``mechanism`` whose study's
+    evidence is verified, plus any investigation-level ``established_mechanisms``. Pure."""
+    by_study = (evidence_state or {}).get("by_study") or {}
+    verified = {slug for slug, d in by_study.items() if (d or {}).get("status") == "verified"}
+    est: set = set((inv_spec or {}).get("established_mechanisms") or [])
+    for slug, spec in (studies or {}).items():
+        if not isinstance(spec, dict):
+            continue
+        for f in spec.get("findings") or []:
+            if not isinstance(f, dict):
+                continue
+            mech = f.get("mechanism")
+            ev_verified = (f.get("evidence") or {}).get("status") == "verified"
+            if mech and (slug in verified or ev_verified):
+                est.add(mech)
+    return est
+
+
+def closure_states_from_cycle(closure_result, inv_spec=None, *, studies=None, evidence_state=None) -> dict:
+    """Compute the five closure states from a cycle's closure + evidence + claim declarations,
+    deriving the refining signals (§5):
+
+    - ``provisional_claims`` — studies whose evidence is provisional-only (``evidence_state.by_study``);
+    - ``inadequate_claims`` — hypotheses that declare ``requires`` whose required mechanisms are not
+      all established (the model-adequacy gate; **opt-in** — fires only for claims that declare it);
+    - ``active_discoveries`` — the investigation's tracked finding candidates.
+
+    Pure. Returns :func:`closure_states`'s shape."""
+    inv_spec = inv_spec or {}
+    by_study = (evidence_state or {}).get("by_study") or {}
+    provisional = [slug for slug, d in by_study.items() if (d or {}).get("status") == "provisional"]
+
+    established = _established_mechanisms(inv_spec, studies, evidence_state)
+    inadequate: list = []
+    for h in inv_spec.get("hypotheses") or []:
+        if not isinstance(h, dict) or not h.get("requires"):
+            continue
+        from discovery_engine.phases.model_adequacy import assess_model_adequacy
+        a = assess_model_adequacy(h.get("statement") or h.get("id"),
+                                  required_mechanisms=h["requires"], established_mechanisms=established)
+        if a["verdict"] == "inadequate":
+            inadequate.append(h.get("id") or h.get("statement"))
+
+    active = inv_spec.get("finding_candidates") or []
+    return closure_states(closure_result, provisional_claims=provisional,
+                          inadequate_claims=inadequate, active_discoveries=active)
