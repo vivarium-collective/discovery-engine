@@ -265,3 +265,57 @@ def register_model_version(model, *, config=None, parent_ids=(), validation=None
         "origin": origin,
         "created": _dt.datetime.now(_dt.timezone.utc).isoformat(timespec="seconds"),
     }
+
+
+# --- §2: typed mechanism-coverage assessment (lexical may suggest, never certify) ---
+
+import re as _re  # noqa: E402
+
+COVERAGE_CERTIFIED = "certified"
+COVERAGE_SUGGESTED = "suggested"
+COVERAGE_NOT_COVERED = "not_covered"
+_BACKING_KINDS = ("equation", "test", "implementation", "citation")
+
+
+def _norm(s) -> str:
+    return str(s or "").strip().lower()
+
+
+def _mech_tokens(s) -> set:
+    return {t for t in _re.split(r"[^a-z0-9]+", _norm(s)) if len(t) > 2}
+
+
+def assess_mechanism_coverage(mechanism: str, declarations, *, capability_tokens=None) -> dict:
+    """Decide whether a component covers a required ``mechanism``, with a TYPED, evidence-backed
+    judgment that never lets a lexical match *certify* coverage (§2: "lexical matching may suggest
+    but must not certify coverage").
+
+    ``declarations``: the component's typed capability declarations — a list of
+    ``{mechanism, backed_by: {kind, ref}}`` where ``kind`` is one of equation / test /
+    implementation / citation. ``capability_tokens``: the component's lexical capability tokens
+    (the existing token signature), used ONLY to *suggest*.
+
+    Returns ``{mechanism, status, backing, note}``:
+      - ``certified``   — a declaration names this mechanism AND is backed by real evidence.
+      - ``suggested``   — a declaration exists but is unbacked, or only a lexical token match hints.
+      - ``not_covered`` — neither.
+    """
+    decls = [d for d in (declarations or []) if isinstance(d, dict)]
+    mine = [d for d in decls if _norm(d.get("mechanism")) == _norm(mechanism)]
+
+    for d in mine:
+        backing = d.get("backed_by")
+        if isinstance(backing, dict) and backing.get("kind") in _BACKING_KINDS and backing.get("ref"):
+            return {"mechanism": mechanism, "status": COVERAGE_CERTIFIED, "backing": backing,
+                    "note": f"typed declaration backed by {backing['kind']}"}
+
+    mt = _mech_tokens(mechanism)
+    lexical = bool(capability_tokens) and bool(mt) and mt <= {_norm(t) for t in capability_tokens}
+    if mine:   # declared, but no valid backing — a claim is not evidence
+        return {"mechanism": mechanism, "status": COVERAGE_SUGGESTED, "backing": None,
+                "note": "declared without backing (equation/test/implementation/citation)"}
+    if lexical:
+        return {"mechanism": mechanism, "status": COVERAGE_SUGGESTED, "backing": None,
+                "note": "lexical token match only — suggests, does not certify"}
+    return {"mechanism": mechanism, "status": COVERAGE_NOT_COVERED, "backing": None,
+            "note": "no typed declaration and no lexical match"}

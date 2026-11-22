@@ -180,3 +180,36 @@ def test_register_version_of_a_single_component():
     assert mv["id"].startswith("mv:")
     assert "_Metabolic" in mv["interface"]
     assert mv["validation"]["valid"] is True
+
+
+# --- §2: assess_mechanism_coverage — lexical may suggest, only backed declarations certify ---
+
+from discovery_engine.phases.model_inspect import assess_mechanism_coverage  # noqa: E402
+
+
+def test_coverage_certified_only_when_declaration_is_backed():
+    for kind, ref in [("equation", "dS/dt = -v*X"), ("test", "test_exchange_flux"),
+                      ("citation", "Beulig2018"), ("implementation", "viva_copasi.Exchange")]:
+        decls = [{"mechanism": "metabolite_exchange", "backed_by": {"kind": kind, "ref": ref}}]
+        r = assess_mechanism_coverage("metabolite_exchange", decls)
+        assert r["status"] == "certified" and r["backing"]["kind"] == kind
+
+
+def test_coverage_lexical_match_only_suggests_never_certifies():
+    # the exact failure mode §2 calls out: a token overlap must NOT certify coverage
+    r = assess_mechanism_coverage("membrane_mechanics", [],
+                                  capability_tokens={"membrane", "mechanics", "lipid"})
+    assert r["status"] == "suggested"
+    assert r["status"] != "certified"
+
+
+def test_coverage_unbacked_declaration_is_only_suggested():
+    r = assess_mechanism_coverage("metabolite_exchange", [{"mechanism": "metabolite_exchange"}])
+    assert r["status"] == "suggested" and r["backing"] is None
+
+
+def test_coverage_not_covered_without_declaration_or_tokens():
+    decls = [{"mechanism": "metabolite_exchange", "backed_by": {"kind": "test", "ref": "t"}}]
+    r = assess_mechanism_coverage("quorum_sensing", decls,
+                                  capability_tokens={"metabolite", "exchange"})
+    assert r["status"] == "not_covered"
