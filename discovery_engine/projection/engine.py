@@ -862,12 +862,19 @@ def summarize_execute_plan(plan: list[dict], top: int = 10) -> str:
     return "\n".join(lines)
 
 
+# Integrity advisories an operator MUST see regardless of value-rank: an unbacked run claim or a
+# verdict that outruns its evidence. They score low, so on a busy frontier they fall below the
+# printed top-N — exactly the items that must never be hidden. Always listed on their own lines.
+_ADVISORY_KINDS = ("reproducibility_gap", "verdict_overreach")
+
+
 def summarize_opportunities(opps: list[dict], top: int = 10) -> str:
     lines = [f"opportunities: {len(opps)} ranked by value "
              f"(score = {_OPP_WEIGHTS['info']}·info + {_OPP_WEIGHTS['impact']}·impact + "
              f"{_OPP_WEIGHTS['enable']}·enable + {_OPP_WEIGHTS['discriminate']}·discriminate "
              f"− {_OPP_WEIGHTS['cost']}·cost)"]
-    for o in opps[:top]:
+    shown = opps[:top]
+    for o in shown:
         v = o["value"]
         lines.append(f"  {v['score']:+.2f}  [{o['action_type']:>10}] {o['source']}")
         lines.append(f"       info {v['info']}  impact {v['impact']}  enable {v['enable']}  "
@@ -877,6 +884,14 @@ def summarize_opportunities(opps: list[dict], top: int = 10) -> str:
             obs = cp[0].get("observable")
             ids = ", ".join(str(c.get("hypothesis")) for c in cp)
             lines.append(f"       ⇄ separates on {obs}: {ids}")
+    # Surface integrity advisories that fell below the printed top-N — always, so a busy frontier
+    # can never hide an unbacked run or an overreaching verdict.
+    below = [o for o in opps[top:] if o.get("kind") in _ADVISORY_KINDS]
+    if below:
+        lines.append(f"  ⚠ {len(below)} integrity advisory(ies) below the top {top} (always shown):")
+        for o in below:
+            lines.append(f"      [{o['action_type']:>10}] {o['source']} — "
+                         f"{o.get('question') or o.get('kind')}")
     if not opps:
         lines.append("  none — the frontier is empty.")
     return "\n".join(lines)
