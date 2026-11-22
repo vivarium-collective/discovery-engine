@@ -77,11 +77,16 @@ def _read_observed(study: dict, test_kind: str) -> float | None:
 
 
 def run_recovery_benchmark(scenario: RecoveryScenario, config: RecoveryConfig,
-                           *, build_hook=None) -> RecoveryResult:
+                           *, build_hook=None, runner=None) -> RecoveryResult:
     """Drive the recovery loop for ``config``. ``build_hook`` optionally OVERRIDES the config's
     own hook — e.g. ``recovery_build.real_build_hook()`` to let a real model (``$VIVA_FILLER_CMD``)
     choose the implemented mechanism. When ``None`` (default) the config's deterministic hook is
-    used, so the result stays reproducible."""
+    used, so the result stays reproducible.
+
+    ``runner`` optionally OVERRIDES the deterministic benchmark runner — e.g. a workspace
+    runner that actually executes its candidate composite (via ``vivarium-workbench run study``),
+    so grading reads real ``compute_outcomes`` from a real ``runs.db``. When ``None`` (default)
+    the store-less benchmark runner is used, keeping the bundled benchmark reproducible."""
     ws, slug = scenario.ws_root, scenario.inv_slug
     inv_path, inv, st = discover.load_cycle_inputs(ws, slug)
     res = discover._cycle_with_evidence(ws, slug, inv, st)
@@ -94,7 +99,7 @@ def run_recovery_benchmark(scenario: RecoveryScenario, config: RecoveryConfig,
     hook = build_hook if build_hook is not None else config.build_hook(scenario.ground_truth)
     result = discover.advance_cycle(
         ws, slug, autonomous=True, build_hook=hook,
-        runner=recovery_run.benchmark_runner(), max_runs=4)
+        runner=runner or recovery_run.benchmark_runner(), max_runs=4)
 
     disk = yaml.safe_load(inv_path.read_text(encoding="utf-8")) or {}
     gap_list = disk.get("capability_gaps") or []
