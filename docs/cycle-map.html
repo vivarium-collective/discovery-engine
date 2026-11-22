@@ -43,6 +43,11 @@ body{background:var(--bg);color:var(--ink);font-family:var(--sans);line-height:1
 a{color:var(--accent)}
 h1{font-size:1.2rem;font-weight:800;letter-spacing:-.02em;margin:0;text-wrap:balance}
 .sub{color:var(--muted);font-size:.82rem;margin:.25rem 0 0;line-height:1.4}
+.stages-nav{display:flex;flex-wrap:wrap;align-items:center;gap:5px 3px;margin:.45rem 0 .1rem}
+.stagebtn{border:1px solid var(--line);background:var(--surface);color:var(--ink);font:inherit;font-size:.92rem;font-weight:800;padding:4px 12px;border-radius:8px;cursor:pointer;letter-spacing:.01em;transition:background .12s,border-color .12s,color .12s}
+.stagebtn:hover{border-color:var(--accent);color:var(--accent)}
+.stagebtn[aria-pressed="true"]{background:var(--accent);border-color:var(--accent);color:#fff}
+.stage-arrow{color:var(--faint);font-weight:800;padding:0 1px;user-select:none}
 code,.mono{font-family:var(--mono);font-size:.92em}
 
 header.top{padding-block:10px 6px;position:relative}
@@ -229,7 +234,8 @@ footer{color:var(--faint);font-size:.72rem;text-align:center;padding:4px 0 26px;
 <div class="wrap">
   <header class="top">
     <h1>The Discovery Engine</h1>
-    <p class="sub"><strong>Question → Hypothesize → Model → Experiment → Evaluate → Synthesize.</strong> A clickable map of the derive-first cycle — click any node for its functions, skills &amp; I/O. <span class="mono" style="color:var(--muted)">discovery-engine 0.7.2</span> &nbsp;·&nbsp; <button class="linkbtn" data-pop="intro">How to read this ⌄</button></p>
+    <nav class="stages-nav" id="stagesNav" aria-label="Cycle stages — click a stage to highlight its nodes"></nav>
+    <p class="sub">A clickable map of the derive-first cycle — click a stage above to highlight it, or any node for its functions, skills &amp; I/O. <span class="mono" style="color:var(--muted)">discovery-engine 0.7.2</span> &nbsp;·&nbsp; <button class="linkbtn" data-pop="intro">How to read this ⌄</button></p>
     <div class="toolbar">
       <div class="search"><span style="color:var(--faint);font-size:.8rem">⌕</span><input id="q" placeholder="Search stages, functions, skills…" aria-label="Search" autocomplete="off"></div>
       <button class="iconbtn" id="play" aria-pressed="false">▶ Play the cycle</button>
@@ -1625,7 +1631,14 @@ function applyFit(){
   const zi=document.getElementById("zoom"); if(zi) zi.value=z.toFixed(2);
   const fb=document.getElementById("fit"); if(fb) fb.setAttribute("aria-pressed",String(userZoom==null));
 }
-function place(id,x,y){const el=document.getElementById("n-"+id);el.style.left=x+"px";el.style.top=y+"px";}
+const POS={};  // natural (pre-transform) centre of each node, the source of truth for edges
+function place(id,x,y){const el=document.getElementById("n-"+id);el.style.left=x+"px";el.style.top=y+"px";POS[id]={x,y};}
+// Natural geometry of a node: centre from POS, width/height from offset* (both transform-free),
+// so edges are drawn in the same natural coord space the SVG viewBox uses — immune to the stage's
+// fit-scale and its top-centre transform-origin (which make a getBoundingClientRect-based recovery
+// mislocate off-centre nodes).
+function natRect(id){const el=document.getElementById("n-"+id),P=POS[id]||{x:0,y:0};
+  return{cx:P.x,cy:P.y,w:el.offsetWidth,h:el.offsetHeight};}
 function layout(){
   const W=stage.clientWidth;
   stacked = W < 760;
@@ -1634,31 +1647,38 @@ function layout(){
   const cardW=176, gutter=20;
   const xL=cardW/2+gutter, xR=W-cardW/2-gutter;
   const topY=58, rowGap=132;
-  const bottomY=topY+5*rowGap;          // 5 vertical slots → room for 4 left-column nodes
+  // Adaptive racetrack: the loop is laid out clockwise around the perimeter for ANY node
+  // count. Horizontal rows carry the bulk; the two vertical sides take a capped few, split
+  // evenly so the ring always closes (no hardcoded 19 — new nodes just redistribute).
+  const N=CYCLE.length;
+  const nV=Math.min(5,Math.max(1,Math.round((N-6)/4)));   // nodes per vertical side
+  const nRight=nV, nLeft=nV, rem=N-nRight-nLeft;
+  const nTop=Math.ceil(rem/2), nBottom=rem-nTop;
+  const bottomY=topY+Math.max(5,nV+1)*rowGap;             // tall enough that cards never crowd
   const H=bottomY+58;
   naturalH=H;
   stage.style.height=H+"px";
-  // top row (6) left→right
-  const top=CYCLE.slice(0,6);
-  top.forEach((id,i)=>place(id, xL+(xR-xL)*i/5, topY));
-  // right column (3) top→bottom, aligned x=xR
-  const right=CYCLE.slice(6,9);
-  right.forEach((id,j)=>place(id, xR, topY+(bottomY-topY)*(j+1)/4));
-  // bottom row (6) right→left, y=bottomY
-  const bottom=CYCLE.slice(9,15);
-  bottom.forEach((id,k)=>place(id, xR-(xR-xL)*k/5, bottomY));
-  // left column (4) bottom→top, aligned x=xL
-  const left=CYCLE.slice(15,19);
-  left.forEach((id,m)=>place(id, xL, bottomY-(bottomY-topY)*(m+1)/5));
+  // top row: left→right
+  const top=CYCLE.slice(0,nTop);
+  top.forEach((id,i)=>place(id, xL+(xR-xL)*(nTop>1?i/(nTop-1):0.5), topY));
+  // right column: top→bottom, aligned x=xR
+  const right=CYCLE.slice(nTop,nTop+nRight);
+  right.forEach((id,j)=>place(id, xR, topY+(bottomY-topY)*(j+1)/(nRight+1)));
+  // bottom row: right→left, y=bottomY
+  const bottom=CYCLE.slice(nTop+nRight,nTop+nRight+nBottom);
+  bottom.forEach((id,k)=>place(id, xR-(xR-xL)*(nBottom>1?k/(nBottom-1):0), bottomY));
+  // left column: bottom→top, aligned x=xL
+  const left=CYCLE.slice(nTop+nRight+nBottom);
+  left.forEach((id,m)=>place(id, xL, bottomY-(bottomY-topY)*(m+1)/(nLeft+1)));
   // hub centered
   const hw=Math.min(380,(xR-xL)-2*cardW-10);
   hub.style.left=((xL+xR)/2 - hw/2)+"px"; hub.style.top=(topY+(bottomY-topY)/2-92)+"px";
   hub.style.width=hw+"px"; hub.style.transform="none";
   svg.setAttribute("width",W); svg.setAttribute("height",H); svg.setAttribute("viewBox",`0 0 ${W} ${H}`);
-  drawBase();
+  applyFit();                 // set the final zoom Z + transform BEFORE drawing SVG,
+  drawBase();                 // so rectOf() recovers natural coords with the correct Z
   if(lastSel){const n=byId[lastSel];clearDynamic();clearArtPulse();drawIO(n);}
-  if(writesArt)applyFilters();
-  applyFit();
+  if(writesArt||stageSel)applyFilters();
 }
 
 /* ---- edges: perimeter segments between consecutive cycle nodes ---- */
@@ -1675,16 +1695,15 @@ function drawBase(){
   if(stacked)return;
   const frag=document.createDocumentFragment();
   const order=CYCLE.concat([CYCLE[0]]); // close the loop
+  const gap=6;
   for(let i=0;i<order.length-1;i++){
-    const A=rectOf(document.getElementById("n-"+order[i]));
-    const B=rectOf(document.getElementById("n-"+order[i+1]));
-    const gap=6;
+    const A=natRect(order[i]), B=natRect(order[i+1]);
     if(Math.abs(A.cx-B.cx)<2){ // vertical
-      if(B.cy>A.cy)frag.appendChild(seg(A.cx,A.y+A.h+gap,B.cx,B.y-gap,"base"));
-      else frag.appendChild(seg(A.cx,A.y-gap,B.cx,B.y+B.h+gap,"base"));
+      if(B.cy>A.cy)frag.appendChild(seg(A.cx,A.cy+A.h/2+gap,B.cx,B.cy-B.h/2-gap,"base"));
+      else frag.appendChild(seg(A.cx,A.cy-A.h/2-gap,B.cx,B.cy+B.h/2+gap,"base"));
     }else if(Math.abs(A.cy-B.cy)<2){ // horizontal
-      if(B.cx>A.cx)frag.appendChild(seg(A.x+A.w+gap,A.cy,B.x-gap,B.cy,"base"));
-      else frag.appendChild(seg(A.x-gap,A.cy,B.x+B.w+gap,B.cy,"base"));
+      if(B.cx>A.cx)frag.appendChild(seg(A.cx+A.w/2+gap,A.cy,B.cx-B.w/2-gap,B.cy,"base"));
+      else frag.appendChild(seg(A.cx-A.w/2-gap,A.cy,B.cx+B.w/2+gap,B.cy,"base"));
     }else{ // fallback diagonal (shouldn't happen)
       frag.appendChild(seg(A.cx,A.cy,B.cx,B.cy,"base"));
     }
@@ -1776,6 +1795,7 @@ document.addEventListener("keydown",e=>{if(!lastSel)return;const t=e.target;if(t
 /* ---- filters ---- */
 const active={prov:new Set(),grade:new Set(),purity:new Set()};
 let writesArt=null;
+let stageSel=null;
 function applyFilters(){
   const any=active.prov.size||active.grade.size||active.purity.size;
   NODES.forEach(n=>{
@@ -1788,7 +1808,13 @@ function applyFilters(){
   });
   document.querySelectorAll(".art").forEach(a=>a.classList.remove("pulse-wr"));
   clearDynamic();
-  if(writesArt){
+  if(stageSel){
+    const st=SPEC.stages.find(s=>s.id===stageSel), set=new Set(st?st.nodes:[]);
+    document.querySelectorAll(".art").forEach(a=>a.classList.remove("dim"));
+    NODES.forEach(n=>{const el=document.getElementById("n-"+n.id);
+      if(set.has(n.id)){el.classList.add("hl");el.classList.remove("dim");}
+      else{el.classList.remove("hl");el.classList.add("dim");}});
+  }else if(writesArt){
     document.querySelectorAll(".art").forEach(a=>a.classList.toggle("dim",a.dataset.art!==writesArt));
     NODES.forEach(n=>{const el=document.getElementById("n-"+n.id);
       if(n.writes.includes(writesArt)){el.classList.add("hl");el.classList.remove("dim");spoke(n.id,writesArt,"wr");}
@@ -1803,6 +1829,7 @@ document.querySelectorAll(".pill[data-grade]").forEach(b=>b.addEventListener("cl
 document.querySelectorAll(".pill[data-purity]").forEach(b=>b.addEventListener("click",()=>tog(b,"purity","purity")));
 function tog(b,attr,key){
   writesArt=null;document.querySelectorAll(".pill.art").forEach(p=>p.setAttribute("aria-pressed","false"));
+  stageSel=null;document.querySelectorAll(".stagebtn").forEach(p=>p.setAttribute("aria-pressed","false"));
   const v=b.dataset[attr], on=b.getAttribute("aria-pressed")==="true";
   b.setAttribute("aria-pressed",String(!on));
   if(on)active[key].delete(v);else active[key].add(v);
@@ -1813,16 +1840,39 @@ function toggleWrites(id){
   const btn=document.querySelector(`.pill.art[data-writes="${id}"]`);
   if(writesArt===id){writesArt=null;btn&&btn.setAttribute("aria-pressed","false");}
   else{writesArt=id;document.querySelectorAll(".pill.art").forEach(p=>p.setAttribute("aria-pressed",String(p.dataset.writes===id)));
-    active.prov.clear();active.grade.clear();active.purity.clear();
-    document.querySelectorAll(".pill[data-prov],.pill[data-grade],.pill[data-purity]").forEach(p=>p.setAttribute("aria-pressed","false"));}
+    active.prov.clear();active.grade.clear();active.purity.clear();stageSel=null;
+    document.querySelectorAll(".pill[data-prov],.pill[data-grade],.pill[data-purity],.stagebtn").forEach(p=>p.setAttribute("aria-pressed","false"));}
   applyFilters();
 }
 document.getElementById("clear").addEventListener("click",()=>{
-  active.prov.clear();active.grade.clear();active.purity.clear();writesArt=null;
-  document.querySelectorAll(".pill").forEach(p=>p.setAttribute("aria-pressed","false"));
+  active.prov.clear();active.grade.clear();active.purity.clear();writesArt=null;stageSel=null;
+  document.querySelectorAll(".pill,.stagebtn").forEach(p=>p.setAttribute("aria-pressed","false"));
   document.querySelectorAll(".art").forEach(a=>a.classList.remove("dim","pulse-wr","pulse-rd"));
   applyFilters();
 });
+
+/* ---- stage buttons: the six public stages, each highlights its own cycle nodes ---- */
+function selectStage(id){
+  const was=stageSel;
+  active.prov.clear();active.grade.clear();active.purity.clear();writesArt=null;
+  document.querySelectorAll(".pill").forEach(p=>p.setAttribute("aria-pressed","false"));
+  stageSel=(was===id)?null:id;
+  document.querySelectorAll(".stagebtn").forEach(b=>b.setAttribute("aria-pressed",String(b.dataset.stage===stageSel)));
+  applyFilters();
+}
+(function buildStageNav(){
+  const nav=document.getElementById("stagesNav"); if(!nav)return;
+  (SPEC.stages||[]).forEach((s,i)=>{
+    if(i)nav.insertAdjacentHTML("beforeend",'<span class="stage-arrow" aria-hidden="true">→</span>');
+    const b=document.createElement("button");
+    b.type="button";b.className="stagebtn";b.dataset.stage=s.id;
+    b.setAttribute("aria-pressed","false");
+    b.textContent=s.name;
+    if(s.public||s.meaning)b.title=s.public||s.meaning;
+    b.addEventListener("click",()=>selectStage(s.id));
+    nav.appendChild(b);
+  });
+})();
 
 /* ---- search ---- */
 const q=document.getElementById("q");
