@@ -167,3 +167,54 @@ def search_discriminating_perturbation(hypotheses, search_space, *, predict,
             f"range on {params or 'the interventions'}, or a model whose predictions respond to the "
             "controllable parameters")
     return res
+
+
+def _as_list(v):
+    if v is None:
+        return []
+    return list(v) if isinstance(v, (list, tuple)) else [v]
+
+
+def design_by_invention(inv_spec, study_slug, search_space, *, predict,
+                        min_score: float = 0.5, arms=None) -> dict:
+    """Produce an ExperimentDesign by INVENTING a discriminating regime (§3) — for a study whose
+    authored regimes do not discriminate. Enumerates + scores perturbations
+    (:func:`search_discriminating_perturbation`); on an ``experiment`` outcome it builds a design
+    under the invented regime with predictions from ``predict`` and controls taken from the
+    **declared arm roles** (never name-inferred, unlike ``experiment_design._is_control_hyp``); on
+    abstention it returns ``{design: None, abstention: {reason, requirement, n_candidates}}``.
+
+    ``arms``: the study's arms (each ``{name, role, …}``) — their declared control roles populate the
+    design's controls. ``predict(hypothesis, perturbation)`` is the injected model seam, so this
+    stays pure. Returns ``{design, abstention}``."""
+    hyps = [h for h in _as_list((inv_spec or {}).get("hypotheses"))
+            if isinstance(h, dict) and h.get("study") == study_slug]
+    found = search_discriminating_perturbation(hyps, search_space, predict=predict, min_score=min_score)
+    if found.get("outcome") != "experiment":
+        return {"design": None,
+                "abstention": {"reason": found.get("reason"),
+                               "requirement": found.get("requirement"),
+                               "n_candidates": found.get("n_candidates")}}
+
+    regime = found["condition"]
+    controls = [a for a in (arms or []) if is_control(a)]
+    role_issues = validate_arm_roles(arms) if arms else \
+        ["no arms supplied — controls cannot be confirmed from declared roles"]
+    design = {
+        "id": f"design:{study_slug}:invented",
+        "study": study_slug,
+        "method": "perturbation-search",
+        "invented_regime": dict(regime),
+        "score": found["score"],
+        "n_candidates": found.get("n_candidates"),
+        "hypothesis_contrast": [h.get("id") for h in hyps],
+        "interventions": [{"hypothesis": h.get("id"), "when": dict(regime)} for h in hyps],
+        "controls": [{"name": a.get("name"), "role": arm_role(a)} for a in controls],
+        "predictions": [{"hypothesis_id": h.get("id"), "intervention": dict(regime),
+                         "predicted": predict(h, regime)} for h in hyps],
+        "control_issues": role_issues,
+        "analysis_plan": (f"Run every hypothesis arm under the INVENTED regime {regime} (plus the "
+                          "declared controls); measure the observable; the regime was chosen to "
+                          f"maximize prediction separation (score {found['score']:.3f})."),
+    }
+    return {"design": design, "abstention": None}
