@@ -78,9 +78,45 @@ def _discrepancies_by_target(discrepancies) -> dict:
     return out
 
 
+def _baseline_composite(spec: dict) -> str | None:
+    """The study's declared baseline composite id — v4 ``conditions.baseline.composite`` first,
+    else the first ``baseline``/``arms`` entry. Pure: reads only declared fields."""
+    cond = (spec.get("conditions") or {}).get("baseline") or {}
+    if isinstance(cond, dict) and cond.get("composite"):
+        return str(cond["composite"])
+    for arm in (spec.get("baseline") or spec.get("arms") or []):
+        if isinstance(arm, dict) and arm.get("composite"):
+            return str(arm["composite"])
+    return None
+
+
+def _declared_model_contract(study_spec) -> "dict | None":
+    """A compact, HONEST summary of a study's model interface for the generation context, built
+    ONLY from DECLARED fields — the baseline composite id, the study's declared observables, and
+    any authored ``contracts`` / ``process_contracts``. It resolves/imports nothing and fabricates
+    nothing, so surfacing it into a request's context lets the filler author tests / interpret a
+    finding / acquire a model against the ports the model actually declares, instead of guessing,
+    while staying inside the no-fabrication rule. Returns ``None`` when the study declares no
+    model interface."""
+    if not isinstance(study_spec, dict):
+        return None
+    out: dict = {}
+    comp = _baseline_composite(study_spec)
+    if comp:
+        out["composite"] = comp
+    obs = [o for o in (study_spec.get("observables") or []) if isinstance(o, str)]
+    if obs:
+        out["observables"] = obs
+    contracts = study_spec.get("contracts") or study_spec.get("process_contracts")
+    if contracts:
+        out["contracts"] = contracts
+    return out or None
+
+
 def generation_requests(opportunities, *, gates: GateConfig | None = None,
                         inv_spec: dict | None = None,
-                        discrepancies: list | None = None) -> list[GenerationRequest]:
+                        discrepancies: list | None = None,
+                        studies: dict | None = None) -> list[GenerationRequest]:
     """Project the frontier ``opportunities`` into typed :class:`GenerationRequest`s.
 
     Pure. ``opportunities`` is the list from ``discovery_engine.opportunities``.
@@ -90,7 +126,11 @@ def generation_requests(opportunities, *, gates: GateConfig | None = None,
     forward context enrichment. ``discrepancies`` (the cycle's typed anomaly /
     model-disagreement triggers) enrich each ``hypothesize`` request's context with
     the exact measured surprise it must explain, so a generated alternative is tied
-    to evidence, not a prompt. Order follows the opportunities' own ranking.
+    to evidence, not a prompt. ``studies`` (slug -> study spec) enriches a request
+    that targets a study with that study's DECLARED model contract (baseline
+    composite, observables, authored process contracts), so the filler reasons from
+    the model's real interface rather than guessing — declared fields only, nothing
+    resolved or fabricated. Order follows the opportunities' own ranking.
     """
     gates = gates or GateConfig()
     # Per-workspace skill-map override (inv_spec["discovery"]["skill_map"]); falls
@@ -113,6 +153,12 @@ def generation_requests(opportunities, *, gates: GateConfig | None = None,
             disc = disc_by_target.get(str(target))
             if disc is not None:
                 context["discrepancy"] = disc
+        # Surface the target study's DECLARED model contract (ports/observables the model
+        # actually declares) so the filler reasons from the real interface, not a guess.
+        if studies:
+            mc = _declared_model_contract(studies.get(str(target)))
+            if mc:
+                context["model_contract"] = mc
         out.append(GenerationRequest(
             kind=rkind,
             target=str(target),
