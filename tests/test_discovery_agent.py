@@ -89,3 +89,25 @@ def test_unregistered_kind_is_skipped_without_capture():
     assert port.captures == [] and called == []
     assert port.skipped[0]["kind"] == "propose_study"
     assert port.skipped[0]["reason"]
+
+
+def test_native_kind_is_filled_and_captured_not_skipped():
+    # interpret_finding is a NATIVE kind (native apply handler, no registry skill). It must be
+    # filled + captured, not dropped — registry-only routing used to skip the whole interpretation
+    # frontier of an investigation before the filler ever ran (the campaign's applied:0 stall).
+    opp = {"id": "chal:s:o", "source": "s:o", "action_type": "synthesize", "kind": "open_challenge"}
+    called = []
+
+    def fill(req):
+        called.append(req.kind)
+        return GenerationResult(request_id=req.id,
+                                artifact={"study": "s", "finding": "f", "statement": "interpreted"},
+                                filler={"kind": "ai", "id": "stub", "model": "m"})
+
+    port = DiscoveryAgent().propose([opp], fill=fill)
+    assert called == ["interpret_finding"]                     # the filler WAS invoked
+    assert port.skipped == []
+    assert [c.kind for c in port.captures] == ["interpret_finding"]
+    assert port.captures[0].outcome == "proposed"
+    assert port.captures[0].skill == "native:interpret_finding"
+    assert len(port.proposals) == 1

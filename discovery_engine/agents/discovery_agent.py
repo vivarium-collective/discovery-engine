@@ -26,15 +26,25 @@ class DiscoveryAgent:
         self.registry = registry if registry is not None else default_registry()
 
     def propose(self, opportunities, *, fill, gates=None) -> ProposalPortfolio:
+        # Native-aware routing (lazy import avoids an apply<->agent cycle): a kind is fillable if a
+        # registry skill knows it OR it has a native apply handler. The native kinds
+        # (interpret_finding / explain / author_tests / resolve_decision) are NOT in the registry,
+        # so registry-only routing dropped them before the filler — on an interpretation-driven
+        # investigation that is the entire frontier, and the whole drive stalled at applied:0.
+        from discovery_engine.phases.generation_apply import _handler_for
         captures: list[ProposalCapture] = []
         proposals: list[dict] = []
         skipped: list[dict] = []
         for req in generation_requests(opportunities, gates=gates):
             sk = self.registry.get(req.kind)
-            if sk is None:
+            native = sk is None and _handler_for(req.kind) is not None
+            if sk is None and not native:
+                # CLI-verb kinds (propose_study / visualize) and unknown kinds have neither a skill
+                # nor a native handler — they belong to the apply_cli_verb seam, not this fill path.
                 skipped.append({"request_id": req.id, "kind": req.kind,
-                                "reason": f"no skill registered for kind {req.kind!r}"})
+                                "reason": f"no skill or native handler for kind {req.kind!r}"})
                 continue
+            skill_name = sk.name if sk is not None else f"native:{req.kind}"
             artifact: dict = {}
             filler: dict = {}
             raw = None
@@ -54,13 +64,15 @@ class DiscoveryAgent:
                                 "expected GenerationResult")
                         filler = result.filler or {}
                         raw = result.artifact
-                        artifact = sk.coerce(raw or {})
+                        # Registry kinds coerce/validate through their skill; native kinds pass the
+                        # artifact through — the native apply handler validates it at apply time.
+                        artifact = sk.coerce(raw or {}) if sk is not None else dict(raw or {})
                         outcome, validation = "proposed", {"ok": True, "errors": []}
                     except Exception as e:  # noqa: BLE001 - never crash on a bad filler
                         artifact = raw if isinstance(raw, dict) else {}
                         outcome, validation = "invalid", {"ok": False, "errors": [str(e)]}
             captures.append(ProposalCapture(
-                request_id=req.id, kind=req.kind, target=req.target, skill=sk.name,
+                request_id=req.id, kind=req.kind, target=req.target, skill=skill_name,
                 filler=filler, context=dict(req.context or {}), artifact=artifact,
                 validation=validation, outcome=outcome,
                 at=datetime.now(timezone.utc).isoformat()))
