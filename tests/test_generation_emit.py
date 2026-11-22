@@ -126,3 +126,59 @@ def test_skill_for_default_override_and_unmapped():
     assert skill_for("visualize", {"visualize": "x"}) == "x"
     assert skill_for("no_such_kind") == ""
     assert skill_for("visualize", {"visualize": "  "}) == "viva-viz"   # blank override ignored
+
+
+# --- model contract into the generation context (declared interface, honest) ----------------
+
+from discovery_engine.phases.generation_emit import _declared_model_contract
+
+_STUDY = {"conditions": {"baseline": {"composite": "pkg.mod.gen"}},
+          "observables": ["obs.ppGpp", "obs.growth"],
+          "process_contracts": [{"port": "ppGpp", "unit": "uM"}]}
+
+
+def test_declared_model_contract_from_declared_fields():
+    mc = _declared_model_contract(_STUDY)
+    assert mc == {"composite": "pkg.mod.gen",
+                  "observables": ["obs.ppGpp", "obs.growth"],
+                  "contracts": [{"port": "ppGpp", "unit": "uM"}]}
+
+
+def test_declared_model_contract_legacy_baseline_and_contracts_field():
+    mc = _declared_model_contract({"baseline": [{"composite": "pkg.legacy"}],
+                                   "contracts": [{"port": "x"}]})
+    assert mc == {"composite": "pkg.legacy", "contracts": [{"port": "x"}]}
+
+
+def test_declared_model_contract_none_when_nothing_declared():
+    assert _declared_model_contract({"name": "s"}) is None
+    assert _declared_model_contract(None) is None
+    assert _declared_model_contract("nope") is None
+
+
+def test_request_for_a_study_carries_its_declared_model_contract():
+    r = generation_requests([_opp("test", source="grc-06")], studies={"grc-06": _STUDY})[0]
+    assert r.kind == "author_tests"
+    assert r.context["model_contract"] == {
+        "composite": "pkg.mod.gen", "observables": ["obs.ppGpp", "obs.growth"],
+        "contracts": [{"port": "ppGpp", "unit": "uM"}]}
+
+
+def test_model_contract_surfaces_for_other_study_scoped_kinds():
+    # acquire_model ("revise_model") also reasons from the model interface
+    r = generation_requests([_opp("revise_model", source="grc-06")], studies={"grc-06": _STUDY})[0]
+    assert r.kind == "acquire_model" and "model_contract" in r.context
+
+
+def test_no_model_contract_without_studies_or_on_unknown_target():
+    # back-compat: no studies map → context unchanged
+    assert "model_contract" not in generation_requests([_opp("test", source="grc-06")])[0].context
+    # a target that is not a study in the map → no enrichment
+    r = generation_requests([_opp("test", source="other")], studies={"grc-06": _STUDY})[0]
+    assert "model_contract" not in r.context
+
+
+def test_no_model_contract_when_study_declares_none():
+    r = generation_requests([_opp("test", source="bare")],
+                            studies={"bare": {"name": "bare"}})[0]
+    assert "model_contract" not in r.context

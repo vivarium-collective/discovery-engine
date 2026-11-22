@@ -231,7 +231,7 @@ def run_discovery_campaign(ws_root: Path | str, inv_slug: str, *, autonomous: bo
         if fill is not None:
             reqs = [r for r in generation_requests(
                         de.opportunities(cyc, inv_spec), gates=gates, inv_spec=inv_spec,
-                        discrepancies=cyc.get("discrepancies"))
+                        discrepancies=cyc.get("discrepancies"), studies=studies)
                     if r.gate == "auto" and r.id not in applied_gen_ids]   # don't re-apply what landed
             for o in run_requests(reqs, fill=fill, ws_root=ws_root, inv_slug=inv_slug,
                                   budget=budget, apply_cli_verb=apply_cli_verb) if reqs else []:
