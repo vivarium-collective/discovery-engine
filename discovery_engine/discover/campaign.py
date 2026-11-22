@@ -125,6 +125,7 @@ def run_discovery_campaign(ws_root: Path | str, inv_slug: str, *, autonomous: bo
         persist_cycle, run_cycle)
     from discovery_engine.phases import evidence_integrity as ei
     from discovery_engine.phases.generation_apply import run_requests
+    from discovery_engine.projection.closure_states import closure_states_from_cycle
     from discovery_engine.phases.generation_emit import generation_requests
     from discovery_engine.projection import engine as de
 
@@ -276,8 +277,18 @@ def run_discovery_campaign(ws_root: Path | str, inv_slug: str, *, autonomous: bo
             stop_reason = "budget_exhausted"
             break
         if not progressed:
-            stop_reason = "closed" if de.closure(cyc, inv_spec).get("closed") \
-                else "no_informative_experiment"
+            # Honour the five closure states, not just the boolean. engine.closure() can read
+            # "closed" (no unmet criterion/gap/challenge) while a claim still rests on
+            # provisional-only evidence — reporting that as `closed` would hide a live frontier.
+            # Only a genuinely resolved investigation stops `closed`; otherwise the controller made
+            # no informative move this iteration, which is an honest, non-closing halt.
+            evs = ei.reconcile_evidence_state(
+                inv_spec, studies, _load_runs_by_study(Path(ws_root), inv_slug, studies))
+            cs = closure_states_from_cycle(de.closure(cyc, inv_spec), inv_spec,
+                                           studies=studies, evidence_state=evs)["states"]
+            truly_closed = (cs["workflow_complete"] and cs["evidence_sufficient"]
+                            and cs["model_adequate"] and cs["scientifically_resolved"])
+            stop_reason = "closed" if truly_closed else "no_informative_experiment"
             break
 
     if stop_reason is None:

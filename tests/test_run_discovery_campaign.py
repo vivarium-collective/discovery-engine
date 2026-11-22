@@ -356,3 +356,30 @@ def test_zero_simulation_budget_is_projection_only_not_exhausted(tmp_path):
     assert res["runs"] == 0
     assert res["stop_reason"] != "budget_exhausted"   # projection-only, nothing was exhausted
     assert res["applied"] >= 1                # the revision still applied (no sim budget needed)
+
+
+def test_campaign_does_not_report_closed_over_provisional_evidence(tmp_path):
+    """The closure-coupling friction (viva-island-biogeography): an investigation whose only claim
+    rests on provisional-only evidence — a numeric finding with no registered run — must NOT stop
+    `closed`, even though engine.closure reads closed (no unmet criterion / gap / challenge).
+    Reporting it closed hid a live, unresolved frontier. The five-state coupling keeps the
+    controller honest: a provisional-only claim is not scientifically resolved."""
+    inv = tmp_path / "investigations" / "og"
+    (inv / "studies" / "s1").mkdir(parents=True)
+    save_yaml_atomic(inv / "studies" / "s1" / "study.yaml", {
+        "name": "s1", "investigation": "og", "question": "q", "claim": "c",
+        # numeric observed value but NO registered run → reconcile classifies it provisional
+        "findings": [{"id": "f1", "statement": "a numeric result",
+                      "evidence": {"measure": "obs.val", "observed": 0.5}}]})
+    save_yaml_atomic(inv / "investigation.yaml", {
+        "name": "og", "studies": ["s1"], "status": "running"})   # no criteria / gaps / challenges
+
+    res = discover.run_discovery_campaign(
+        tmp_path, "og", autonomous=True,
+        budget=Budget(simulation_runs=0, model_builds=0, generation_calls=0), max_iterations=2)
+
+    assert res["stop_reason"] != "closed"            # provisional evidence => not a closed stop
+    spec = load_yaml(inv / "investigation.yaml")
+    st = (spec.get("cycle_state") or {}).get("closure_states") or {}
+    assert st.get("evidence_sufficient") is False
+    assert st.get("scientifically_resolved") is False   # the coupling: not resolved on provisional evidence
