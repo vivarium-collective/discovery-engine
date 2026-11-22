@@ -200,6 +200,20 @@ def review_findings(inv_path: Path | str, *, promote=None, hold=None, promote_al
             c["status"] = HELD; c["assessment"] = assessment
             out["held"].append(cid); changed = True
             continue
+        # §4 adequacy gate: a candidate whose claim declares required mechanisms is HELD, not
+        # promoted, until those mechanisms are established — a reviewed promotion must never mint a
+        # Discovery for an overreaching claim. Opt-in: fires only when the candidate carries
+        # `requires`; established mechanisms come from the investigation's `established_mechanisms`.
+        if c.get("requires"):
+            from discovery_engine.phases.model_adequacy import assess_model_adequacy
+            adq = assess_model_adequacy(c.get("claim"), required_mechanisms=c["requires"],
+                                        established_mechanisms=spec.get("established_mechanisms") or [])
+            if adq["verdict"] == "inadequate":
+                c["status"] = HELD
+                c["assessment"] = {**assessment, "review_decision": "held_inadequate", "adequacy": adq}
+                out["held"].append(cid)
+                changed = True
+                continue
         disc = promote_finding_candidate(c, assessment)
         if disc["id"] not in disc_ids:
             discs.append(disc); disc_ids.add(disc["id"])
