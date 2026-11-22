@@ -383,3 +383,20 @@ def test_campaign_does_not_report_closed_over_provisional_evidence(tmp_path):
     st = (spec.get("cycle_state") or {}).get("closure_states") or {}
     assert st.get("evidence_sufficient") is False
     assert st.get("scientifically_resolved") is False   # the coupling: not resolved on provisional evidence
+
+
+def test_campaign_forwards_gates_to_generation(tmp_path):
+    """Regression: run_discovery_campaign accepted `gates` but never forwarded it to
+    generation_requests — so --free-run (and any gate policy) never reached generation, and a
+    review-gated frontier (e.g. interpret_finding) was dropped before the filler (the campaign's
+    0-filler-calls stall). A review GateConfig must now suppress the auto-fill the campaign would
+    otherwise do on author_tests (which is auto by default); the old, gate-ignoring code filled it."""
+    from discovery_engine.phases.generation import GateConfig
+    _gen_ws(tmp_path)
+    res = discover.run_discovery_campaign(
+        tmp_path, "demo", autonomous=True, runner=_noop_runner, fill=_fake_fill,
+        gates=GateConfig(default="review"),                     # forces author_tests to review
+        budget=Budget(simulation_runs=2, model_builds=1, generation_calls=3), max_iterations=2)
+    s = load_yaml(tmp_path / "studies" / "s1" / "study.yaml")
+    assert "val_in_band" not in [t["name"] for t in s.get("behavior_tests") or []]   # gated => not filled
+    assert not [a for a in res["actions"] if a["kind"].startswith("generate:")]
