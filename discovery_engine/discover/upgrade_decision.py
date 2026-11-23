@@ -13,12 +13,12 @@ the existing ledger and turns it into a defensible, reproducible go/no-go.
 A candidate change is authored on the investigation under ``upgrade_candidates``::
 
     upgrade_candidates:
-      - id: krela-stability-fix
-        change: "Reduce RelA synthesis gain (k_RelA x0.6) in ecoli_baseline"
-        target: "v2ecoli.composites.ecoli_baseline"   # the composite/param it changes
-        requires:   [grc01-f2, grc02-f2]  # findings that must be VERIFIED for GO
-        contradicted_if: [grc03-f1]        # findings whose CONTRADICTED state blocks
-        rationale: "..."                    # authored argument for the change
+      - id: stability-fix
+        change: "Reduce the synthesis gain in the baseline composite"
+        target: "my_pkg.composites.baseline"   # the composite/param it changes
+        requires:   [s1-f2, s2-f2]   # findings that must be VERIFIED for GO
+        contradicted_if: [s3-f1]      # findings whose CONTRADICTED state blocks
+        rationale: "..."               # authored argument for the change
 
 The verdict ladder (strict, evidence-gated):
 
