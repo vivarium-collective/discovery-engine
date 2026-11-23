@@ -604,6 +604,16 @@ def main(argv: list[str] | None = None) -> int:
                              help="Cycle N+1 Phase A: classify each finding's evidence as verified / provisional / contradicted / unsupported against the registered runs")
     p_recon.add_argument("investigation", help="investigation slug")
 
+    p_upgrade = sub.add_parser("upgrade-decision",
+                               help="audit the verified-evidence ledger and decide, per authored candidate model change "
+                                    "(investigation.yaml upgrade_candidates), whether updating the baseline is justified "
+                                    "(go / insufficient / no-go, ranked); --record persists the decision + its evidence signature")
+    p_upgrade.add_argument("investigation", help="investigation slug")
+    p_upgrade.add_argument("--candidate", default=None, help="decide only this candidate id")
+    p_upgrade.add_argument("--record", action="store_true",
+                           help="persist the decision to investigation.yaml (upgrade_decision block + an open_decision resolution per decided candidate)")
+    p_upgrade.add_argument("--json", action="store_true", help="emit the full decision as JSON")
+
     p_plan = sub.add_parser("plan",
                             help="Cycle N+1 Phase B: the classified CandidateAction portfolio (repair / resolve / extend), ranked and dependency-ordered")
     p_plan.add_argument("investigation", help="investigation slug")
@@ -1532,6 +1542,22 @@ def main(argv: list[str] | None = None) -> int:
         runs_by_study = _load_runs_by_study(ws, args.investigation, studies)
         print(_summarize_evidence_reconciliation(
             _ei.reconcile_evidence_state(inv_spec, studies, runs_by_study)))
+        return 0
+
+    if args.cmd == "upgrade-decision":
+        import json as _json
+
+        from discovery_engine.discover.upgrade_decision import (
+            format_upgrade_decision, record_upgrade_decision, run_upgrade_decision)
+        inv_path, inv_spec, studies = load_cycle_inputs(ws, args.investigation)
+        runs_by_study = _load_runs_by_study(ws, args.investigation, studies)
+        result = run_upgrade_decision(inv_spec, studies, runs_by_study,
+                                      candidate_id=getattr(args, "candidate", None))
+        print(_json.dumps(result, indent=2, default=str) if getattr(args, "json", False)
+              else format_upgrade_decision(result))
+        if getattr(args, "record", False):
+            record_upgrade_decision(inv_path, result, by="discover upgrade-decision")
+            print("\nrecorded: upgrade_decision block + open_decision resolution(s) in investigation.yaml")
         return 0
 
     if args.cmd == "plan":
