@@ -88,7 +88,7 @@ header.top{padding-block:10px 6px;position:relative}
 
 /* stage / ring */
 #stagewrap{position:relative;margin:14px 0 26px;overflow:hidden}
-.stage{position:relative;transform-origin:top center;transition:transform .12s ease}
+.stage{position:relative;transform-origin:top left;transition:transform .12s ease}
 .stage.stacked{transform:none!important}
 .zoomctl{display:inline-flex;align-items:center;gap:6px}
 .zoomctl .zlbl{font-size:.64rem;letter-spacing:.09em;text-transform:uppercase;color:var(--faint);font-weight:700}
@@ -1612,7 +1612,7 @@ function ioHTML(id){
 const stage=document.getElementById("stage"), svg=document.getElementById("svg"), hub=document.getElementById("hub");
 const stagewrap=document.getElementById("stagewrap");
 const legendEl=document.querySelector(".legend"), footerEl=document.querySelector("footer");
-let Z=1, userZoom=null, naturalH=0;   // Z = applied scale; rectOf divides by it to stay in natural coords
+let Z=1, userZoom=null, naturalH=0, naturalW=0;   // Z = applied scale; rectOf divides by it to stay in natural coords. naturalW = virtual-canvas width (may exceed the container, then scaled to fit)
 
 /* ---- substrate (engine core) ---- */
 const subrow=document.getElementById("subrow");
@@ -1651,10 +1651,17 @@ function applyFit(){
   const reserve=(legendEl?legendEl.offsetHeight:0)+(footerEl?footerEl.offsetHeight:0)+44;
   const top=stagewrap.getBoundingClientRect().top;
   const availH=Math.max(300, window.innerHeight - top - reserve);
-  const fit=Math.min(1, naturalH ? availH/naturalH : 1);
+  const containerW=stagewrap.clientWidth;
+  // Fit on BOTH axes: the virtual canvas (naturalW) is widened in layout() so cards
+  // never overlap, so when it exceeds the container we must scale to fit the width too.
+  const fitH=naturalH ? availH/naturalH : 1;
+  const fitW=naturalW ? containerW/naturalW : 1;
+  const fit=Math.min(1, fitH, fitW);
   const z=(userZoom==null)?fit:userZoom;
   Z=z;
-  stage.style.transform="scale("+z+")";
+  // origin is top-left, so centre the scaled stage within the container by hand.
+  const offsetX=Math.max(0,(containerW - (naturalW||containerW)*z)/2);
+  stage.style.transform="translateX("+offsetX+"px) scale("+z+")";
   stagewrap.style.height=(naturalH*z)+"px";
   const zi=document.getElementById("zoom"); if(zi) zi.value=z.toFixed(2);
   const fb=document.getElementById("fit"); if(fb) fb.setAttribute("aria-pressed",String(userZoom==null));
@@ -1668,12 +1675,11 @@ function place(id,x,y){const el=document.getElementById("n-"+id);el.style.left=x
 function natRect(id){const el=document.getElementById("n-"+id),P=POS[id]||{x:0,y:0};
   return{cx:P.x,cy:P.y,w:el.offsetWidth,h:el.offsetHeight};}
 function layout(){
-  const W=stage.clientWidth;
-  stacked = W < 760;
+  const containerW=stagewrap.clientWidth;   // true available width (stage width is set below)
+  stacked = containerW < 760;
   stage.classList.toggle("stacked",stacked);
-  if(stacked){stage.style.height="";svg.removeAttribute("viewBox");drawBase();applyFit();return;}
-  const cardW=176, gutter=20;
-  const xL=cardW/2+gutter, xR=W-cardW/2-gutter;
+  if(stacked){stage.style.height="";stage.style.width="";naturalW=0;svg.removeAttribute("viewBox");drawBase();applyFit();return;}
+  const cardW=176, gutter=20, hGap=28;      // hGap: minimum clear space between adjacent horizontal cards
   const topY=58, rowGap=132;
   // Adaptive racetrack: the loop is laid out clockwise around the perimeter for ANY node
   // count. Horizontal rows carry the bulk; the two vertical sides take a capped few, split
@@ -1682,9 +1688,20 @@ function layout(){
   const nV=Math.min(5,Math.max(1,Math.round((N-6)/4)));   // nodes per vertical side
   const nRight=nV, nLeft=nV, rem=N-nRight-nLeft;
   const nTop=Math.ceil(rem/2), nBottom=rem-nTop;
+  // Widen the virtual canvas so the busier horizontal row never overlaps: the step between
+  // card CENTRES must be >= cardW+hGap. When the container is narrower than that, we lay out
+  // on the wider virtual width and applyFit() scales the whole stage down to fit. (Previously
+  // the row was crammed into the container width, so 7 top-row cards overlapped at any desktop
+  // size, which also made the perimeter arrows cross and read backwards.)
+  const maxRow=Math.max(nTop,nBottom);
+  const minSpan=(cardW+hGap)*Math.max(0,maxRow-1);
+  const W=Math.max(containerW, cardW+2*gutter+minSpan);
+  naturalW=W;
+  const xL=cardW/2+gutter, xR=W-cardW/2-gutter;
   const bottomY=topY+Math.max(5,nV+1)*rowGap;             // tall enough that cards never crowd
   const H=bottomY+58;
   naturalH=H;
+  stage.style.width=W+"px";
   stage.style.height=H+"px";
   // top row: left→right
   const top=CYCLE.slice(0,nTop);
