@@ -86,8 +86,89 @@ _CANON: dict[str, str] = {
 #: authored study.yaml `verdict` values that are already canonical
 _AUTHORED_OK = {"supported", "qualified", "inconclusive", "refuted"}
 
-#: the Progress axis — projected verbatim from study.yaml `execution_status`
+#: the Progress axis — derived from the evidence axes, with an authored
+#: `execution_status` kept and allowed to win EXCEPT when it understates a study
+#: that has demonstrably run (the stale-override fix). See `_progress_axis`.
 _PROGRESS_OK = {"proposed", "planned", "running", "completed", "failed"}
+
+#: completeness rank. A derived terminal signal (completed/failed) overrides a
+#: stale not-yet-done authored value (proposed/planned/running) but never
+#: downgrades a more-complete or terminal authored one — ties keep the authored.
+_PROGRESS_RANK = {"proposed": 0, "planned": 1, "running": 2, "completed": 3, "failed": 3}
+
+#: lifecycle `status` values that assert the study has run to a terminal state.
+_RAN_LIFECYCLE = {"complete", "completed", "ran", "decided", "evaluated"}
+#: lifecycle `status` values that assert the study is mid-run.
+_RUNNING_LIFECYCLE = {"running", "analyzing", "in_progress"}
+#: gate_status values that only exist once a run has been graded.
+_GATE_TERMINAL = {"passed", "failed", "needs_calibration", "stale"}
+
+
+def _derive_progress_from_evidence(spec: dict, ran_evidence: bool = False) -> str | None:
+    """Derive the Progress state from EVIDENCE, independent of the authored
+    `execution_status`. Returns ``completed`` / ``failed`` / ``running`` when a
+    positive signal supports it, else ``None`` (no evidence — defer to authored).
+
+    Deliberately keyed on *explicit* completion signals — gate_status,
+    evaluation_status, lifecycle `status`, recorded ``findings[]``, and a
+    filesystem ``ran_evidence`` flag (rendered figures / report_card / run_config
+    / runs.db, supplied by an impure caller) — NOT raw ``runs[]`` or raw
+    behavior-test results, so a study that merely declares a run without a
+    completion signal is not asserted complete. This mirrors the workbench
+    client's `_execState`, but the engine makes it authoritative.
+    """
+    sim = str(spec.get("simulation_status") or "").strip().lower()
+    ev = str(spec.get("evaluation_status") or "").strip().lower()
+    gate = str(spec.get("gate_status") or "").strip().lower()
+    life = str(spec.get("effective_status") or spec.get("status") or "").strip().lower()
+    has_findings = bool(_finding_ids(spec))
+
+    if sim == "failed" or life in ("invalid", "failed"):
+        return "failed"
+    if gate in _GATE_TERMINAL:
+        return "completed"
+    if sim == "ran" and ev in ("evaluated", "failed_evaluation"):
+        return "completed"
+    if life in _RAN_LIFECYCLE:
+        return "completed"
+    if has_findings or ran_evidence:
+        return "completed"
+    if sim == "running" or life in _RUNNING_LIFECYCLE:
+        return "running"
+    return None
+
+
+def _progress_axis(spec: dict, ran_evidence: bool = False) -> dict:
+    """The Progress axis: {progress, progress_authored, progress_derived,
+    progress_diverges}. Empty when neither an authored nor a derived value exists
+    (a never-touched study keeps the old 'omit progress' behavior).
+
+    The emitted ``progress`` is derive-first toward completion: a derived terminal
+    signal overrides a stale, less-complete authored value, but never downgrades a
+    more-complete or terminal authored one (ties keep the authored). ``diverges``
+    is True when the authored value understates demonstrated progress — the signal
+    the progress_gap advisory surfaces.
+    """
+    authored = spec.get("execution_status")
+    authored = authored if authored in _PROGRESS_OK else None
+    derived = _derive_progress_from_evidence(spec, ran_evidence)
+
+    out: dict[str, Any] = {}
+    if authored and derived:
+        progress = derived if _PROGRESS_RANK[derived] > _PROGRESS_RANK[authored] else authored
+    else:
+        progress = derived or authored
+    if progress is None:
+        return out
+
+    out["progress"] = progress
+    if authored:
+        out["progress_authored"] = authored
+    if derived:
+        out["progress_derived"] = derived
+    out["progress_diverges"] = bool(authored) and bool(derived) and (
+        _PROGRESS_RANK[derived] > _PROGRESS_RANK[authored])
+    return out
 
 #: values that never clobber an existing one during a merge
 _EMPTY = (None, "", [], {})
@@ -148,13 +229,16 @@ def _authored_from_conclusion_verdicts(block: Any) -> str | None:
 # Canonical verdict (per study)
 # ---------------------------------------------------------------------------
 
-def canonical_verdict(study_spec: dict) -> dict:
+def canonical_verdict(study_spec: dict, ran_evidence: bool = False) -> dict:
     """Canonical Verdict record for one study, two axes kept independent.
 
     The derived verdict comes from the coded test roll-up; an authored
-    ``verdict`` in study.yaml wins when present. ``progress`` is projected
-    separately from ``execution_status`` and never feeds the verdict — a failed
-    execution is not a refuted hypothesis, and a completed run may be refuted.
+    ``verdict`` in study.yaml wins when present. The Progress axis is derived
+    separately from the evidence (``_progress_axis``) and never feeds the verdict
+    — a failed execution is not a refuted hypothesis, and a completed run may be
+    refuted. ``ran_evidence`` is an optional filesystem signal (rendered figures /
+    report_card / run_config / runs.db on disk) supplied by an impure caller for a
+    study whose status axes are themselves stale; the pure default is ``False``.
     """
     derived = _CANON.get(roll_up_verdict(study_spec).get("result"), "unassessed")
 
@@ -209,9 +293,7 @@ def canonical_verdict(study_spec: dict) -> dict:
         out["candidate"] = candidate
         out["candidate_source"] = "derived"
 
-    progress = study_spec.get("execution_status")
-    if progress in _PROGRESS_OK:
-        out["progress"] = progress
+    out.update(_progress_axis(study_spec, ran_evidence))
 
     return out
 
@@ -244,7 +326,8 @@ def _concept_question(spec: dict, slug: str) -> str:
 # Derive the knowledge projection for an investigation
 # ---------------------------------------------------------------------------
 
-def derive_knowledge(inv_spec: dict, studies_by_slug: dict[str, dict]) -> dict:
+def derive_knowledge(inv_spec: dict, studies_by_slug: dict[str, dict],
+                     ran_evidence: dict[str, bool] | None = None) -> dict:
     """Project the read-only knowledge store from canonical membership + findings.
 
     ``verdicts`` carries a canonical verdict for every member study that has a
@@ -261,7 +344,7 @@ def derive_knowledge(inv_spec: dict, studies_by_slug: dict[str, dict]) -> dict:
         spec = studies_by_slug.get(slug)
         if spec is None:
             continue
-        verdicts[slug] = canonical_verdict(spec)
+        verdicts[slug] = canonical_verdict(spec, bool((ran_evidence or {}).get(slug)))
         behaviors[slug] = _study_behaviors(spec)
         concepts[slug] = {
             "question": _concept_question(spec, slug),

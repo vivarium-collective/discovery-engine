@@ -190,6 +190,67 @@ class TestProgressVerdictDecoupling:
             _pass("t1") | {"execution_status": "bogus"})
 
 
+class TestProgressDerivedFromEvidence:
+    """#2: the Progress axis is derived-first — an evidence-backed study reads
+    `completed` even when execution_status is a stale `planned`/`running`."""
+
+    def test_findings_derive_completed(self):
+        # a study with recorded findings ran, even with no execution_status.
+        cv = canonical_verdict(_spec(_named("t1"), has_runs=False)
+                               | {"findings": [{"id": "f1"}]})
+        assert cv["progress"] == "completed"
+        assert cv["progress_derived"] == "completed"
+
+    def test_gate_terminal_derives_completed(self):
+        cv = canonical_verdict(_spec(_named("t1"), has_runs=False)
+                               | {"gate_status": "passed"})
+        assert cv["progress_derived"] == "completed"
+
+    def test_sim_ran_and_evaluated_derives_completed(self):
+        cv = canonical_verdict(_spec(_named("t1"), has_runs=False)
+                               | {"simulation_status": "ran", "evaluation_status": "evaluated"})
+        assert cv["progress_derived"] == "completed"
+
+    def test_filesystem_ran_evidence_derives_completed(self):
+        # artifact-only: no in-spec completion signal, but the impure caller saw
+        # rendered figures / report_card / run_config / runs.db on disk.
+        spec = _spec(_named("t1"), has_runs=False) | {"simulation_status": "not_run"}
+        assert canonical_verdict(spec, ran_evidence=False).get("progress_derived") is None
+        assert canonical_verdict(spec, ran_evidence=True)["progress_derived"] == "completed"
+
+    def test_stale_authored_is_overridden_and_flagged(self):
+        for stale in ("planned", "running", "proposed"):
+            cv = canonical_verdict(_spec(_named("t1"), has_runs=False)
+                                   | {"findings": [{"id": "f1"}], "execution_status": stale})
+            assert cv["progress"] == "completed", stale        # derived wins
+            assert cv["progress_authored"] == stale
+            assert cv["progress_derived"] == "completed"
+            assert cv["progress_diverges"] is True
+
+    def test_authored_completed_preserved(self):
+        cv = canonical_verdict(_spec(_named("t1"), has_runs=False)
+                               | {"findings": [{"id": "f1"}], "execution_status": "completed"})
+        assert cv["progress"] == "completed"
+        assert cv["progress_diverges"] is False
+
+    def test_authored_failed_not_downgraded_by_derived_completed(self):
+        # a human-recorded `failed` is terminal — a derived `completed` (tie rank)
+        # must not override it.
+        cv = canonical_verdict(_spec(_named("t1"), has_runs=False)
+                               | {"findings": [{"id": "f1"}], "execution_status": "failed"})
+        assert cv["progress"] == "failed"
+        assert cv["progress_diverges"] is False
+
+    def test_no_evidence_no_authored_still_omits_progress(self):
+        # a never-touched study keeps the old "omit progress" behavior.
+        assert "progress" not in canonical_verdict(_spec(_named("t1"), has_runs=False))
+
+    def test_derive_knowledge_threads_ran_evidence(self):
+        spec = {"name": "s", "behavior_tests": [], "simulation_status": "not_run"}
+        kn = derive_knowledge({"studies": ["a"]}, {"a": spec}, ran_evidence={"a": True})
+        assert kn["verdicts"]["a"]["progress_derived"] == "completed"
+
+
 # ---------------------------------------------------------------------------
 # derive_knowledge — verdicts for all members + singleton Concepts
 # ---------------------------------------------------------------------------

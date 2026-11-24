@@ -56,6 +56,26 @@ def test_run_cycle_projects_verdicts_claims_narrative_gates():
     assert isinstance(out["open_calls"], list)
 
 
+def test_run_cycle_surfaces_progress_gap_signal():
+    # #1 advisory: a study with recorded findings but a stale `planned`
+    # execution_status is flagged — the Progress-axis twin of reproducibility_gap.
+    studies = {"a": _study("a", "PASS", claim="a holds",
+                           execution_status="planned", findings=[{"id": "f1"}])}
+    out = discover.run_cycle({"studies": ["a"]}, studies)
+    gaps = out["signals"]["progress_gap"]
+    assert [g["study"] for g in gaps] == ["a"]
+    assert gaps[0]["authored"] == "planned" and gaps[0]["derived"] == "completed"
+    # and the projected progress is already corrected to completed
+    assert out["knowledge"]["verdicts"]["a"]["progress"] == "completed"
+
+
+def test_run_cycle_no_progress_gap_when_consistent():
+    studies = {"a": _study("a", "PASS", claim="a holds",
+                           execution_status="completed", findings=[{"id": "f1"}])}
+    out = discover.run_cycle({"studies": ["a"]}, studies)
+    assert out["signals"]["progress_gap"] == []
+
+
 def test_run_cycle_honors_authored_verdict_block():
     # authored knowledge.verdicts wins over the derived refuted
     studies = {"b": _study("b", "FAIL", claim="b fails")}

@@ -119,9 +119,13 @@ def derive_status(spec: dict, runs: list[dict] | None,
 # tests were run and if the study passed."
 # ---------------------------------------------------------------------------
 
-_TEST_PASS = {"pass", "passed", "ok"}
-_TEST_FAIL = {"fail", "failed", "error"}
-_TEST_SKIP = {"skip", "skipped", "inconclusive", "partial"}
+# Per-test outcome vocab. Studies author these inconsistently — {passed,failed}
+# vs {passing,blocked} — so both spellings are recognized here (the single per-test
+# classifier) rather than silently falling through to "pending". `blocked` means a
+# prerequisite was not met → treated as skip (not assessable), not a failure.
+_TEST_PASS = {"pass", "passed", "passing", "ok"}
+_TEST_FAIL = {"fail", "failed", "failing", "error"}
+_TEST_SKIP = {"skip", "skipped", "inconclusive", "partial", "blocked"}
 # A test with no recorded run-outcome renders as "pending" (the report keys the
 # pill off the latest run's outcomes, NOT the test's own status field).
 
