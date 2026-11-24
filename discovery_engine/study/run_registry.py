@@ -10,6 +10,7 @@ its run_id can always be traced back to the exact config that produced it.
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import sqlite3
 import time
@@ -69,6 +70,122 @@ def latest_run(runs_db: Path) -> dict | None:
         return None
 
 
+# The framework packages whose versions, together with the workspace commit,
+# pin a run's reproduction environment. Dist (PyPI) names, not import names;
+# each is looked up best-effort and only recorded if installed, so the list can
+# carry aliases / future packages without breaking on a partial install.
+_ENV_PACKAGES = (
+    "process-bigraph", "bigraph-schema", "bigraph-loom",
+    "viva-discovery-engine", "discovery-engine",
+    "vivarium-workbench", "viva-emitters", "viva-superpowers",
+)
+
+
+def _find_ws_root(start: Path | str | None) -> Path | None:
+    """Walk up from ``start`` (a path inside a workspace, e.g. a runs.db) to the
+    workspace root — the first ancestor holding ``workspace.yaml`` or ``.git``.
+
+    Lets :func:`register_run` capture the commit even when a caller (e.g. a
+    bespoke earn script) never passed ``ws_root`` — so EVERY recorded run carries
+    its environment, not only dashboard-launched ones."""
+    if start is None:
+        return None
+    try:
+        p = Path(start).resolve()
+    except Exception:  # noqa: BLE001
+        return None
+    for d in (p, *p.parents):
+        try:
+            if (d / "workspace.yaml").is_file() or (d / ".git").exists():
+                return d
+        except Exception:  # noqa: BLE001
+            continue
+    return None
+
+
+def capture_environment(ws_root: Path | str | None = None,
+                        pkg: str | None = None) -> dict:
+    """Best-effort reproduction environment for a run: the workspace **commit**
+    (the anchor), whether the tree was dirty, the branch, the installed
+    **framework package** versions, python/platform, and a stable ``env_id``
+    hash of all of that. A dirty tree or an uncommitted lockfile can't be
+    reconstructed from the commit alone, so the package versions are recorded
+    directly and ``dirty`` flags when the commit is not a faithful anchor.
+
+    Never raises — every probe degrades to ``None``/absent — so recording a run
+    is never blocked by a missing git repo or metadata. Always returns a dict
+    (never ``None``): the point is that every simulation carries an environment.
+    """
+    import platform as _platform
+    import subprocess
+
+    commit = branch = None
+    dirty = None
+    if ws_root is not None:
+        wr = str(ws_root)
+        try:
+            r = subprocess.run(["git", "-C", wr, "rev-parse", "HEAD"],
+                               capture_output=True, text=True, timeout=5, check=False)
+            commit = r.stdout.strip() or None if r.returncode == 0 else None
+        except Exception:  # noqa: BLE001
+            commit = None
+        try:
+            r = subprocess.run(["git", "-C", wr, "rev-parse", "--abbrev-ref", "HEAD"],
+                               capture_output=True, text=True, timeout=5, check=False)
+            branch = r.stdout.strip() or None if r.returncode == 0 else None
+        except Exception:  # noqa: BLE001
+            branch = None
+        if commit is not None:
+            try:
+                r = subprocess.run(["git", "-C", wr, "status", "--porcelain"],
+                                   capture_output=True, text=True, timeout=5, check=False)
+                dirty = bool(r.stdout.strip()) if r.returncode == 0 else None
+            except Exception:  # noqa: BLE001
+                dirty = None
+
+    packages: dict[str, str] = {}
+    try:
+        from importlib.metadata import PackageNotFoundError
+        from importlib.metadata import version as _pkg_version
+        candidates = list(_ENV_PACKAGES) + ([pkg] if pkg else [])
+        for dist in candidates:
+            try:
+                packages[dist] = _pkg_version(dist)
+            except PackageNotFoundError:
+                continue
+            except Exception:  # noqa: BLE001
+                continue
+    except Exception:  # noqa: BLE001
+        packages = {}
+
+    try:
+        py = _platform.python_version()
+    except Exception:  # noqa: BLE001
+        py = None
+    try:
+        plat = _platform.platform()
+    except Exception:  # noqa: BLE001
+        plat = None
+
+    env = {
+        "commit": commit,
+        "dirty": dirty,
+        "branch": branch,
+        "packages": packages,
+        "python": py,
+        "platform": plat,
+    }
+    # env_id identifies "this exact environment": the commit + dirtiness + the
+    # resolved package set + interpreter. Branch is excluded (the same commit on
+    # two branches is one environment). Lives INSIDE env so the manifest's pinned
+    # top-level key set is unchanged.
+    ident = json.dumps({"commit": commit, "dirty": dirty, "packages": packages,
+                        "python": py, "platform": plat},
+                       sort_keys=True, default=str)
+    env["env_id"] = hashlib.sha256(ident.encode("utf-8")).hexdigest()[:12]
+    return env
+
+
 def build_run_manifest(*, spec_id, params, n_steps, emitter=None,
                        emit_paths=None, runtime=None, origin="bespoke",
                        study=None, pkg=None, generation_id=None,
@@ -92,9 +209,11 @@ def build_run_manifest(*, spec_id, params, n_steps, emitter=None,
     no ``ws_root``/``pkg`` given, ...) degrades to ``None`` rather than
     raising — this must never block a run from being recorded.
 
-    ``env``, ``seed``, ``fingerprint_fields``, ``result_fingerprint`` are v2
-    keys filled in by later tasks (env capture, result fingerprinting,
-    first-class seed threading) — present as ``null`` here, not computed.
+    ``env`` is the reproduction environment (:func:`capture_environment`): the
+    workspace commit + dirty flag + framework package versions + an ``env_id``
+    hash, so every recorded run can be traced back to the exact code + packages.
+    ``seed``, ``fingerprint_fields``, ``result_fingerprint`` remain v2 keys for
+    later tasks — present as ``null`` here, not computed.
     """
     git_sha = None
     if ws_root is not None:
@@ -129,7 +248,7 @@ def build_run_manifest(*, spec_id, params, n_steps, emitter=None,
         "pkg": pkg,
         "generation_id": generation_id,
         "code_version": {"git_sha": git_sha, "package": pkg_version},
-        "env": None,
+        "env": capture_environment(ws_root, pkg),
         "seed": None,
         "fingerprint_fields": None,
         "result_fingerprint": None,
@@ -172,6 +291,11 @@ def register_run(
     """
     runs_db = Path(runs_db)
     runs_db.parent.mkdir(parents=True, exist_ok=True)
+    # Capture the environment even when the caller didn't pass ws_root: derive
+    # the workspace root from the runs.db location so a bespoke earn script that
+    # only knows the DB path still records the commit (every run gets an env).
+    if ws_root is None:
+        ws_root = _find_ws_root(runs_db)
     conn = sqlite3.connect(str(runs_db), timeout=5.0)
     try:
         conn.executescript(RUNS_META_DDL)
@@ -184,14 +308,18 @@ def register_run(
             if params is not None else None
         )
         manifest_json = None
+        env_id = None
         if params is not None or n_steps is not None:
             try:
-                manifest_json = json.dumps(build_run_manifest(
+                manifest = build_run_manifest(
                     spec_id=spec_id or run_id, params=params, n_steps=n_steps,
                     generation_id=generation_id, ws_root=ws_root, pkg=pkg,
-                ), default=str)
+                )
+                env_id = (manifest.get("env") or {}).get("env_id")
+                manifest_json = json.dumps(manifest, default=str)
             except Exception:  # noqa: BLE001 — best-effort, never block a run
                 manifest_json = None
+                env_id = None
         now = time.time()
         if existing is None:
             cols = ["run_id", "spec_id", "started_at", "status"]
@@ -205,6 +333,7 @@ def register_run(
                 "emitter_path": emitter_path,
                 "generation_id": generation_id,
                 "manifest_json": manifest_json,
+                "env_id": env_id,
             }
             for col, val in optional.items():
                 if val is not None and col in have:
@@ -226,6 +355,7 @@ def register_run(
                 "emitter_path": emitter_path,
                 "generation_id": generation_id,
                 "manifest_json": manifest_json,
+                "env_id": env_id,
             }
             for col, val in updates.items():
                 if val is not None and col in have:

@@ -1,9 +1,14 @@
 import json
 import sqlite3
-from pathlib import Path
+
 from discovery_engine.study.run_registry import (
-    latest_run, register_run, get_run_params, RUNS_META_DDL, build_run_manifest,
+    RUNS_META_DDL,
+    build_run_manifest,
+    get_run_params,
+    latest_run,
+    register_run,
 )
+
 
 def _db(tmp):
     p = tmp / "runs.db"; conn = sqlite3.connect(p); conn.executescript(RUNS_META_DDL)
@@ -93,6 +98,71 @@ def test_get_run_params_missing_run_or_db(tmp_path):
 
 # --- manifest_json (reproducible-rerun-spine Task 1: unify writers) --------
 
+def _git(cwd, *args):
+    import subprocess
+    subprocess.run(["git", "-C", str(cwd), *args], check=True,
+                   capture_output=True, text=True)
+
+
+def test_capture_environment_records_commit_and_env_id(tmp_path):
+    from discovery_engine.study.run_registry import capture_environment
+    _git(tmp_path, "init", "-q")
+    _git(tmp_path, "config", "user.email", "t@t")
+    _git(tmp_path, "config", "user.name", "t")
+    (tmp_path / "f.txt").write_text("x")
+    _git(tmp_path, "add", "-A")
+    _git(tmp_path, "commit", "-qm", "init")
+    env = capture_environment(tmp_path)
+    assert env["commit"] and len(env["commit"]) == 40
+    assert env["dirty"] is False
+    assert env["env_id"] and isinstance(env["env_id"], str)
+    # a new uncommitted change flips dirty and so changes env_id
+    (tmp_path / "f.txt").write_text("y")
+    env2 = capture_environment(tmp_path)
+    assert env2["dirty"] is True
+    assert env2["env_id"] != env["env_id"]
+
+
+def test_capture_environment_never_raises_without_git():
+    from discovery_engine.study.run_registry import capture_environment
+    env = capture_environment(None)          # no ws_root at all
+    assert isinstance(env, dict) and env["commit"] is None and env["env_id"]
+    assert isinstance(env["packages"], dict)  # framework pkgs still recorded
+
+
+def test_register_run_derives_ws_root_and_records_commit(tmp_path):
+    # The earn-path gap: a caller that passes only the runs.db path (no ws_root)
+    # must still capture the commit — register_run walks up to the workspace root.
+    from discovery_engine.study.run_registry import latest_run, register_run
+    _git(tmp_path, "init", "-q")
+    _git(tmp_path, "config", "user.email", "t@t")
+    _git(tmp_path, "config", "user.name", "t")
+    (tmp_path / "workspace.yaml").write_text("name: ws\n")
+    _git(tmp_path, "add", "-A")
+    _git(tmp_path, "commit", "-qm", "init")
+    db = tmp_path / "studies" / "s" / "runs.db"
+    register_run(db, "baseline", spec_id="x", status="completed", n_steps=14)  # no ws_root
+    m = json.loads(latest_run(db)["manifest_json"])
+    assert m["env"]["commit"] and len(m["env"]["commit"]) == 40
+
+
+def test_register_run_writes_env_id_column_when_present(tmp_path):
+    from discovery_engine.study.run_registry import register_run
+    db = tmp_path / "runs.db"
+    # a workbench-shape runs.db that HAS an env_id column
+    conn = sqlite3.connect(db)
+    conn.executescript(
+        "CREATE TABLE runs_meta (run_id TEXT PRIMARY KEY, spec_id TEXT NOT NULL,"
+        " started_at REAL NOT NULL, completed_at REAL, status TEXT NOT NULL,"
+        " n_steps INTEGER, manifest_json TEXT, env_id TEXT);")
+    conn.commit(); conn.close()
+    register_run(db, "r1", spec_id="x", params={"seed": 1}, n_steps=3)
+    conn = sqlite3.connect(db)
+    val = conn.execute("SELECT env_id FROM runs_meta WHERE run_id='r1'").fetchone()[0]
+    conn.close()
+    assert val and isinstance(val, str)
+
+
 def test_register_run_stamps_manifest_v2(tmp_path):
     # Bespoke `run-script` runs go through register_run, not the dashboard's
     # composite_runs.save_metadata — this is the "second writer" the
@@ -106,8 +176,13 @@ def test_register_run_stamps_manifest_v2(tmp_path):
     assert m["params"]["seed"] == 0
     assert m["n_steps"] == 10
     assert m["spec_id"] == "ecoli"
-    for k in ("env", "seed", "fingerprint_fields", "result_fingerprint"):
+    for k in ("seed", "fingerprint_fields", "result_fingerprint"):
         assert k in m and m[k] is None
+    # env is now captured (not a null placeholder): a dict with a stable env_id
+    # and the installed framework package versions.
+    assert isinstance(m["env"], dict)
+    assert m["env"]["env_id"] and isinstance(m["env"]["env_id"], str)
+    assert isinstance(m["env"]["packages"], dict)
 
 
 def test_build_run_manifest_schema_matches_documented_v2_key_set():
