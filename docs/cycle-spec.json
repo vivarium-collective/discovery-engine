@@ -18,7 +18,7 @@
     {"id": "evaluate",   "name": "Evaluate",   "philosophical": "Evaluate", "nodes": ["reconcile", "evaluate"],
      "meaning": "Compare predicted and observed results; assess reliability and support.",
      "public": "Assess evidence integrity and competing claims."},
-    {"id": "synthesize", "name": "Synthesize", "philosophical": "Integrate", "nodes": ["propose", "select", "seed", "refine", "discovery", "explain", "reopen"],
+    {"id": "synthesize", "name": "Synthesize", "philosophical": "Integrate", "nodes": ["propose", "select", "seed", "refine", "discovery", "upgrade", "explain", "reopen"],
      "meaning": "Revise the knowledge state, integrate evidence, and expose new questions.",
      "public": "Integrate knowledge and start the next round of inquiry."}
   ],
