@@ -60,7 +60,7 @@ the stages, the functions, the skills, and the flow into investigations, studies
 \vspace{2.4cm}
 {\large discovery-engine \textbf{0.7.5} \; (\code{main})\par}
 \vspace{0.4em}
-{\color{muted} 2026-11-21\par}
+{\color{muted} 2026-11-23\par}
 \vspace{2cm}
 {\color{muted}\small
 \begin{tabular}{@{}r@{\;\;}l@{}}
@@ -131,7 +131,7 @@ op --- a policy-gated cycle move, not a side channel.
 \paragraph{Self-contained, and evidence versioned.} Two later increments harden this. The engine
 became \textbf{self-contained} (0.4.1--0.5.0): the report render, the report lint, the
 study-maintenance verbs, and the whole linkage index moved out of the workbench and the skills into
-engine-native \code{discover} commands that run \emph{headless}, with no server (40 verbs today;
+engine-native \code{discover} commands that run \emph{headless}, with no server (43 verbs today;
 \S\ref{sec:cli}). And the evaluation snapshot became \textbf{versioned} (0.6.0): it carries a
 \code{schema\_version}, its \code{grader}/\code{resolver} versions, and an \code{inputs\_hash} over
 the measured ledger. A candidate diffed against a snapshot written by a \emph{different
@@ -198,6 +198,22 @@ study explicitly names another member study it does not yet declare a relation t
 \code{study\_edge\_proposed} advisory (\code{builds-on}, accepted via \code{discover relate}) --- so a
 hand-authored graph with real but unwired dependencies is surfaced for accept, never auto-wired, and
 never onto a refuted parent.
+
+\paragraph{The model-upgrade gate (\code{upgrade-decision}).} The last hop of the closed-loop spec
+(\S7, 2026-10-30). The engine could classify evidence, promote claims, and record a human
+approve/reject of a revision --- but nothing \emph{gated} a model update on the verified-evidence
+ledger. \code{discover upgrade-decision} is that gate. For each authored candidate change
+(\code{upgrade\_candidates[]}, each naming the findings that must be \code{VERIFIED} via
+\code{requires:} plus optional \code{contradicted\_if:} guards) it reconciles evidence --- the same
+ledger \code{reconcile-evidence} prints --- and decides \textbf{no-go} (a required or guard finding is
+\code{CONTRADICTED}), \textbf{go} (every required finding is \code{VERIFIED} by a code-graded
+registered run), or \textbf{insufficient} (a required finding is
+\code{UNSUPPORTED}/\code{PROVISIONAL}/unknown). Candidates rank go $\rightarrow$ insufficient
+$\rightarrow$ no-go and the top go is recommended. It adds \emph{no} new evidence rule --- it composes
+the existing ledger into a defensible go/no-go; with \code{-{}-record} it persists an
+\code{upgrade\_decision} block + an \code{open\_decision} resolution stamped with the evidence
+signature it rests on, so a later re-run against drifted evidence is detectable (the
+\code{snapshot-validations} contract, for decisions).
 
 % ===========================================================================
 \section{The cycle at a glance}
@@ -739,7 +755,7 @@ do not gate.
 \section{The headless surface --- the \code{discover} CLI}\label{sec:cli}
 
 The 0.4.1--0.5.0 increment moved the whole cycle behind one headless CLI
-(\code{python -m discovery\_engine.discover}, 40 verbs). The skills and the workbench both reach
+(\code{python -m discovery\_engine.discover}, 43 verbs). The skills and the workbench both reach
 the same logic; nothing requires a server. Grouped:
 
 \begin{center}\small
@@ -747,13 +763,13 @@ the same logic; nothing requires a server. Grouped:
 \toprule
 \textbf{group} & \textbf{verbs}\\
 \midrule
-Project / status & \code{cycle}, \code{status}, \code{crank}, \code{opportunities}, \code{complete}, \code{diagnose}, \code{benchmark}\\
+Project / status & \code{cycle}, \code{status}, \code{stage}, \code{crank}, \code{opportunities}, \code{complete}, \code{diagnose}, \code{benchmark}\\
 Phases A--F & \code{reconcile-evidence}, \code{plan}, \code{design}, \code{build-model}, \code{hypotheses}, \code{evaluate}, \code{delta}\\
 Generation seam & \code{requests} (\code{-{}-fill}), \code{propose} (\code{-{}-fill}/\code{-{}-autonomous})\\
 Growth / execute & \code{suggest}, \code{seed-study}, \code{refine-study}, \code{advance}, \code{execute}\\
-Bounded run & \code{investigate} (loop emit $\rightarrow$ fill $\rightarrow$ apply under a budget, logging each decision; \S\ref{sec:eval})\\
+Bounded run & \code{investigate} (loop emit $\rightarrow$ fill $\rightarrow$ apply under a budget, logging each decision; \S\ref{sec:eval}), \code{campaign} (R1 unified controller)\\
 Author / discharge & \code{set-verdict}, \code{relate}, \code{connect}, \code{resolve}, \code{revise}, \code{gap}, \code{viz}, \code{hypothesize}, \code{critique}\\
-Discovery & \code{review-findings} (\code{-{}-promote}/\code{-{}-hold})\\
+Discovery & \code{review-findings} (\code{-{}-promote}/\code{-{}-hold}), \code{upgrade-decision} (\code{-{}-record})\\
 Reopen & \code{ingest-feedback}\\
 Report / audit & \code{report}, \code{lint}, \code{linkage}, \code{snapshot-validations}\\
 Study maintenance & \code{populate-observations}, \code{readout-migrate}, \code{band-provenance}\\
@@ -898,7 +914,7 @@ Growth $\cdot$ seed / refine & \real & pure spec; autonomous write-back via \cod
 E $\cdot$ Execute / advance & \real, dry by default & sandboxed in the panel; one AutonomyPolicy gates every op\\
 Reopen & \real & structured re-entry on staged feedback; typed, schema-validated\\
 Gate system & \real & deterministic; three blocking kinds; value-ranked next action\\
-Self-contained CLI + linkage & \real & 40 headless \code{discover} verbs (0.4.1--0.5.0)\\
+Self-contained CLI + linkage & \real & 43 headless \code{discover} verbs (0.4.1--0.5.0)\\
 Versioned evidence snapshot & \real & snapshot provenance + stale-on-version-drift gate (0.6.0)\\
 Evaluation substrate & \real & typed Discrepancy + held-out EvidenceRecord + rubric/gates; Benchmark~1 passes (\S\ref{sec:eval})\\
 Bounded run (\code{investigate}) & \real & budget + typed stops + decision log; composes existing verbs\\
@@ -924,7 +940,7 @@ reopen.
 
 \vfill
 \begin{center}\footnotesize\color{muted}
-discovery-engine 0.7.2 \;$\cdot$\; derive-first \;$\cdot$\; one measured input \;$\cdot$\; one LLM seam \;$\cdot$\; the loop closes
+discovery-engine 0.7.5 \;$\cdot$\; derive-first \;$\cdot$\; one measured input \;$\cdot$\; one LLM seam \;$\cdot$\; the loop closes
 \end{center}
 
 \end{document}
