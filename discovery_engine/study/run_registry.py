@@ -425,6 +425,33 @@ def register_run(
         conn.close()
 
 
+def backfill_sim_names(runs_db) -> int:
+    """Heal legacy rows: set ``sim_name = run_id`` for every ``runs_meta`` row with
+    a NULL/empty ``sim_name`` (rows written before :func:`register_run` set it, which
+    the study-Simulations view silently drops). Returns the number of rows updated.
+    Idempotent and best-effort — a missing DB / column / lock yields 0, never raises."""
+    runs_db = Path(runs_db)
+    if not runs_db.is_file():
+        return 0
+    try:
+        conn = sqlite3.connect(str(runs_db), timeout=5.0)
+    except sqlite3.Error:
+        return 0
+    try:
+        have = {r[1] for r in conn.execute("PRAGMA table_info(runs_meta)")}
+        if not {"sim_name", "run_id"} <= have:
+            return 0
+        cur = conn.execute(
+            "UPDATE runs_meta SET sim_name = run_id "
+            "WHERE sim_name IS NULL OR sim_name = ''")
+        conn.commit()
+        return cur.rowcount or 0
+    except sqlite3.Error:
+        return 0
+    finally:
+        conn.close()
+
+
 def list_runs(runs_db) -> list[dict]:
     """All runs_meta rows, newest first by COALESCE(completed_at, started_at).
     Returns [] if the DB or table is absent. Tolerant of missing columns."""

@@ -264,3 +264,22 @@ def test_register_run_defaults_sim_name_to_run_id(tmp_path):
     register_run(db, "r2", spec_id="x", status="completed", n_steps=1, sim_name="pretty-name")
     r2 = next(r for r in list_runs(db) if r["run_id"] == "r2")
     assert r2["sim_name"] == "pretty-name"
+
+
+def test_backfill_sim_names_heals_null_rows(tmp_path):
+    from discovery_engine.study.run_registry import backfill_sim_names, list_runs
+    db = tmp_path / "runs.db"
+    conn = sqlite3.connect(db)
+    conn.executescript(
+        "CREATE TABLE runs_meta (run_id TEXT PRIMARY KEY, spec_id TEXT NOT NULL,"
+        " started_at REAL NOT NULL, completed_at REAL, status TEXT NOT NULL, sim_name TEXT);")
+    conn.execute("INSERT INTO runs_meta (run_id, spec_id, started_at, status, sim_name)"
+                 " VALUES ('baseline','x',1.0,'completed',NULL)")
+    conn.execute("INSERT INTO runs_meta (run_id, spec_id, started_at, status, sim_name)"
+                 " VALUES ('r2','x',1.0,'completed','keep')")
+    conn.commit(); conn.close()
+    assert backfill_sim_names(db) == 1                     # one NULL healed
+    rows = {r["run_id"]: r["sim_name"] for r in list_runs(db)}
+    assert rows["baseline"] == "baseline"                 # set to run_id
+    assert rows["r2"] == "keep"                           # explicit name untouched
+    assert backfill_sim_names(db) == 0                    # idempotent
