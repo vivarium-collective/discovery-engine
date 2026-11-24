@@ -39,3 +39,21 @@ def test_verdict_to_result_maps_all_verdicts():
     assert verdict_to_result("ungraded") == "SKIP"
     assert verdict_to_result("pass") == "PASS"          # aliases normalize first
     assert verdict_to_result(None) == "SKIP"
+
+
+def test_blocked_and_passing_aliases_normalize():
+    # studies author per-test status inconsistently — {passing,blocked} must map.
+    assert v.normalize_verdict("passing") == "within_tol"
+    assert v.normalize_verdict("blocked") == "ungraded"   # prerequisite unmet, not a fail
+    assert v.agent_status("blocked") == "no-data"
+
+
+def test_bucket_tests_recognizes_passing_and_blocked():
+    from discovery_engine.study.status import bucket_tests
+    tests = [{"name": "a"}, {"name": "b"}, {"name": "c"}]
+    outcomes = {"a": {"result": "passing"}, "b": {"result": "blocked"},
+                "c": {"result": "failing"}}
+    b = bucket_tests(tests, outcomes)
+    assert b["pass"] == ["a"]
+    assert b["skip"] == ["b"]
+    assert b["fail"] == ["c"]

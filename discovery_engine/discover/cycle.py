@@ -128,7 +128,7 @@ def load_workspace_build_hook(ws_root: Path | str | None):
 def run_cycle(inv_spec: dict, studies_by_slug: dict[str, dict], *,
               evidence_state: dict | None = None, catalog: list | None = None,
               viz_state: dict | None = None, viz_catalog: list | None = None,
-              workspace: dict | None = None) -> dict:
+              workspace: dict | None = None, ran_evidence: dict | None = None) -> dict:
     """Project one full discovery cycle over an investigation + its studies.
 
     Pure: no disk I/O. Each derived projection is merged over its authored block
@@ -138,7 +138,7 @@ def run_cycle(inv_spec: dict, studies_by_slug: dict[str, dict], *,
     catalog passed in as data by an impure caller; absent, it is derived unresolved.
     """
     knowledge = merge_knowledge(inv_spec.get("knowledge"),
-                                derive_knowledge(inv_spec, studies_by_slug))
+                                derive_knowledge(inv_spec, studies_by_slug, ran_evidence))
     argument = merge_argument(inv_spec.get("argument"),
                               derive_argument(inv_spec, studies_by_slug))
 
@@ -198,6 +198,16 @@ def run_cycle(inv_spec: dict, studies_by_slug: dict[str, dict], *,
         # is surfaced for review, never silently trusted or auto-re-run.
         "reproducibility_gap": [g for g in ((evidence_state or {}).get("reproducibility_gaps") or [])
                                 if g.get("study") not in bad],
+        # A study whose authored `execution_status` UNDERSTATES demonstrated progress — it reads
+        # proposed/planned/running but the evidence (gate/eval/lifecycle/findings/rendered artifacts)
+        # shows it ran. The Progress-axis twin of reproducibility_gap: the card would show
+        # "Planned/Running" next to real findings. Derived from the knowledge projection's
+        # `progress_diverges`, so it never re-implements the derivation. Advisory, non-blocking.
+        "progress_gap": [
+            {"study": slug, "authored": v.get("progress_authored"),
+             "derived": v.get("progress_derived")}
+            for slug, v in ((knowledge or {}).get("verdicts") or {}).items()
+            if v.get("progress_diverges") and slug not in bad],
     }
     # Typed, sourced triggers for generated hypotheses (anomalies + live model disagreements),
     # derived from the signals above so a `hypothesize` act names the surprise it must explain.
@@ -263,6 +273,36 @@ def _derive_workspace_view(ws_root, studies: dict, *, heavy: bool = False) -> di
     return view
 
 
+def _ran_artifacts_on_disk(ws_root, inv_slug: str, slug: str) -> bool:
+    """IMPURE: does this study have run artifacts on disk that prove it ran, even
+    when its status axes are stale (``simulation_status: not_run`` on a study that
+    clearly ran)? Checks rendered figures, a report_card, a run_config.json, and a
+    runs.db — the filesystem twin of the in-spec `findings[]` signal. Supplied to
+    the pure projection as the per-study ``ran_evidence`` flag so the Progress axis
+    can reach `completed` for an artifact-only study. Mirrors the status-audit's
+    evidence probe; best-effort (never raises)."""
+    try:
+        ws = Path(ws_root)
+        sdir = studies_dir(ws) / slug
+        if not sdir.is_dir():
+            nested = investigations_dir(ws) / inv_slug / "studies" / slug
+            if nested.is_dir():
+                sdir = nested
+        if not sdir.is_dir():
+            return False
+        if (sdir / "run_config.json").exists() or (sdir / "runs.db").exists():
+            return True
+        if (sdir / "viz" / "report_card").is_dir():
+            return True
+        for pat in ("charts/*.svg", "charts/*.png", "charts/*.gif",
+                    "viz/*.svg", "viz/*.png", "viz/*.html", "figures/*"):
+            if any(sdir.glob(pat)):
+                return True
+    except Exception:  # noqa: BLE001 — a filesystem probe must never break the cycle
+        return False
+    return False
+
+
 def _cycle_with_evidence(ws_root, inv_slug, inv_spec, studies, *, heavy: bool = False) -> dict:
     """run_cycle with the Phase-A evidence state computed FIRST, so contradicted
     (evidence-problem) studies are known to the revision proposer and the frontier.
@@ -275,10 +315,12 @@ def _cycle_with_evidence(ws_root, inv_slug, inv_spec, studies, *, heavy: bool = 
         inv_spec, studies, _load_runs_by_study(Path(ws_root), inv_slug, studies))
     from discovery_engine.phases.model_architect import build_catalog
     viz = viz_inventory(ws_root, inv_slug, studies)  # the one impure viz harvest
+    ran_evidence = {slug: _ran_artifacts_on_disk(ws_root, inv_slug, slug) for slug in studies}
     return run_cycle(inv_spec, studies, evidence_state=ev,
                      catalog=build_catalog(studies, ws_root),  # resolved: enables composite swaps
                      viz_state=viz, viz_catalog=None,  # workbench catalog supplied by a later task
-                     workspace=_derive_workspace_view(ws_root, studies, heavy=heavy))
+                     workspace=_derive_workspace_view(ws_root, studies, heavy=heavy),
+                     ran_evidence=ran_evidence)
 
 def set_verdict(study_path: Path | str, verdict: str, rationale: str | None = None) -> dict:
     """Author a canonical verdict on a study (authored wins over the derived roll-up).

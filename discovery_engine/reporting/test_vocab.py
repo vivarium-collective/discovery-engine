@@ -25,6 +25,9 @@ _ALIASES = {
     "conditional-pass": "drift", "conditional_pass": "drift",
     "ungraded": "ungraded", "skip": "ungraded", "skipped": "ungraded",
     "pending": "ungraded", "gap": "ungraded", "not assessable": "ungraded",
+    # `blocked` = a prerequisite wasn't met so the test could not be assessed —
+    # not a failure, not a pass. (`passing` already maps to within_tol above.)
+    "blocked": "ungraded",
 }
 _AGENT = {"within_tol": "pass", "mismatch": "fail", "drift": "warn", "ungraded": "no-data"}
 _DISPLAY = {"within_tol": "met", "mismatch": "not met",
