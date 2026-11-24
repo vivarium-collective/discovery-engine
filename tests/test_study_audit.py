@@ -713,3 +713,59 @@ def test_gate_fails_on_stale_allowlist_entry(tmp_path):
     # (registry-independent — main() uses the real registry, but an empty
     # workspace has zero hard failures regardless).
     assert main(["--workspace", str(tmp_path), "--gate", "--allowlist", str(al)]) == 1
+
+
+# ---------------------------------------------------------------------------
+# L2 run-discoverable — a claimed run must be surfaceable by the workbench index
+# (evidence-chain breach: a row written with sim_name=NULL is read low but
+# dropped by the study-Simulations view, so study.yaml claims a run the UI hides)
+# ---------------------------------------------------------------------------
+import sqlite3 as _sqlite3  # noqa: E402
+
+_STUDY_CLAIMS_RUN = """name: s
+simulation_status: ran
+evaluation_status: evaluated
+findings:
+- id: F1
+  evidence: {from_run: baseline}
+  provenance: {run_ids: [baseline]}
+"""
+
+
+def _runs_db_null_sim_name(sdir, run_id="baseline"):
+    db = sdir / "runs.db"
+    conn = _sqlite3.connect(db)
+    conn.executescript(
+        "CREATE TABLE runs_meta (run_id TEXT PRIMARY KEY, spec_id TEXT NOT NULL,"
+        " started_at REAL NOT NULL, completed_at REAL, status TEXT NOT NULL,"
+        " sim_name TEXT);")
+    conn.execute("INSERT INTO runs_meta (run_id, spec_id, started_at, status, sim_name)"
+                 " VALUES (?,?,?,?,NULL)", (run_id, "x", 1.0, "completed"))
+    conn.commit(); conn.close()
+
+
+def test_run_discoverable_fails_on_null_sim_name(tmp_path):
+    ws = _ws(tmp_path); d = _study(ws, "s", _STUDY_CLAIMS_RUN)
+    _runs_db_null_sim_name(d)                       # the pre-fix earned-row shape
+    report = audit_workspace(ws)
+    c = _find_any(report, "run-discoverable")
+    assert c is not None and c.status == "fail"
+    assert "sim_name is null" in c.detail
+
+
+def test_run_discoverable_passes_when_registered_with_sim_name(tmp_path):
+    from discovery_engine.study.run_registry import register_run
+    ws = _ws(tmp_path); d = _study(ws, "s", _STUDY_CLAIMS_RUN)
+    register_run(d / "runs.db", "baseline", spec_id="x",
+                 status="completed", n_steps=14)   # new path sets sim_name=run_id
+    report = audit_workspace(ws)
+    c = _find_any(report, "run-discoverable")
+    assert c is not None and c.status == "pass"
+
+
+def test_run_discoverable_abstains_without_per_study_store(tmp_path):
+    # no runs.db → cross-study/no-run references are out of scope here (the
+    # reproducibility_gap check owns the "claims ran, no run at all" case).
+    ws = _ws(tmp_path); _study(ws, "s", _STUDY_CLAIMS_RUN)
+    report = audit_workspace(ws)
+    assert _find_any(report, "run-discoverable") is None

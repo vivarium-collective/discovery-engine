@@ -267,6 +267,7 @@ def register_run(
     completed_at: float | None = None,
     emitter_path: str | None = None,
     generation_id: str | None = None,
+    sim_name: str | None = None,
     ws_root: str | Path | None = None,
     pkg: str | None = None,
 ) -> None:
@@ -327,6 +328,11 @@ def register_run(
                     started_at if started_at is not None else now,
                     status or "recorded"]
             optional = {
+                # sim_name is the identity the workbench study-Simulations view
+                # keys on — default it to run_id so a row is NEVER identity-less
+                # (a NULL sim_name is read at the low level but dropped by the
+                # study runs listing, orphaning a run that study.yaml claims).
+                "sim_name": sim_name or run_id,
                 "params_json": params_json,
                 "n_steps": n_steps,
                 "completed_at": completed_at,
@@ -348,6 +354,9 @@ def register_run(
             updates = {
                 "spec_id": spec_id,
                 "status": status,
+                # only overwrite sim_name when a caller supplies one — a
+                # status-only re-register must not clobber an existing identity.
+                "sim_name": sim_name,
                 "params_json": params_json,
                 "n_steps": n_steps,
                 "started_at": started_at,
