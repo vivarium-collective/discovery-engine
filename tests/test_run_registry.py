@@ -232,3 +232,17 @@ def test_get_run_params_db_without_params_column(tmp_path):
     conn.execute("INSERT INTO runs_meta VALUES('r','s',1.0,5.0,'complete')")
     conn.commit(); conn.close()
     assert get_run_params(p, "r") is None  # column absent → None, no crash
+
+
+def test_register_run_defaults_sim_name_to_run_id(tmp_path):
+    # A row must never be identity-less: sim_name defaults to run_id so the
+    # workbench study-Simulations view can surface an earned run.
+    from discovery_engine.study.run_registry import list_runs, register_run
+    db = tmp_path / "runs.db"
+    register_run(db, "baseline", spec_id="x", status="completed", n_steps=14)
+    rows = list_runs(db)
+    assert rows[0]["run_id"] == "baseline" and rows[0]["sim_name"] == "baseline"
+    # an explicit sim_name is honored
+    register_run(db, "r2", spec_id="x", status="completed", n_steps=1, sim_name="pretty-name")
+    r2 = next(r for r in list_runs(db) if r["run_id"] == "r2")
+    assert r2["sim_name"] == "pretty-name"

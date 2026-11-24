@@ -529,6 +529,86 @@ def _audit_study(audit, sdir, wp, known_slugs, known_composites, generator_param
     # --- L2 supporting-provenance (hard) -----------------------------------
     _check_supporting_provenance(audit, spec)
 
+    # --- L2 run-discoverable (hard) ----------------------------------------
+    _check_run_discoverable(audit, sdir, spec)
+
+
+def _cited_run_ids(spec: dict) -> set:
+    """Every run id this study's spec points at: ``runs[]`` (name / run_id /
+    simulation_id), each finding's ``evidence.from_run`` and
+    ``provenance.run_ids``, and any ``visualizations[].run_id``."""
+    out: set = set()
+    for r in spec.get("runs") or []:
+        if isinstance(r, str):
+            out.add(r)
+        elif isinstance(r, dict):
+            rid = r.get("run_id") or r.get("simulation_id") or r.get("name")
+            if isinstance(rid, str) and rid:
+                out.add(rid)
+    for f in spec.get("findings") or []:
+        if not isinstance(f, dict):
+            continue
+        ev = f.get("evidence") if isinstance(f.get("evidence"), dict) else {}
+        fr = ev.get("from_run")
+        if isinstance(fr, str) and fr:
+            out.add(fr)
+        prov = f.get("provenance") if isinstance(f.get("provenance"), dict) else {}
+        for rid in prov.get("run_ids") or []:
+            if isinstance(rid, str) and rid:
+                out.add(rid)
+    for v in spec.get("visualizations") or []:
+        if isinstance(v, dict) and isinstance(v.get("run_id"), str) and v.get("run_id"):
+            out.add(v["run_id"])
+    return out
+
+
+def _check_run_discoverable(audit, sdir, spec: dict) -> None:
+    """L2 run-discoverable (HARD): a study that CLAIMS a run — ``simulation_status:
+    ran`` / ``evaluation_status: evaluated`` / recorded ``runs[]`` / findings that
+    cite a run — and owns a per-study ``runs.db`` must have, for every cited
+    ``run_id``, a registered ``runs_meta`` row the workbench runs index can
+    SURFACE: present, with a non-null ``sim_name``.
+
+    A row written without ``sim_name`` (the pre-fix ``register_run`` path) is read
+    at the low level but DROPPED by the study-Simulations view, so study.yaml's
+    run / figure / verdict claims and the workbench silently diverge — a figure or
+    'supported' verdict with no surfaced run. This fails loud instead.
+
+    Scoped to store-having studies (their ``runs.db`` holds the rows by global id);
+    a store-less study whose run id resolves elsewhere is out of scope here, and a
+    'ran' claim with NO run at all is the reproducibility_gap check's job, so this
+    abstains there rather than double-flagging. Read-only; never raises."""
+    from discovery_engine.study import run_registry
+    try:
+        db = Path(sdir) / "runs.db"
+        if not db.is_file():
+            return  # no per-study store → cross-study/no-run refs are out of scope
+        sim = str(spec.get("simulation_status") or "").strip().lower()
+        ev = str(spec.get("evaluation_status") or "").strip().lower()
+        claims = (sim == "ran" or ev in ("evaluated", "failed_evaluation")
+                  or bool(spec.get("runs")) or bool(spec.get("findings")))
+        if not claims:
+            return
+        cited = _cited_run_ids(spec)
+        if not cited:
+            return
+        rows = {r.get("run_id"): r.get("sim_name")
+                for r in run_registry.list_runs(db) if isinstance(r, dict)}
+        bad = []
+        for rid in sorted(cited):
+            if rid not in rows:
+                bad.append(f"{rid} (no registered run)")
+            elif not rows[rid]:
+                bad.append(f"{rid} (registered but not surfaced: sim_name is null)")
+        if bad:
+            audit.checks.append(CheckResult(
+                "L2", "run-discoverable", FAIL, HARD,
+                "study claims runs the workbench cannot surface: " + "; ".join(bad)))
+        else:
+            audit.checks.append(CheckResult("L2", "run-discoverable", PASS, HARD))
+    except Exception:  # noqa: BLE001 — cannot resolve → abstain
+        return
+
 
 def _status_of(audit, name) -> str | None:
     for c in audit.checks:
