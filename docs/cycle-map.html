@@ -1,6 +1,6 @@
 <title>Discovery Engine Map</title>
 <meta name="claude:viewport-fit-sides" content="cover">
-<meta name="description" content="An interactive map of the discovery-engine 0.7.2 cycle: stages, functions, skills, and the flow into investigations, studies, and models.">
+<meta name="description" content="An interactive map of the discovery-engine 0.7.5 cycle: stages, functions, skills, and the flow into investigations, studies, and models.">
 <style>
 /* Layout: a clockwise racetrack loop of the cycle's stages around a central engine core
    (the four substrate artifacts). Every edge runs along the perimeter — no crossings. */
@@ -235,7 +235,7 @@ footer{color:var(--faint);font-size:.72rem;text-align:center;padding:4px 0 26px;
   <header class="top">
     <h1>The Discovery Engine</h1>
     <nav class="stages-nav" id="stagesNav" aria-label="Cycle stages — click a stage to highlight its nodes"></nav>
-    <p class="sub">A clickable map of the derive-first cycle — click a stage above to highlight it, or any node for its functions, skills &amp; I/O. <span class="mono" style="color:var(--muted)">discovery-engine 0.7.2</span> &nbsp;·&nbsp; <button class="linkbtn" data-pop="intro">How to read this ⌄</button></p>
+    <p class="sub">A clickable map of the derive-first cycle — click a stage above to highlight it, or any node for its functions, skills &amp; I/O. <span class="mono" style="color:var(--muted)">discovery-engine 0.7.5</span> &nbsp;·&nbsp; <button class="linkbtn" data-pop="intro">How to read this ⌄</button></p>
     <div class="toolbar">
       <div class="search"><span style="color:var(--faint);font-size:.8rem">⌕</span><input id="q" placeholder="Search stages, functions, skills…" aria-label="Search" autocomplete="off"></div>
       <button class="iconbtn" id="play" aria-pressed="false">▶ Play the cycle</button>
@@ -306,7 +306,7 @@ footer{color:var(--faint);font-size:.72rem;text-align:center;padding:4px 0 26px;
     <span class="lk"><span class="sw" style="background:var(--b-discovery)"></span> discovery</span>
   </div>
 
-  <footer>discovery-engine 0.7.2 · derive-first · one measured input · one LLM seam · the loop closes</footer>
+  <footer>discovery-engine 0.7.5 · derive-first · one measured input · one LLM seam · the loop closes</footer>
 </div>
 
 <div class="scrim" id="scrim"></div>
@@ -403,6 +403,7 @@ footer{color:var(--faint);font-size:.72rem;text-align:center;padding:4px 0 26px;
         "seed",
         "refine",
         "discovery",
+        "upgrade",
         "explain",
         "reopen"
       ],
@@ -1261,6 +1262,44 @@ footer{color:var(--faint);font-size:.72rem;text-align:center;padding:4px 0 26px;
       "blurb": "A FindingCandidate is a pending nomination. A Discovery is minted only by a reviewed promotion — discover review-findings --promote, with novelty and counterevidence assessment — the one path that writes discoveries[]. Promotion is gated on model adequacy (assess_model_adequacy, R4): a candidate whose claim declares required mechanisms the model has not established is HELD, never minted — a Discovery can never outrun the mechanism behind it. A candidate diffed against a snapshot from a different grader/resolver VERSION is stale and re-baselined, not mined; a change in measured inputs under the same evaluator is the normal path to a finding, not staleness."
     },
     {
+      "id": "upgrade",
+      "stage": "synthesize",
+      "label": "Upgrade decision",
+      "band": "discovery",
+      "grade": "real",
+      "purity": "mutating",
+      "prov": [
+        "H",
+        "D"
+      ],
+      "fns": [
+        [
+          "run_upgrade_decision",
+          "discover/upgrade_decision.py"
+        ],
+        [
+          "decide_candidate",
+          "discover/upgrade_decision.py"
+        ],
+        [
+          "record_upgrade_decision",
+          "discover/upgrade_decision.py"
+        ]
+      ],
+      "skills": [],
+      "reads": [
+        "investigation",
+        "study",
+        "runs"
+      ],
+      "writes": [
+        "investigation"
+      ],
+      "consumes": "upgrade_candidates[] (each naming the findings it requires VERIFIED) + the evidence ledger",
+      "produces": "a ranked go / insufficient / no-go decision; an upgrade_decision block + open_decision resolution (with --record)",
+      "blurb": "The gate that closes the last hop of the closed-loop spec (§7, 2026-10-30): nothing may upgrade the model until the verified-evidence ledger says so. For each authored candidate change (upgrade_candidates[], each listing the findings that must be VERIFIED via requires: plus optional contradicted_if: guards) discover upgrade-decision reconciles evidence — the same ledger reconcile-evidence prints — and decides: no-go (a required or guard finding is CONTRADICTED), go (every required finding is VERIFIED by a code-graded registered run), or insufficient (a required finding is UNSUPPORTED / PROVISIONAL / unknown). Candidates rank go → insufficient → no-go and the top go is recommended. It adds no new evidence rule — it composes the existing ledger into a defensible go/no-go. With --record it persists an upgrade_decision block + an open_decision resolution stamped with the evidence signature it rests on, so a later re-run against drifted evidence is detectable (the snapshot-validations contract, for decisions)."
+    },
+    {
       "id": "explain",
       "stage": "synthesize",
       "label": "Explain",
@@ -1345,6 +1384,7 @@ footer{color:var(--faint);font-size:.72rem;text-align:center;padding:4px 0 26px;
     "refine",
     "execute",
     "discovery",
+    "upgrade",
     "explain",
     "reopen"
   ],
@@ -1570,7 +1610,7 @@ const byId = Object.fromEntries(NODES.map(n=>[n.id,n]));
 const esc = s => s.replace(/[&<>]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;"}[c]));
 
 /* exact investigation.yaml / study.yaml / runs.db fields each stage reads (r) & writes (w),
-   verified against discovery-engine 0.7.2 HEAD a720eff. keys: inv=investigation.yaml, study=study.yaml, runs=runs.db */
+   verified against discovery-engine 0.7.5 HEAD fc06009. keys: inv=investigation.yaml, study=study.yaml, runs=runs.db */
 const IO = {
  inputs:{r:{inv:["studies[] / members[]"],study:["— the whole study.yaml is loaded","investigation (back-ref, fallback)"],runs:["run_id, completed_at (via runs.db)"]},w:{}},
  core:{r:{inv:["knowledge, argument (authored blocks)","question, audience","plan_gates[]","executive.decisions_needed[]","hypotheses[].predictions[]","model_versions[]","validation_snapshot"],study:["verdict / conclusion_verdict","findings[].{id,status,statement}","behavior_tests[] / tests[]","runs[].outcomes / computed_outcomes","claim, title, question","parent_studies[].relation","baseline[] / variants[]"]},w:{}},
@@ -1590,6 +1630,7 @@ const IO = {
  refine:{r:{study:["robustness.{n_replicates,seeds,parameter_sweep}","baseline[].params, variants[].name"]},w:{study:["robustness.{n_replicates,seeds}","variants[] (append sweep arms)","baseline[0].{composite,note}","refined_from.{study,changes}"]}},
  execute:{r:{inv:["execute_plan + run_readiness"]},w:{inv:["studies[] / members[]  (promote-seed)","model_versions[] + revision_proposals[].status  (apply-revision)","status, executive, lifecycle_history, applied_feedback[]  (reopen)","resolutions[]  (steer)","executed_actions[]  (every action)","decision_log[]  (bounded run: every gated action)"],study:["runs[].{computed_outcomes,model_version}","verdict, verdict_rationale  (set-verdict)"],runs:["runs.db — runs_meta rows (register_run)"]}},
  discovery:{r:{inv:["finding_candidates[].{id,status}","cycle_state.evaluation_snapshot"],study:["findings[].{status,evidence.observed}","runs[].computed_outcomes"]},w:{inv:["discoveries[].{scope,novelty,counterevidence,evidence_refs,fingerprint,…}","finding_candidates[].{status,assessment,discovery_id}","review_decisions[]"]}},
+ upgrade:{r:{inv:["upgrade_candidates[].{requires,contradicted_if}","findings[] / finding_candidates[]  (the evidence ledger)"],study:["findings[].evidence.observed","runs[].computed_outcomes"],runs:["runs.db — registered runs (VERIFIED requires a graded run)"]},w:{inv:["upgrade_decision[].{candidate,decision,evidence_signature}  (--record)","resolutions[]  (open_decision per decided candidate, --record)"]}},
  reopen:{r:{inv:["pending_feedback[]","status, executive.verdict_status","hypotheses[], required_mechanisms[]","studies[], acceptance_criteria[]"]},w:{inv:["status, executive.verdict_status","lifecycle_history[]","applied_feedback[]","studies[], acceptance_criteria[], hypotheses[]"],study:["new studies' study.yaml (ingest-feedback)"]}},
 };
 function ioHTML(id){
