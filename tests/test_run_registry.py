@@ -105,7 +105,7 @@ def _git(cwd, *args):
 
 
 def test_capture_environment_records_commit_and_env_id(tmp_path):
-    from discovery_engine.study.run_registry import capture_environment
+    from discovery_engine.study.run_registry import capture_environment, env_id
     _git(tmp_path, "init", "-q")
     _git(tmp_path, "config", "user.email", "t@t")
     _git(tmp_path, "config", "user.name", "t")
@@ -113,21 +113,38 @@ def test_capture_environment_records_commit_and_env_id(tmp_path):
     _git(tmp_path, "add", "-A")
     _git(tmp_path, "commit", "-qm", "init")
     env = capture_environment(tmp_path)
-    assert env["commit"] and len(env["commit"]) == 40
+    assert env["workspace_commit"] and len(env["workspace_commit"]) == 40
     assert env["dirty"] is False
-    assert env["env_id"] and isinstance(env["env_id"], str)
+    eid = env_id(env)
+    assert eid and isinstance(eid, str) and len(eid) == 16
     # a new uncommitted change flips dirty and so changes env_id
     (tmp_path / "f.txt").write_text("y")
     env2 = capture_environment(tmp_path)
     assert env2["dirty"] is True
-    assert env2["env_id"] != env["env_id"]
+    assert env_id(env2) != eid
 
 
 def test_capture_environment_never_raises_without_git():
-    from discovery_engine.study.run_registry import capture_environment
+    from discovery_engine.study.run_registry import capture_environment, env_id
     env = capture_environment(None)          # no ws_root at all
-    assert isinstance(env, dict) and env["commit"] is None and env["env_id"]
-    assert isinstance(env["packages"], dict)  # framework pkgs still recorded
+    assert isinstance(env, dict) and env["workspace_commit"] is None
+    assert isinstance(env_id(env), str)
+    assert isinstance(env["sim_packages"], dict)  # framework pkgs still recorded
+
+
+def test_capture_environment_canonical_shape(tmp_path):
+    # the single shape shared with the workbench's env_fingerprint.compute_env
+    from discovery_engine.study.run_registry import capture_environment
+    (tmp_path / "uv.lock").write_text("lock")
+    env = capture_environment(tmp_path, cache_fingerprint="cf-1")
+    for k in ("workspace_commit", "dirty", "branch", "sim_packages",
+              "lockfile_hash", "python", "platform", "cache_fingerprint"):
+        assert k in env
+    assert env["cache_fingerprint"] == "cf-1"
+    assert env["lockfile_hash"] is not None
+    # sim_packages carry {version, git_sha}
+    for info in env["sim_packages"].values():
+        assert set(info) == {"version", "git_sha"}
 
 
 def test_register_run_derives_ws_root_and_records_commit(tmp_path):
@@ -143,7 +160,7 @@ def test_register_run_derives_ws_root_and_records_commit(tmp_path):
     db = tmp_path / "studies" / "s" / "runs.db"
     register_run(db, "baseline", spec_id="x", status="completed", n_steps=14)  # no ws_root
     m = json.loads(latest_run(db)["manifest_json"])
-    assert m["env"]["commit"] and len(m["env"]["commit"]) == 40
+    assert m["env"]["workspace_commit"] and len(m["env"]["workspace_commit"]) == 40
 
 
 def test_register_run_writes_env_id_column_when_present(tmp_path):
@@ -178,11 +195,12 @@ def test_register_run_stamps_manifest_v2(tmp_path):
     assert m["spec_id"] == "ecoli"
     for k in ("seed", "fingerprint_fields", "result_fingerprint"):
         assert k in m and m[k] is None
-    # env is now captured (not a null placeholder): a dict with a stable env_id
-    # and the installed framework package versions.
+    # env is now captured (not a null placeholder): the canonical shape, and a
+    # stable env_id derivable from it (and written to the runs_meta env_id column).
+    from discovery_engine.study.run_registry import env_id
     assert isinstance(m["env"], dict)
-    assert m["env"]["env_id"] and isinstance(m["env"]["env_id"], str)
-    assert isinstance(m["env"]["packages"], dict)
+    assert isinstance(m["env"]["sim_packages"], dict)
+    assert len(env_id(m["env"])) == 16
 
 
 def test_build_run_manifest_schema_matches_documented_v2_key_set():
