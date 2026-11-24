@@ -70,15 +70,21 @@ def latest_run(runs_db: Path) -> dict | None:
         return None
 
 
-# The framework packages whose versions, together with the workspace commit,
-# pin a run's reproduction environment. Dist (PyPI) names, not import names;
-# each is looked up best-effort and only recorded if installed, so the list can
-# carry aliases / future packages without breaking on a partial install.
-_ENV_PACKAGES = (
+# The framework packages whose version + git provenance, together with the
+# workspace commit + lockfile hash, pin a run's reproduction environment. Dist
+# (PyPI) names; each is looked up best-effort and only recorded if installed, so
+# the list can carry future packages without breaking on a partial install. This
+# is the single canonical set shared by both run-manifest writers (the workbench's
+# env_fingerprint.compute_env delegates here) — keep it the union of what each used.
+# Framework packages only — NO domain/workspace tokens (the no-domain-coupling
+# guard). A caller that knows its own domain packages supplies them via
+# capture_environment(extra_packages=...).
+_SIM_PACKAGES = (
     "process-bigraph", "bigraph-schema", "bigraph-loom",
-    "viva-discovery-engine", "discovery-engine",
-    "vivarium-workbench", "viva-emitters", "viva-superpowers",
+    "viva-discovery-engine", "vivarium-workbench", "viva-emitters", "viva-superpowers",
 )
+# dist → import name where it isn't just `dist.replace("-", "_")`.
+_IMPORT_NAME = {"viva-discovery-engine": "discovery_engine"}
 
 
 def _find_ws_root(start: Path | str | None) -> Path | None:
@@ -103,60 +109,105 @@ def _find_ws_root(start: Path | str | None) -> Path | None:
     return None
 
 
-def capture_environment(ws_root: Path | str | None = None,
-                        pkg: str | None = None) -> dict:
-    """Best-effort reproduction environment for a run: the workspace **commit**
-    (the anchor), whether the tree was dirty, the branch, the installed
-    **framework package** versions, python/platform, and a stable ``env_id``
-    hash of all of that. A dirty tree or an uncommitted lockfile can't be
-    reconstructed from the commit alone, so the package versions are recorded
-    directly and ``dirty`` flags when the commit is not a faithful anchor.
+def _git_out(ws_root, *args) -> str | None:
+    """Best-effort `git -C ws_root <args>` stdout, or None. Never raises."""
+    import subprocess
+    try:
+        r = subprocess.run(["git", "-C", str(ws_root), *args],
+                           capture_output=True, text=True, timeout=5, check=False)
+        return r.stdout.strip() or None if r.returncode == 0 else None
+    except Exception:  # noqa: BLE001 — best-effort provenance, never fatal
+        return None
 
-    Never raises — every probe degrades to ``None``/absent — so recording a run
-    is never blocked by a missing git repo or metadata. Always returns a dict
-    (never ``None``): the point is that every simulation carries an environment.
+
+def _pkg_info(dist: str) -> dict:
+    """``{version, git_sha}`` for a dist: version from importlib.metadata, git_sha
+    (best-effort) from the git repo containing the imported module — populated for
+    an editable / local checkout, None for a wheel install. Never raises."""
+    version = git_sha = None
+    try:
+        from importlib.metadata import version as _pkg_version
+        version = _pkg_version(dist)
+    except Exception:  # noqa: BLE001
+        version = None
+    try:
+        import importlib
+        mod = importlib.import_module(_IMPORT_NAME.get(dist, dist.replace("-", "_")))
+        f = getattr(mod, "__file__", None)
+        if f:
+            git_sha = _git_out(Path(f).resolve().parent, "rev-parse", "HEAD")
+    except Exception:  # noqa: BLE001
+        git_sha = None
+    return {"version": version, "git_sha": git_sha}
+
+
+def _lockfile_hash(ws_root) -> str | None:
+    """16-hex sha256 of the workspace's ``uv.lock`` (the anchor for the full
+    resolved package set), or None. Never raises."""
+    if ws_root is None:
+        return None
+    try:
+        lock = Path(ws_root) / "uv.lock"
+        return hashlib.sha256(lock.read_bytes()).hexdigest()[:16] if lock.is_file() else None
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def env_id(env: dict) -> str:
+    """Stable, order-independent 16-hex digest of an ``env`` dict (as produced by
+    :func:`capture_environment`). The identity of "this exact environment"; the
+    canonical hash shared with the workbench so both writers' env_ids agree."""
+    return hashlib.sha256(
+        json.dumps(env, sort_keys=True, default=str).encode("utf-8")
+    ).hexdigest()[:16]
+
+
+def capture_environment(ws_root: Path | str | None = None,
+                        pkg: str | None = None,
+                        cache_fingerprint: str | None = None,
+                        extra_packages: "tuple[str, ...] | list[str] | None" = None) -> dict:
+    """Best-effort reproduction environment for a run — the single canonical shape
+    shared by both run-manifest writers (the workbench's
+    ``env_fingerprint.compute_env`` delegates here):
+
+    ``{workspace_commit, dirty, branch, sim_packages:{dist:{version,git_sha}},
+    lockfile_hash, python, platform, cache_fingerprint}``.
+
+    The ``workspace_commit`` is the anchor; ``lockfile_hash`` pins the full
+    resolved package set; ``sim_packages`` records framework version + git_sha
+    directly so a run is still traceable when the tree is dirty or the lockfile
+    isn't pushed; ``dirty`` flags when the commit alone won't reproduce it. The
+    separate :func:`env_id` folds this into one comparable id.
+
+    Never raises — every probe degrades to ``None`` — so recording a run is never
+    blocked. Always returns a dict: every simulation carries an environment. (For
+    legacy callers, ``pkg`` is also captured in ``sim_packages`` when given.)
     """
     import platform as _platform
-    import subprocess
 
-    commit = branch = None
-    dirty = None
+    commit = branch = dirty = None
     if ws_root is not None:
-        wr = str(ws_root)
-        try:
-            r = subprocess.run(["git", "-C", wr, "rev-parse", "HEAD"],
-                               capture_output=True, text=True, timeout=5, check=False)
-            commit = r.stdout.strip() or None if r.returncode == 0 else None
-        except Exception:  # noqa: BLE001
-            commit = None
-        try:
-            r = subprocess.run(["git", "-C", wr, "rev-parse", "--abbrev-ref", "HEAD"],
-                               capture_output=True, text=True, timeout=5, check=False)
-            branch = r.stdout.strip() or None if r.returncode == 0 else None
-        except Exception:  # noqa: BLE001
-            branch = None
+        import subprocess
+        commit = _git_out(ws_root, "rev-parse", "HEAD")
+        branch = _git_out(ws_root, "rev-parse", "--abbrev-ref", "HEAD")
         if commit is not None:
+            # a dedicated call so a clean tree (rc 0, empty output) is
+            # distinguishable from a git failure (rc != 0) — _git_out collapses
+            # both to None, which can't tell clean from unknown.
             try:
-                r = subprocess.run(["git", "-C", wr, "status", "--porcelain"],
-                                   capture_output=True, text=True, timeout=5, check=False)
+                r = subprocess.run(
+                    ["git", "-C", str(ws_root), "status", "--porcelain"],
+                    capture_output=True, text=True, timeout=5, check=False)
                 dirty = bool(r.stdout.strip()) if r.returncode == 0 else None
             except Exception:  # noqa: BLE001
                 dirty = None
 
-    packages: dict[str, str] = {}
-    try:
-        from importlib.metadata import PackageNotFoundError
-        from importlib.metadata import version as _pkg_version
-        candidates = list(_ENV_PACKAGES) + ([pkg] if pkg else [])
-        for dist in candidates:
-            try:
-                packages[dist] = _pkg_version(dist)
-            except PackageNotFoundError:
-                continue
-            except Exception:  # noqa: BLE001
-                continue
-    except Exception:  # noqa: BLE001
-        packages = {}
+    sim_packages: dict[str, dict] = {}
+    wanted = list(_SIM_PACKAGES) + list(extra_packages or []) + ([pkg] if pkg else [])
+    for dist in dict.fromkeys(wanted):  # dedupe, preserve order
+        info = _pkg_info(dist)
+        if info["version"] is not None or info["git_sha"] is not None:
+            sim_packages[dist] = info
 
     try:
         py = _platform.python_version()
@@ -167,23 +218,16 @@ def capture_environment(ws_root: Path | str | None = None,
     except Exception:  # noqa: BLE001
         plat = None
 
-    env = {
-        "commit": commit,
+    return {
+        "workspace_commit": commit,
         "dirty": dirty,
         "branch": branch,
-        "packages": packages,
+        "sim_packages": sim_packages,
+        "lockfile_hash": _lockfile_hash(ws_root),
         "python": py,
         "platform": plat,
+        "cache_fingerprint": cache_fingerprint,
     }
-    # env_id identifies "this exact environment": the commit + dirtiness + the
-    # resolved package set + interpreter. Branch is excluded (the same commit on
-    # two branches is one environment). Lives INSIDE env so the manifest's pinned
-    # top-level key set is unchanged.
-    ident = json.dumps({"commit": commit, "dirty": dirty, "packages": packages,
-                        "python": py, "platform": plat},
-                       sort_keys=True, default=str)
-    env["env_id"] = hashlib.sha256(ident.encode("utf-8")).hexdigest()[:12]
-    return env
 
 
 def build_run_manifest(*, spec_id, params, n_steps, emitter=None,
@@ -210,8 +254,9 @@ def build_run_manifest(*, spec_id, params, n_steps, emitter=None,
     raising — this must never block a run from being recorded.
 
     ``env`` is the reproduction environment (:func:`capture_environment`): the
-    workspace commit + dirty flag + framework package versions + an ``env_id``
-    hash, so every recorded run can be traced back to the exact code + packages.
+    workspace commit + dirty flag + framework package versions + the lockfile
+    hash, so every recorded run can be traced back to the exact code + packages
+    (:func:`env_id` folds it into one comparable id, written to the env_id column).
     ``seed``, ``fingerprint_fields``, ``result_fingerprint`` remain v2 keys for
     later tasks — present as ``null`` here, not computed.
     """
@@ -309,18 +354,19 @@ def register_run(
             if params is not None else None
         )
         manifest_json = None
-        env_id = None
+        env_id_val = None
         if params is not None or n_steps is not None:
             try:
                 manifest = build_run_manifest(
                     spec_id=spec_id or run_id, params=params, n_steps=n_steps,
                     generation_id=generation_id, ws_root=ws_root, pkg=pkg,
                 )
-                env_id = (manifest.get("env") or {}).get("env_id")
+                _env = manifest.get("env")
+                env_id_val = env_id(_env) if isinstance(_env, dict) else None
                 manifest_json = json.dumps(manifest, default=str)
             except Exception:  # noqa: BLE001 — best-effort, never block a run
                 manifest_json = None
-                env_id = None
+                env_id_val = None
         now = time.time()
         if existing is None:
             cols = ["run_id", "spec_id", "started_at", "status"]
@@ -339,7 +385,7 @@ def register_run(
                 "emitter_path": emitter_path,
                 "generation_id": generation_id,
                 "manifest_json": manifest_json,
-                "env_id": env_id,
+                "env_id": env_id_val,
             }
             for col, val in optional.items():
                 if val is not None and col in have:
@@ -364,7 +410,7 @@ def register_run(
                 "emitter_path": emitter_path,
                 "generation_id": generation_id,
                 "manifest_json": manifest_json,
-                "env_id": env_id,
+                "env_id": env_id_val,
             }
             for col, val in updates.items():
                 if val is not None and col in have:
