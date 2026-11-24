@@ -510,6 +510,10 @@ def main(argv: list[str] | None = None) -> int:
                             help="accept the current validation state; later drift is flagged stale")
     p_snap.add_argument("investigation", help="investigation slug")
 
+    sub.add_parser("backfill-sim-names",
+                   help="heal legacy runs_meta rows with NULL sim_name (set sim_name=run_id) "
+                        "workspace-wide, so earned runs surface in the study-Simulations view")
+
     p_diag = sub.add_parser("diagnose",
                             help="classify the crank's productivity bottlenecks (why it is/isn't progressing)")
     p_diag.add_argument("investigation", help="investigation slug")
@@ -835,6 +839,19 @@ def main(argv: list[str] | None = None) -> int:
 
     args = parser.parse_args(argv)
     ws = Path(args.workspace).resolve()
+
+    if args.cmd == "backfill-sim-names":
+        from discovery_engine.study.run_registry import backfill_sim_names
+        dbs = sorted(set(studies_dir(ws).glob("*/runs.db"))
+                     | set(investigations_dir(ws).glob("*/studies/*/runs.db")))
+        total = 0
+        for db in dbs:
+            n = backfill_sim_names(db)
+            if n:
+                total += n
+                print(f"  {n:4d}  {db.relative_to(ws)}")
+        print(f"backfilled sim_name on {total} row(s) across {len(dbs)} runs.db file(s)")
+        return 0
 
     if args.cmd in ("cycle", "status"):
         inv_path, inv_spec, studies = load_cycle_inputs(ws, args.investigation)
