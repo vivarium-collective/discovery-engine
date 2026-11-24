@@ -25,12 +25,13 @@ dependencies = [
     # resolves a workspace's package/layout
     "viva-workspace",
     # composite spec / generator registry (composite_spec, core_introspection)
-    "process-bigraph",
-    # bigraph-schema 1.8.4 refactored away the top-level `matching` module into a
-    # `methods/` subpackage, but process-bigraph (<=1.11.0) still imports
-    # `bigraph_schema.matching` (via process_bigraph.holes) — so 1.8.4 breaks import
-    # at test-collection time. Cap below 1.8.4 until process-bigraph catches up.
-    "bigraph-schema>=1.8.1,<1.8.4",
+    # >=1.11.2: the first release whose holes.py no longer imports the removed
+    # `bigraph_schema.matching`, so it does not transitively cap bigraph-schema <1.8.4.
+    "process-bigraph>=1.11.2",
+    # bigraph-schema 1.8.4 removed the top-level `matching` module. The <1.8.4 cap
+    # was only needed because process-bigraph's holes.py imported it transitively;
+    # process-bigraph 1.11.2 dropped that import, so the cap is retired.
+    "bigraph-schema>=1.8.1",
     "filelock>=3.12",
     "jinja2>=3.1",
     "jsonschema[format-nongpl]>=4.21",
