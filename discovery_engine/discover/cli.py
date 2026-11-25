@@ -514,6 +514,13 @@ def main(argv: list[str] | None = None) -> int:
                    help="heal legacy runs_meta rows with NULL sim_name (set sim_name=run_id) "
                         "workspace-wide, so earned runs surface in the study-Simulations view")
 
+    p_se = sub.add_parser("study-env",
+                          help="plan (or --build) a study's per-study simulator environment "
+                               "from its declared `simulator:` pin (RFC-0008)")
+    p_se.add_argument("study", help="study slug")
+    p_se.add_argument("--build", action="store_true",
+                      help="actually build the uv env if it isn't cached (default: plan only)")
+
     p_diag = sub.add_parser("diagnose",
                             help="classify the crank's productivity bottlenecks (why it is/isn't progressing)")
     p_diag.add_argument("investigation", help="investigation slug")
@@ -851,6 +858,38 @@ def main(argv: list[str] | None = None) -> int:
                 total += n
                 print(f"  {n:4d}  {db.relative_to(ws)}")
         print(f"backfilled sim_name on {total} row(s) across {len(dbs)} runs.db file(s)")
+        return 0
+
+    if args.cmd == "study-env":
+        from discovery_engine.study import sim_env
+        sp = studies_dir(ws) / args.study / "study.yaml"
+        if not sp.is_file():
+            nested = next(investigations_dir(ws).glob(f"*/studies/{args.study}/study.yaml"), None)
+            sp = nested or sp
+        if not sp.is_file():
+            print(f"no study.yaml for {args.study!r} under {ws}")
+            return 1
+        spec = load_yaml_mapping(sp) or {}
+        pin = spec.get("simulator")
+        if not isinstance(pin, dict) or not pin.get("package"):
+            print(f"{args.study}: no `simulator:` pin declared — runs use the workspace env.")
+            return 0
+        res = sim_env.materialize_study_env(pin, execute=bool(args.build))
+        print(f"{args.study}: simulator {pin.get('package')}@{pin.get('ref') or '(any)'}")
+        print(f"  env_key : {res['env_key']}")
+        print(f"  env_dir : {res['env_dir']}")
+        print(f"  cached  : {res['cached']}")
+        if res.get("requirement"):
+            print(f"  install : {res['requirement']}")
+        if args.build:
+            if res.get("built"):
+                print(f"  BUILT   : {res['python_path']}")
+            elif res.get("cached"):
+                print(f"  reused cached env: {res['python_path']}")
+            elif res.get("error"):
+                print(f"  not built: {res['error']}")
+        else:
+            print("  (plan only — pass --build to materialize)")
         return 0
 
     if args.cmd in ("cycle", "status"):
