@@ -769,3 +769,51 @@ def test_run_discoverable_abstains_without_per_study_store(tmp_path):
     ws = _ws(tmp_path); _study(ws, "s", _STUDY_CLAIMS_RUN)
     report = audit_workspace(ws)
     assert _find_any(report, "run-discoverable") is None
+
+
+# ---------------------------------------------------------------------------
+# L2 simulator-pin — a study's declared simulator must match the environment
+# (RFC-0008 Phase 1: per-study simulator pinning)
+# ---------------------------------------------------------------------------
+def _study_with_simulator(ws, slug, pkg, ref=None):
+    sim = {"package": pkg}
+    if ref is not None:
+        sim["ref"] = ref
+    import yaml as _yaml
+    return _study(ws, slug, _yaml.safe_dump({"name": slug, "simulator": sim}))
+
+
+def test_simulator_pin_passes_when_ref_matches_installed(tmp_path):
+    from importlib.metadata import version
+    ws = _ws(tmp_path)
+    v = version("viva-discovery-engine")
+    _study_with_simulator(ws, "s", "viva-discovery-engine", v)
+    c = _find_any(audit_workspace(ws), "simulator-pin")
+    assert c is not None and c.status == "pass"
+
+
+def test_simulator_pin_fails_on_mismatch(tmp_path):
+    ws = _ws(tmp_path)
+    _study_with_simulator(ws, "s", "viva-discovery-engine", "0.0.1-not-real")
+    c = _find_any(audit_workspace(ws), "simulator-pin")
+    assert c is not None and c.status == "fail" and "0.0.1-not-real" in c.detail
+
+
+def test_simulator_pin_fails_when_not_installed(tmp_path):
+    ws = _ws(tmp_path)
+    _study_with_simulator(ws, "s", "definitely-not-a-real-package-xyz", "1.0")
+    c = _find_any(audit_workspace(ws), "simulator-pin")
+    assert c is not None and c.status == "fail" and "not installed" in c.detail
+
+
+def test_simulator_pin_passes_without_ref_when_installed(tmp_path):
+    ws = _ws(tmp_path)
+    _study_with_simulator(ws, "s", "viva-discovery-engine")
+    c = _find_any(audit_workspace(ws), "simulator-pin")
+    assert c is not None and c.status == "pass"
+
+
+def test_simulator_pin_abstains_when_undeclared(tmp_path):
+    ws = _ws(tmp_path)
+    _study(ws, "s", "name: s\n")
+    assert _find_any(audit_workspace(ws), "simulator-pin") is None
