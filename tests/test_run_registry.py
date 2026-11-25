@@ -283,3 +283,15 @@ def test_backfill_sim_names_heals_null_rows(tmp_path):
     assert rows["baseline"] == "baseline"                 # set to run_id
     assert rows["r2"] == "keep"                           # explicit name untouched
     assert backfill_sim_names(db) == 0                    # idempotent
+
+
+def test_register_run_records_extra_simulator_package(tmp_path):
+    # extra_packages lets a run record the study's declared simulator in its env,
+    # so a declared pin can later be verified against what actually ran.
+    import json as _json
+    from discovery_engine.study.run_registry import latest_run, register_run
+    db = tmp_path / "runs.db"
+    register_run(db, "r", spec_id="x", status="completed", n_steps=1,
+                 extra_packages=["process-bigraph"])
+    env = _json.loads(latest_run(db)["manifest_json"])["env"]
+    assert "process-bigraph" in env["sim_packages"]  # captured via extra_packages

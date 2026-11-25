@@ -803,7 +803,7 @@ def test_simulator_pin_fails_when_not_installed(tmp_path):
     ws = _ws(tmp_path)
     _study_with_simulator(ws, "s", "definitely-not-a-real-package-xyz", "1.0")
     c = _find_any(audit_workspace(ws), "simulator-pin")
-    assert c is not None and c.status == "fail" and "not installed" in c.detail
+    assert c is not None and c.status == "fail" and "absent from the current environment" in c.detail
 
 
 def test_simulator_pin_passes_without_ref_when_installed(tmp_path):
@@ -817,3 +817,39 @@ def test_simulator_pin_abstains_when_undeclared(tmp_path):
     ws = _ws(tmp_path)
     _study(ws, "s", "name: s\n")
     assert _find_any(audit_workspace(ws), "simulator-pin") is None
+
+
+def _study_with_recorded_run(ws, slug, sim, recorded_sim_packages):
+    """A study declaring `simulator: sim`, plus a runs.db whose latest run's
+    manifest env.sim_packages is `recorded_sim_packages` (what it 'ran under')."""
+    import yaml as _yaml, json as _json
+    d = _study(ws, slug, _yaml.safe_dump({"name": slug, "simulator": sim}))
+    manifest = {"version": 2, "env": {"sim_packages": recorded_sim_packages}}
+    conn = _sqlite3.connect(d / "runs.db")
+    conn.executescript(
+        "CREATE TABLE runs_meta (run_id TEXT PRIMARY KEY, spec_id TEXT NOT NULL,"
+        " started_at REAL NOT NULL, completed_at REAL, status TEXT NOT NULL,"
+        " manifest_json TEXT);")
+    conn.execute("INSERT INTO runs_meta (run_id, spec_id, started_at, status, manifest_json)"
+                 " VALUES ('baseline','x',1.0,'completed',?)", (_json.dumps(manifest),))
+    conn.commit(); conn.close()
+    return d
+
+
+def test_simulator_pin_verified_against_recorded_run(tmp_path):
+    # A simulator NOT installed in the current env, but recorded by the run at the
+    # pinned ref → PASS, because the check uses what the study actually ran under.
+    ws = _ws(tmp_path)
+    _study_with_recorded_run(ws, "s", {"package": "viva-foo-sim", "ref": "9.9.9"},
+                             {"viva-foo-sim": {"version": "9.9.9", "git_sha": None}})
+    c = _find_any(audit_workspace(ws), "simulator-pin")
+    assert c is not None and c.status == "pass"
+
+
+def test_simulator_pin_fails_against_recorded_run_mismatch(tmp_path):
+    ws = _ws(tmp_path)
+    _study_with_recorded_run(ws, "s", {"package": "viva-foo-sim", "ref": "9.9.9"},
+                             {"viva-foo-sim": {"version": "1.0.0", "git_sha": None}})
+    c = _find_any(audit_workspace(ws), "simulator-pin")
+    assert c is not None and c.status == "fail"
+    assert "recorded run" in c.detail and "1.0.0" in c.detail
