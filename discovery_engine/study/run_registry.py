@@ -233,7 +233,7 @@ def capture_environment(ws_root: Path | str | None = None,
 def build_run_manifest(*, spec_id, params, n_steps, emitter=None,
                        emit_paths=None, runtime=None, origin="bespoke",
                        study=None, pkg=None, generation_id=None,
-                       ws_root=None) -> dict:
+                       ws_root=None, extra_packages=None) -> dict:
     """Assemble the replay manifest for a run recorded via :func:`register_run`.
 
     Ports the shape of ``vivarium_workbench.lib.composite_runs.build_run_manifest``
@@ -293,7 +293,7 @@ def build_run_manifest(*, spec_id, params, n_steps, emitter=None,
         "pkg": pkg,
         "generation_id": generation_id,
         "code_version": {"git_sha": git_sha, "package": pkg_version},
-        "env": capture_environment(ws_root, pkg),
+        "env": capture_environment(ws_root, pkg, extra_packages=extra_packages),
         "seed": None,
         "fingerprint_fields": None,
         "result_fingerprint": None,
@@ -315,6 +315,7 @@ def register_run(
     sim_name: str | None = None,
     ws_root: str | Path | None = None,
     pkg: str | None = None,
+    extra_packages: "tuple[str, ...] | list[str] | None" = None,
 ) -> None:
     """Upsert a ``runs_meta`` row for ``run_id``, writing ``params`` as
     ``params_json`` (the run-config provenance slot).
@@ -360,6 +361,7 @@ def register_run(
                 manifest = build_run_manifest(
                     spec_id=spec_id or run_id, params=params, n_steps=n_steps,
                     generation_id=generation_id, ws_root=ws_root, pkg=pkg,
+                    extra_packages=extra_packages,
                 )
                 _env = manifest.get("env")
                 env_id_val = env_id(_env) if isinstance(_env, dict) else None

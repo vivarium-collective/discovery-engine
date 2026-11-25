@@ -533,21 +533,42 @@ def _audit_study(audit, sdir, wp, known_slugs, known_composites, generator_param
     _check_run_discoverable(audit, sdir, spec)
 
     # --- L2 simulator-pin (hard) -------------------------------------------
-    _check_simulator_pin(audit, spec)
+    _check_simulator_pin(audit, sdir, spec)
 
 
-def _check_simulator_pin(audit, spec: dict) -> None:
+def _recorded_sim_package(sdir, pkg: str) -> "dict | None":
+    """The ``{version, git_sha}`` this study's latest recorded run captured for
+    ``pkg`` (from its runs.db manifest ``env.sim_packages``, written by
+    capture_environment), or None when there is no run or the run did not capture
+    that package. Best-effort; never raises."""
+    try:
+        from discovery_engine.study import run_registry
+        db = Path(sdir) / "runs.db"
+        if not db.is_file():
+            return None
+        lr = run_registry.latest_run(db)
+        mj = lr.get("manifest_json") if isinstance(lr, dict) else None
+        if not mj:
+            return None
+        import json as _json
+        env = (_json.loads(mj) or {}).get("env") or {}
+        info = (env.get("sim_packages") or {}).get(pkg)
+        return info if isinstance(info, dict) else None
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def _check_simulator_pin(audit, sdir, spec: dict) -> None:
     """L2 simulator-pin (HARD): when a study DECLARES which simulator it targets —
-    ``simulator: {package, ref}`` (RFC-0008, per-study simulator pinning) — that
-    package must be installed and its version (or git sha) must match ``ref``, so a
-    study's declared reproduction target agrees with the environment it resolves in.
-    Abstains when no simulator is declared (back-compatible; the field is optional).
+    ``simulator: {package, ref}`` (RFC-0008, per-study simulator pinning) — the
+    pinned package's version (or git sha) must match ``ref``.
 
-    Phase 1 checks the CURRENT environment (one shared workspace venv). A later
-    phase checks the recorded run environment via the run's captured ``env_id`` /
-    ``sim_packages`` (discovery_engine.study.run_registry.capture_environment), so a
-    study pinned to a different simulator/commit than the workspace can be verified
-    against what it actually ran under. Read-only; never raises."""
+    Verifies against the study's **recorded run environment** when the run captured
+    that package (``env.sim_packages`` from capture_environment, #196/#198) — i.e.
+    what the study actually ran under, so a study pinned to a different
+    simulator/commit than the workspace is checked against reality — and falls back
+    to the **current environment** otherwise. Abstains when no simulator is declared
+    (back-compatible; the field is optional). Read-only; never raises."""
     try:
         sim = spec.get("simulator")
         if not isinstance(sim, dict):
@@ -555,16 +576,25 @@ def _check_simulator_pin(audit, spec: dict) -> None:
         pkg = sim.get("package")
         if not (isinstance(pkg, str) and pkg):
             return
-        from discovery_engine.study.run_registry import _pkg_info
-        info = _pkg_info(pkg)
-        ver, sha = info.get("version"), info.get("git_sha") or ""
+        ref = sim.get("ref")
+        ref = str(ref) if isinstance(ref, str) and ref else None
+
+        recorded = _recorded_sim_package(sdir, pkg)
+        if recorded is not None:
+            basis = "recorded run"
+            ver, sha = recorded.get("version"), recorded.get("git_sha") or ""
+        else:
+            from discovery_engine.study.run_registry import _pkg_info
+            info = _pkg_info(pkg)
+            basis = "current environment"
+            ver, sha = info.get("version"), info.get("git_sha") or ""
+
         if ver is None and not sha:
             audit.checks.append(CheckResult(
                 "L2", "simulator-pin", FAIL, HARD,
-                f"declared simulator '{pkg}' is not installed in this environment"))
+                f"declared simulator '{pkg}' is absent from the {basis}"))
             return
-        ref = sim.get("ref")
-        if not (isinstance(ref, str) and ref):
+        if ref is None:
             audit.checks.append(CheckResult("L2", "simulator-pin", PASS, HARD))
             return
         matches = (ver is not None and str(ver) == ref) or (
@@ -574,7 +604,7 @@ def _check_simulator_pin(audit, spec: dict) -> None:
         else:
             audit.checks.append(CheckResult(
                 "L2", "simulator-pin", FAIL, HARD,
-                f"declared simulator '{pkg}@{ref}' but the environment has "
+                f"declared simulator '{pkg}@{ref}' but the {basis} has "
                 f"{ver or sha or 'an unknown version'}"))
     except Exception:  # noqa: BLE001 — cannot resolve → abstain
         return
