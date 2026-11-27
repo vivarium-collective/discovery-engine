@@ -446,6 +446,116 @@ def _check_missing_visualizations(ctx: _LintContext) -> None:
     )
 
 
+def _has_recorded_run(ctx: _LintContext) -> bool:
+    """True iff the study has a tracked, reproducible run on record.
+
+    Two sources count, in order:
+
+      1. ``ctx.spec["runs"]`` is a non-empty list (completed runs recorded in
+         the study spec).
+      2. Otherwise, ``studies/<slug>/runs.db`` exists AND its ``simulations``
+         table has at least one row (the workbench's run recorder wrote it).
+
+    The runs.db probe opens the file read-only and is fully guarded: a missing
+    file, a missing ``simulations`` table, or any sqlite error is treated as
+    "no recorded run" (returns ``False``). No heavy imports — ``sqlite3`` is
+    imported locally inside this function.
+    """
+    runs = ctx.spec.get("runs")
+    if isinstance(runs, list) and len(runs) > 0:
+        return True
+    db = WorkspacePaths.load(ctx.ws_root).studies / ctx.slug / "runs.db"
+    if not db.is_file():
+        return False
+    import sqlite3
+    try:
+        conn = sqlite3.connect(f"file:{db}?mode=ro", uri=True)
+        try:
+            row = conn.execute("SELECT 1 FROM simulations LIMIT 1").fetchone()
+        finally:
+            conn.close()
+    except sqlite3.Error:
+        return False
+    return row is not None
+
+
+def _presents_committed_results(ctx: _LintContext) -> bool:
+    """True iff the study dir holds committed SIMULATION-OUTPUT artifacts.
+
+    A committed chart image or its data JSON means a simulation actually ran and
+    produced it. We look only on disk, under ``studies/<slug>/charts/`` or
+    ``studies/<slug>/viz/``, for either:
+
+      * a data file ``*.json`` whose name does NOT end in ``.meta.json`` (the
+        chart's underlying series data), OR
+      * any ``*.png`` / ``*.svg`` file (the rendered chart).
+
+    Keyed on committed files, NOT on ``ctx.spec["visualizations"]``: a
+    declared-but-planned mockup viz with no committed file must NOT count — only
+    a real artifact on disk indicates a run happened.
+    """
+    studies = WorkspacePaths.load(ctx.ws_root).studies
+    for sub in ("charts", "viz"):
+        d = studies / ctx.slug / sub
+        if not d.is_dir():
+            continue
+        for p in d.iterdir():
+            if not p.is_file():
+                continue
+            name = p.name
+            low = name.lower()
+            if low.endswith((".png", ".svg")):
+                return True
+            if low.endswith(".json") and not low.endswith(".meta.json"):
+                return True
+    return False
+
+
+def _check_results_without_recorded_run(ctx: _LintContext) -> None:
+    """ERROR (blocking, override-able): committed figures with NO recorded run.
+
+    A study can present committed simulation figures (PNG/SVG charts + their
+    data JSON, written by an offline figure script) while having ZERO recorded
+    runs — ``runs: []`` and an empty/absent ``studies/<slug>/runs.db``. The
+    workbench's run recorder was never invoked, so the displayed results trace
+    to no tracked, reproducible run, yet the study renders as complete. This
+    gate makes that a hard error: committed simulation output must be backed by
+    a recorded run.
+
+    STRICT on what counts as "committed results" (see
+    :func:`_presents_committed_results`): only a real chart/data file on disk
+    under ``charts/`` or ``viz/`` — a declared-but-planned mockup viz with no
+    committed file does not trip the gate.
+
+    Escape hatch: a study that genuinely needs the figures without a recorded
+    run opts out by recording this finding's ``override_key`` in
+    ``.pbg/report-lint-overrides.json`` (or ``/viva-report --force``), which
+    downgrades the error to a warning — the same mechanism every hard gate uses.
+    """
+    if ctx.slug == "<workspace>":
+        return
+    if not _presents_committed_results(ctx):
+        return
+    if _has_recorded_run(ctx):
+        return
+    ctx.add(
+        level="error",
+        field_path="runs",
+        message=(
+            "This study presents committed simulation figures/data under "
+            "charts/ or viz/ but has no recorded run (runs: [] and runs.db has "
+            "no rows), so the displayed results are not backed by a tracked, "
+            "reproducible run. Record the run through the workbench "
+            "(run-baseline / run-variant writes studies/<slug>/runs.db), or "
+            "remove the committed figures if they are not from a run. A study "
+            "that genuinely needs these figures without a recorded run can opt "
+            "out by recording this finding's override_key in "
+            ".pbg/report-lint-overrides.json (or run /viva-report --force)."
+        ),
+        check="results_without_recorded_run",
+    )
+
+
 def _check_machine_projected_tests(ctx: _LintContext) -> None:
     """Warning when v4 tests[] look auto-projected from expected_behavior[].
 
@@ -857,6 +967,9 @@ __all__ = [
     '_has_visualization_surface',
     '_has_declared_visualization',
     '_check_missing_visualizations',
+    '_has_recorded_run',
+    '_presents_committed_results',
+    '_check_results_without_recorded_run',
     '_check_machine_projected_tests',
     '_check_readout_migration_status',
     'fetch_study_observable_check',
