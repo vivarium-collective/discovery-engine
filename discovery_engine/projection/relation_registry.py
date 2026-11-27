@@ -115,12 +115,19 @@ def is_canonical(relation: str | None) -> bool:
 
 
 def family(relation: str | None) -> str | None:
-    """The edge family of ``relation`` — ``"E_sci"``, ``"E_org"``, ``"E_prov"`` —
-    or ``None`` if the relation is not recognized at all."""
+    """The compatibility edge family of ``relation`` — ``"E_sci"``, ``"E_evid"``,
+    ``"E_org"``, ``"E_prov"`` — or ``None`` if the relation is not recognized at all.
+    This is the coarse four-family classification; :func:`semantic_family` is the
+    finer overlay."""
     k = _key(relation)
     if k in _CANONICAL_SET or k in _SCI_ALIASES:
         return "E_sci"
-    return _NON_SCI_FAMILY.get(k)
+    if k in _NON_SCI_FAMILY:
+        return _NON_SCI_FAMILY[k]
+    sem = semantic_family(k)
+    if sem is not None:
+        return _SEMANTIC_TO_COMPAT[sem]
+    return None
 
 
 def known(relation: str | None) -> bool:
@@ -139,6 +146,59 @@ def unknown_relations(relations: Iterable[str | None]) -> list[str]:
         if k and not known(k):
             seen.setdefault(r if isinstance(r, str) else k, None)
     return list(seen)
+
+
+# --- richer semantic taxonomy -----------------------------------------------
+# Semantic subtypes *over* the four compatibility families: the coarse ``E_sci``
+# bucket conflates genuinely different relations — ``tests`` (evidential),
+# ``explains`` (explanatory) and ``regulates`` (phenomenal) are not the same edge.
+# This adds the finer classification recommended for the registry (rev-2 decision
+# memo) as an overlay, not a second registry: ``family()`` and the E_sci/E_evid/
+# E_org/E_prov classes stay stable; ``semantic_family()`` is the fine view.
+
+#: The six semantic families -> their canonical (hyphen-form) relations.
+SEMANTIC_FAMILIES: dict[str, tuple[str, ...]] = {
+    # only execution prerequisites must be acyclic
+    "execution":   ("requires-output", "tests-passed", "ran", "complete"),
+    "inquiry":     ("extends", "replicates", "contrasts-with", "member-of",
+                    "included-in", "part-of", "builds-on", "motivates"),
+    "evidential":  ("tests", "supports", "challenges", "evaluates", "refutes"),
+    "phenomenal":  ("precedes", "regulates", "constitutes"),
+    "explanatory": ("explains", "refines", "generalizes", "competes-with", "alternative-to"),
+    "provenance":  ("derived-from", "generated-by", "supersedes", "consolidated-from",
+                    "used", "attributed-to"),
+}
+_SEMANTIC_OF: dict[str, str] = {
+    rel: fam for fam, rels in SEMANTIC_FAMILIES.items() for rel in rels
+}
+#: Each semantic family -> its coarse compatibility family (for ``family()``).
+_SEMANTIC_TO_COMPAT: dict[str, str] = {
+    "execution": "E_org", "inquiry": "E_org", "evidential": "E_evid",
+    "phenomenal": "E_sci", "explanatory": "E_sci", "provenance": "E_prov",
+}
+#: Underscore forms of the new relations -> hyphen-canonical.
+_SEMANTIC_ALIASES: dict[str, str] = {
+    "requires_output": "requires-output",
+    "contrasts_with": "contrasts-with", "member_of": "member-of",
+    "included_in": "included-in", "part_of": "part-of",
+    "competes_with": "competes-with",
+    "derived_from": "derived-from", "generated_by": "generated-by",
+    "attributed_to": "attributed-to",
+}
+
+
+def semantic_family(relation: str | None) -> str | None:
+    """The fine-grained semantic family of ``relation`` — one of ``execution`` /
+    ``inquiry`` / ``evidential`` / ``phenomenal`` / ``explanatory`` / ``provenance`` —
+    or ``None`` if unrecognized. Handles underscore forms and the E_sci aliases."""
+    k = _key(relation)
+    c = _SEMANTIC_ALIASES.get(k, k)
+    if c in _SEMANTIC_OF:
+        return _SEMANTIC_OF[c]
+    nz = normalize(k)
+    if nz and nz in _SEMANTIC_OF:
+        return _SEMANTIC_OF[nz]
+    return None
 
 
 def argument_edge_type(relation: str | None, child_verdict: str | None) -> str | None:

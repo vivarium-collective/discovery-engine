@@ -115,3 +115,37 @@ def test_schema_parent_relation_enum_is_canonical_or_aliased():
     """The study-schema relation enum values all reconcile to canonical E_sci."""
     for term in ("builds-on", "tests", "refutes", "motivates", "alternative-to"):
         assert rr.normalize(term) in rr.CANONICAL_SCI
+
+
+# --- richer semantic taxonomy (rev-2 adoption) -----------------------------
+
+def test_semantic_family_splits_the_e_sci_lump():
+    assert rr.semantic_family("tests") == "evidential"
+    assert rr.semantic_family("supports") == "evidential"
+    assert rr.semantic_family("explains") == "explanatory"
+    assert rr.semantic_family("competes_with") == "explanatory"    # underscore alias
+    assert rr.semantic_family("alternative-to") == "explanatory"
+    assert rr.semantic_family("regulates") == "phenomenal"
+    assert rr.semantic_family("builds-on") == "inquiry"
+    assert rr.semantic_family("builds_on") == "inquiry"            # via the E_sci alias
+    assert rr.semantic_family("extends") == "inquiry"
+    assert rr.semantic_family("requires_output") == "execution"
+    assert rr.semantic_family("derived_from") == "provenance"
+    assert rr.semantic_family("totally-made-up") is None
+
+
+def test_family_classifies_new_relations_into_compat_families():
+    assert rr.family("supports") == "E_evid"          # evidential -> E_evid
+    assert rr.family("explains") == "E_sci"           # explanatory -> E_sci
+    assert rr.family("regulates") == "E_sci"          # phenomenal -> E_sci
+    assert rr.family("extends") == "E_org"            # inquiry -> E_org
+    assert rr.family("derived-from") == "E_prov"
+    # the existing coarse classifications are unchanged
+    assert rr.family("builds-on") == "E_sci"
+    assert rr.family("tests-passed") == "E_org"
+    assert rr.family("consolidated_from") == "E_prov"
+
+
+def test_known_recognizes_the_new_semantic_relations():
+    assert rr.known("supports") and rr.known("explains") and rr.known("regulates")
+    assert rr.unknown_relations(["tests", "supports", "explains", "frobnicates"]) == ["frobnicates"]
