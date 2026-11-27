@@ -78,12 +78,19 @@ def _studies_by_slug(inv_dir: Path) -> dict[str, dict]:
             sf = sd / "study.yaml"
             if sf.is_file():
                 out[sd.name] = _load_yaml(sf)
+    # Flat studies: load ONLY this investigation's declared members, not every flat
+    # study in the workspace. Loading all of them makes every investigation see all
+    # flat studies, which inflates per-investigation counts N-fold. Use the member
+    # key derive_argument uses (`studies`), falling back to `members`.
     flat = inv_dir.parent.parent / "studies"
     if flat.is_dir():
-        for sd in sorted(flat.iterdir()):
-            sf = sd / "study.yaml"
-            if sf.is_file():
-                out.setdefault(sd.name, _load_yaml(sf))
+        spec = _load_yaml(inv_dir / "investigation.yaml")
+        for entry in (spec.get("studies") or spec.get("members") or []):
+            slug = (entry.get("study") or entry.get("slug")) if isinstance(entry, dict) else entry
+            if slug and str(slug) not in out:
+                sf = flat / str(slug) / "study.yaml"
+                if sf.is_file():
+                    out[str(slug)] = _load_yaml(sf)
     return out
 
 

@@ -107,3 +107,22 @@ def test_audit_through_real_derive_argument(tmp_path):
     ka = ci.claim_key(next(iter(ga["claims"].values()))["proposition"])
     kb = ci.claim_key(next(iter(gb["claims"].values()))["proposition"])
     assert ka == kb
+
+
+def test_flat_studies_load_only_declared_members(tmp_path):
+    """Regression: a flat-layout investigation must load ONLY its declared member
+    studies, not every flat study in the workspace (the N-fold overcount bug)."""
+    from discovery_engine.projection.shared_claims import _studies_by_slug
+    ws = tmp_path
+    (ws / "workspace.yaml").write_text("name: t\n", encoding="utf-8")
+    # one investigation declaring member s1
+    inv = ws / "investigations" / "alpha"
+    inv.mkdir(parents=True)
+    (inv / "investigation.yaml").write_text("name: alpha\nstudies: [s1]\n", encoding="utf-8")
+    # two flat studies; only s1 is alpha's member
+    for s in ("s1", "s2"):
+        sd = ws / "studies" / s
+        sd.mkdir(parents=True)
+        (sd / "study.yaml").write_text(f"claim: {s}\n", encoding="utf-8")
+    loaded = _studies_by_slug(inv)
+    assert set(loaded) == {"s1"}            # s2 (not a member) is NOT loaded
