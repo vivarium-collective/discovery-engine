@@ -533,6 +533,10 @@ def main(argv: list[str] | None = None) -> int:
                            help="rank the frontier by value — what is most valuable to investigate next")
     p_opp.add_argument("investigation", help="investigation slug")
 
+    p_profile = sub.add_parser("profile",
+                               help="profile the workspace's knowledge/claim structure (read-only)")
+    p_profile.add_argument("--json", action="store_true", help="emit the full profile as JSON")
+
     p_requests = sub.add_parser("requests",
                                 help="AI-drivable cycle Phase 1: the typed GenerationRequest list the frontier emits (propose_study / acquire_model / author_tests / interpret_finding / resolve_decision / explain / visualize) for a filler to fill")
     p_requests.add_argument("investigation", help="investigation slug")
@@ -890,6 +894,17 @@ def main(argv: list[str] | None = None) -> int:
                 print(f"  not built: {res['error']}")
         else:
             print("  (plan only — pass --build to materialize)")
+        return 0
+
+    if args.cmd == "profile":
+        from discovery_engine.projection.workspace_profile import (
+            profile_workspace, render_profile)
+        prof = profile_workspace(ws)
+        if getattr(args, "json", False):
+            import json
+            print(json.dumps(prof, indent=2, default=str))
+        else:
+            print(render_profile(prof))
         return 0
 
     if args.cmd in ("cycle", "status"):
