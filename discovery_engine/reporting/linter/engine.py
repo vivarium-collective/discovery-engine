@@ -242,6 +242,9 @@ _CHECK_FUNCTIONS = (
     _check_missing_readouts,
     # HARD GATE (error, blocking, override-able): every study must DECLARE a viz
     _check_missing_visualizations,
+    # HARD GATE (error, blocking, override-able): committed simulation figures
+    # must be backed by a recorded run (runs[] or runs.db simulations rows).
+    _check_results_without_recorded_run,
     _check_missing_conditions_block,
     _check_missing_simulation_set,
     # Anti-slop & honesty checks (added 2026-05-25 after pdmp-* feedback)
