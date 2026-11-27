@@ -122,3 +122,46 @@ def test_empty_runs_db_without_simulation_rows_still_errors(tmp_path):
 def test_workspace_pseudo_slug_is_skipped(tmp_path):
     _commit_chart(tmp_path, "<workspace>", "x.png")
     assert _findings(tmp_path, "<workspace>", {"status": "completed"}) == []
+
+
+# ---------------------------------------------------------------------------
+# NESTED-layout end-to-end: on a real nested workspace, studies live under
+# investigations/<inv>/studies/<slug>/, NOT the flat studies/<slug>/. These
+# exercise the full lint_workspace_report path (which must enumerate nested
+# studies) + the nested-aware study_dir() probe in both helpers.
+# ---------------------------------------------------------------------------
+
+def _nested_study_dir(ws_root, inv, slug):
+    d = ws_root / "investigations" / inv / "studies" / slug
+    d.mkdir(parents=True, exist_ok=True)
+    (d / "study.yaml").write_text(f"name: {slug}\nruns: []\n", encoding="utf-8")
+    return d
+
+
+def _lint_check_findings(ws_root, slug):
+    from discovery_engine.reporting.linter import lint_workspace_report
+    return [
+        f for f in lint_workspace_report(ws_root)
+        if f.check == CHECK and f.study_slug == slug
+    ]
+
+
+def test_nested_committed_figure_without_run_errors_end_to_end(tmp_path):
+    sd = _nested_study_dir(tmp_path, "inv1", "s1")
+    (sd / "charts").mkdir()
+    (sd / "charts" / "x.png").write_bytes(b"\x89PNG committed-figure")
+    found = _lint_check_findings(tmp_path, "s1")
+    assert len(found) == 1
+    assert found[0].level == "error"
+
+
+def test_nested_committed_figure_with_runs_db_is_silent_end_to_end(tmp_path):
+    sd = _nested_study_dir(tmp_path, "inv1", "s1")
+    (sd / "charts").mkdir()
+    (sd / "charts" / "x.png").write_bytes(b"\x89PNG committed-figure")
+    conn = sqlite3.connect(str(sd / "runs.db"))
+    conn.execute("CREATE TABLE simulations (simulation_id TEXT)")
+    conn.execute("INSERT INTO simulations (simulation_id) VALUES ('sim-1')")
+    conn.commit()
+    conn.close()
+    assert _lint_check_findings(tmp_path, "s1") == []

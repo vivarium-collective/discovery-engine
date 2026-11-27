@@ -377,26 +377,27 @@ def unresolved_composite_refs(spec: dict, known_composite_ids) -> list[str]:
 def _iter_study_specs(ws_root: Path) -> Iterator[tuple[str, dict]]:
     """Yield (slug, parsed-yaml) for every study under the workspace.
 
-    Looks under ``<ws_root>/studies/<slug>/study.yaml`` first, then falls
-    back to the legacy ``<ws_root>/investigations/<slug>/spec.yaml``.
-    Silently skips unparseable YAML (the report renderer reports those
-    separately; the linter focuses on content checks).
+    Covers every ``study.yaml`` the layout exposes — flat
+    ``<ws_root>/studies/<slug>/`` AND nested
+    ``<ws_root>/investigations/<inv>/studies/<slug>/`` (via
+    :meth:`WorkspacePaths.iter_study_dirs`, which is flat-first) — then falls
+    back to the legacy ``<ws_root>/investigations/<slug>/spec.yaml`` for any
+    slug not already yielded. Silently skips unparseable YAML (the report
+    renderer reports those separately; the linter focuses on content checks).
     """
     wp = WorkspacePaths.load(ws_root)
-    studies_dir = wp.studies
-    if studies_dir.is_dir():
-        for child in sorted(studies_dir.iterdir()):
-            if not child.is_dir():
-                continue
-            spec_path = child / "study.yaml"
-            if not spec_path.is_file():
-                continue
-            try:
-                data = yaml.safe_load(spec_path.read_text(encoding="utf-8")) or {}
-            except yaml.YAMLError:
-                continue
-            slug = data.get("name") or child.name
-            yield slug, data
+    seen: set[str] = set()
+    for child in wp.iter_study_dirs():
+        spec_path = child / "study.yaml"
+        if not spec_path.is_file():
+            continue
+        try:
+            data = yaml.safe_load(spec_path.read_text(encoding="utf-8")) or {}
+        except yaml.YAMLError:
+            continue
+        slug = data.get("name") or child.name
+        seen.add(slug)
+        yield slug, data
     invs_dir = wp.investigations
     if invs_dir.is_dir():
         for child in sorted(invs_dir.iterdir()):
@@ -410,6 +411,9 @@ def _iter_study_specs(ws_root: Path) -> Iterator[tuple[str, dict]]:
             except yaml.YAMLError:
                 continue
             slug = data.get("name") or child.name
+            if slug in seen:
+                continue
+            seen.add(slug)
             yield slug, data
 
 

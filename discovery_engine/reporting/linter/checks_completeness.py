@@ -464,7 +464,7 @@ def _has_recorded_run(ctx: _LintContext) -> bool:
     runs = ctx.spec.get("runs")
     if isinstance(runs, list) and len(runs) > 0:
         return True
-    db = WorkspacePaths.load(ctx.ws_root).studies / ctx.slug / "runs.db"
+    db = WorkspacePaths.load(ctx.ws_root).study_dir(ctx.slug) / "runs.db"
     if not db.is_file():
         return False
     import sqlite3
@@ -494,9 +494,9 @@ def _presents_committed_results(ctx: _LintContext) -> bool:
     declared-but-planned mockup viz with no committed file must NOT count — only
     a real artifact on disk indicates a run happened.
     """
-    studies = WorkspacePaths.load(ctx.ws_root).studies
+    study_dir = WorkspacePaths.load(ctx.ws_root).study_dir(ctx.slug)
     for sub in ("charts", "viz"):
-        d = studies / ctx.slug / sub
+        d = study_dir / sub
         if not d.is_dir():
             continue
         for p in d.iterdir():
