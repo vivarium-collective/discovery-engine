@@ -90,8 +90,10 @@ def investigation_rigor(inv_spec: dict, study_specs: list[dict]) -> dict:
                          "visibly exposed to falsification (add a control that fails, an adversarial "
                          "study, or report a non-passing result)", ["C1"]))
 
-    # Competing theoretical frameworks [C13]
-    cf = _as_list(inv_spec.get("competing_frameworks"))
+    # Competing theoretical frameworks [C13] — consolidated under
+    # `scientific_argument.competing_frameworks`, legacy top-level fallback.
+    cf = _as_list((inv_spec.get("scientific_argument") or {}).get("competing_frameworks")
+                  or inv_spec.get("competing_frameworks"))
     if cf:
         dims.append(_dim("comparative_framing", "Comparative framing", OK,
                          f"{len(cf)} competing theoretical framework(s) compared", ["C13"]))
