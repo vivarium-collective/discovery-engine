@@ -35,7 +35,11 @@ def _corpus(cycle_result: dict, inv_spec: dict) -> str:
         parts.append(str(sa.get("main_claim") or ""))
         for key in ("evidence_for", "evidence_against", "caveats"):
             parts += [str(x) for x in (sa.get(key) or []) if x]
-    parts += [str(x) for x in (inv.get("key_claims") or []) if x]
+        # Consolidated claim ledger: `scientific_argument.claims` (replaces the
+        # top-level `key_claims`). Each entry is {id, statement, cites, ...}.
+        for c in (sa.get("claims") or []):
+            parts.append(str(c.get("statement") if isinstance(c, dict) else c))
+    parts += [str(x) for x in (inv.get("key_claims") or []) if x]  # legacy
     for ag in (inv.get("at_a_glance") or []):
         if isinstance(ag, dict) and ag.get("role"):
             parts.append(str(ag["role"]))

@@ -130,6 +130,16 @@ def test_discriminating_control_and_competing_frameworks_flip_to_ok():
     assert _sev(ir, "comparative_framing") == OK
 
 
+def test_competing_frameworks_nested_under_scientific_argument():
+    # Consolidated form: competing_frameworks moved under scientific_argument.
+    inv = {"acceptance_criteria": [{"study": "s1", "behavior": "b"}],
+           "scientific_argument": {"competing_frameworks": [{"name": "active inference"}]}}
+    specs = [{"name": "s1", "pipeline_gate": {"gate_evaluator": {"result": "passed"}},
+              "controls": [{"kind": "negative", "observed": "fail-closure", "result": "PASS"}]}]
+    ir = investigation_rigor(inv, specs)
+    assert _sev(ir, "comparative_framing") == OK
+
+
 def test_investigation_flags_missing_adversarial_study():
     inv = {"acceptance_criteria": [{"study": "s1", "behavior": "b"}]}
     specs = [{"name": "s1", "pipeline_gate": {}, "runs": [{}]}]
