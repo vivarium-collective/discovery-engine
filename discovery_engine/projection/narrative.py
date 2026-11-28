@@ -16,7 +16,8 @@ inventing the missing link.
 
 Public API
 ----------
-narrate(argument_graph, question=None, audience=None) -> dict
+narrate(argument_graph, question=None, audience=None, focus=None) -> dict
+narrative_questions(inv_spec) -> list[dict]   # authored question-directed lenses
 audit(narrative, argument_graph) -> list[dict]
 """
 from __future__ import annotations
@@ -34,17 +35,27 @@ _STRENGTH = {"unassessed": 0, "refuted": 1, "inconclusive": 1, "qualified": 2, "
 # ---------------------------------------------------------------------------
 
 def narrate(argument_graph: dict, question: str | None = None,
-            audience: str | None = None) -> dict:
+            audience: str | None = None, focus=None) -> dict:
     """Project an ordered Narrative from the argument graph.
 
     Units are the study-level claims (those without ``arm_of``), ordered
     topologically over prerequisite+support, ties by id. Each unit preserves its
     links to source evidence.
+
+    ``focus`` optionally scopes the reading to a question: an iterable of claim
+    ids (or bare study slugs — ``s1`` is read as ``claim:s1``) keeps only those
+    units and the edges induced among them, so one knowledge graph yields several
+    *question-directed* narratives (RFC-0005 §5). ``focus=None`` (the default)
+    projects the whole graph — unchanged behavior. ``focus`` is echoed in the
+    result so a reading is replayable from the choices that produced it.
     """
     claims: dict[str, dict] = argument_graph.get("claims") or {}
     edges: list[dict] = argument_graph.get("edges") or []
 
     unit_ids = [cid for cid, c in claims.items() if not c.get("arm_of")]
+    if focus:
+        want = _normalize_focus(focus)
+        unit_ids = [cid for cid in unit_ids if cid in want]
     unit_set = set(unit_ids)
     order_edges = [(e["from"], e["to"]) for e in edges
                    if e.get("type") in _SUPPORTING
@@ -75,10 +86,47 @@ def narrate(argument_graph: dict, question: str | None = None,
     return {
         "question": question,
         "audience": audience,
+        "focus": sorted(unit_set) if focus else None,
         "units": units,
         "limitations": limitations,
         "open_questions": open_questions,
     }
+
+
+def _normalize_focus(focus) -> set[str]:
+    """Normalize a focus list to claim ids: a bare study slug ``s1`` becomes
+    ``claim:s1``; an already-qualified ``claim:s1`` passes through."""
+    out: set[str] = set()
+    for f in (focus or []):
+        f = str(f).strip()
+        if f:
+            out.add(f if f.startswith("claim:") else f"claim:{f}")
+    return out
+
+
+def narrative_questions(inv_spec: dict) -> list[dict]:
+    """Authored question-directed narrative lenses for an investigation.
+
+    Reads ``narrative.questions`` (or a top-level ``narrative_questions``): a
+    list of ``{question, studies|focus, id?}``. Returns normalized
+    ``[{id, question, focus: [claim_id, ...]}]`` (focus as claim ids), or an
+    empty list when none are authored. This is the authored input to
+    :func:`narrate`'s ``focus`` — the reader picks a lens, the engine projects it.
+    """
+    spec = inv_spec or {}
+    nar = spec.get("narrative")
+    raw = (nar.get("questions") if isinstance(nar, dict) else None) \
+        or spec.get("narrative_questions") or []
+    out: list[dict] = []
+    for i, q in enumerate(raw):
+        if not isinstance(q, dict):
+            continue
+        question = str(q.get("question") or q.get("q") or "").strip()
+        if not question:
+            continue
+        focus = sorted(_normalize_focus(q.get("studies") or q.get("focus") or []))
+        out.append({"id": str(q.get("id") or f"q{i + 1}"), "question": question, "focus": focus})
+    return out
 
 
 def _toposort(nodes: list[str], edges: list[tuple[str, str]]) -> list[str]:
