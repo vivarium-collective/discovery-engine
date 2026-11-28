@@ -150,7 +150,7 @@ everything not listed is **KEEP**.
 | `decision_log`, `reconciliation_log`, `executed_actions`, `lifecycle_history`, `resolutions`, `cycle_flags`, `finding_candidates`, `discoveries`, `review_decisions`, `applied_feedback`, `pending_feedback`, `critique_reports`, `validation_snapshot`, `model_acquisition_proposals` | NAMESPACE→ `engine:{}` | engine-owned, instance-only today; schematize under one key | ✅ decided |
 | `model_versions`, `viz_proposals`, `capability_gaps`, `revision_proposals`, `cycle_state` | NAMESPACE→ `engine:{}` | already the extensions-schema cluster | ✅ decided |
 | `transition_barriers`, `candidate_composites`, `candidate_software`, `flagship_studies`, `final_deliverable`, `regimes`, `model_families`, `physical_scalings`, `first_cycle_priority`, `promotion_rules`, `seed_acceptance_checklist`, `seed_id`, `plan_acts`, `object_of_evaluation` | DROP | removed from schema — **neither system reads any of these** | ✅ decided |
-| `proposed_inputs` | RESOLVE | wire the UI or drop the endpoint (orphan write path) | open |
+| `proposed_inputs` | KEEP + WIRE | integrity guardrail; render pending items as accept/decline cards in the **Decisions tab** (backend `decide_proposed_input` already exists) | ✅ decided |
 
 Kept as-is: the authored/computed verdict slots, `studies`, `acceptance_criteria`,
 `executive.*` verdict/decision fields, `how_to_read`, `glossary`, `contributors`
@@ -214,8 +214,12 @@ status axes (`design_status`, `simulation_status`, `evaluation_status`,
    canonical. Back-compat read for one window, then removed.
 6. **Study `hypothesis` / `concept` → fold** into `claim` / `question`.
 
-One item is still open — **`proposed_inputs`** (wire the UI, or drop the orphan
-write endpoint): a workbench decision, not a schema one.
+**`proposed_inputs` → keep and wire.** It is an integrity guardrail — no outside
+reference or mechanism enters `inputs` without an explicit expert accept/decline.
+The backend already exists (`decide_proposed_input`, `POST
+/api/proposed-input-decision`, promote-on-accept into `inputs.references`); the
+only gap is UI. Resolution: render pending items as accept/decline cards in the
+**Decisions tab**, beside the engine decisions. (Tracked as a workbench change.)
 
 ---
 
