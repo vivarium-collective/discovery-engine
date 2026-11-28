@@ -45,8 +45,8 @@ kinds, and each is treated differently here:
 - ✅ **Replace `biological_story`** with a general, domain-neutral long-form field
   (it bakes "biology" into a domain-agnostic schema), folding legacy prose in.
 
-These two are specified below; the rest of the plan is proposed with open
-questions flagged for the maintainer.
+All remaining open questions have since been resolved — see
+**Decisions (resolved)** below.
 
 ---
 
@@ -96,6 +96,34 @@ Rationale: `biological_story` names a domain in a schema that must stay
 domain-agnostic; `background` serves any investigation and collapses three prose
 fields to one.
 
+## Target model 3 — `engine:` namespace & flat study config
+
+**Investigation — one `engine:` block.** The engine's closed-loop state (today
+~19 top-level keys, most of them instance-only) moves under one schematized key:
+
+```yaml
+engine:
+  model_versions: []        # was top-level (extensions schema)
+  viz_proposals: []
+  capability_gaps: []
+  revision_proposals: []
+  cycle_state: {}
+  decision_log: []          # was instance-only, un-schematized
+  reconciliation_log: []
+  executed_actions: []
+  lifecycle_history: []
+  resolutions: []
+  cycle_flags: {}
+  finding_candidates: []
+  discoveries: []
+  review_decisions: []
+  # … feedback routing / validation snapshots
+```
+
+**Study — flat config.** The v4 `conditions{}` wrapper is dropped; the canonical
+layout is top-level `baseline[]` / `variants[]` / `observables[]`, with the
+tunable knobs promoted to a top-level `model_settings[]`.
+
 ---
 
 ## Full per-field plan
@@ -111,7 +139,7 @@ everything not listed is **KEEP**.
 |---|---|---|---|
 | `biological_story` | MERGE→ `background` | general name; see model 2 | ✅ decided |
 | `description` | MERGE→ `background` | legacy prose | ✅ decided |
-| `lead` | MERGE→ `background` *(or keep)* | open: fold vs keep | ✅/open |
+| `lead` | MERGE→ `background` | folded in as first paragraph | ✅ decided |
 | `scientific_argument` | RENAME→ `argument` | expanded; see model 1 | ✅ decided |
 | `key_claims[]` | MERGE→ `argument.claims` | | ✅ decided |
 | `claims[]` | MERGE→ `argument.claims` | instance-only ledger | ✅ decided |
@@ -119,9 +147,9 @@ everything not listed is **KEEP**.
 | `competing_frameworks[]` | MOVE→ `argument.competing_frameworks` | | ✅ decided |
 | `synthesis` | SPLIT→ `background` + `argument` | then remove | ✅ decided |
 | `executive.computed_verdict_status` + `computed_acceptance` | NAMESPACE→ `executive.computed{}` | one computed block | propose |
-| `decision_log`, `reconciliation_log`, `executed_actions`, `lifecycle_history`, `resolutions`, `cycle_flags`, `finding_candidates`, `discoveries`, `review_decisions`, `applied_feedback`, `pending_feedback`, `critique_reports`, `validation_snapshot`, `model_acquisition_proposals` | NAMESPACE→ `engine:{}` | engine-owned, instance-only today; schematize under one key | propose |
-| `model_versions`, `viz_proposals`, `capability_gaps`, `revision_proposals`, `cycle_state` | NAMESPACE→ `engine:{}` | already the extensions-schema cluster | propose |
-| `transition_barriers`, `candidate_composites`, `candidate_software`, `flagship_studies`, `final_deliverable`, `regimes`, `model_families`, `physical_scalings`, `first_cycle_priority`, `promotion_rules`, `seed_acceptance_checklist`, `seed_id`, `plan_acts`, `object_of_evaluation` | RELOCATE→ `investigations/<slug>/plan.md` | **neither system reads any of these** | open |
+| `decision_log`, `reconciliation_log`, `executed_actions`, `lifecycle_history`, `resolutions`, `cycle_flags`, `finding_candidates`, `discoveries`, `review_decisions`, `applied_feedback`, `pending_feedback`, `critique_reports`, `validation_snapshot`, `model_acquisition_proposals` | NAMESPACE→ `engine:{}` | engine-owned, instance-only today; schematize under one key | ✅ decided |
+| `model_versions`, `viz_proposals`, `capability_gaps`, `revision_proposals`, `cycle_state` | NAMESPACE→ `engine:{}` | already the extensions-schema cluster | ✅ decided |
+| `transition_barriers`, `candidate_composites`, `candidate_software`, `flagship_studies`, `final_deliverable`, `regimes`, `model_families`, `physical_scalings`, `first_cycle_priority`, `promotion_rules`, `seed_acceptance_checklist`, `seed_id`, `plan_acts`, `object_of_evaluation` | DROP | removed from schema — **neither system reads any of these** | ✅ decided |
 | `proposed_inputs` | RESOLVE | wire the UI or drop the endpoint (orphan write path) | open |
 
 Kept as-is: the authored/computed verdict slots, `studies`, `acceptance_criteria`,
@@ -142,7 +170,7 @@ Kept as-is: the authored/computed verdict slots, `studies`, `acceptance_criteria
 | `purpose.question` | MERGE→ `question` | duplicate | safe |
 | `concept` | MERGE→ `claim`/`question` | instance-only | safe |
 | `conclusions` | MERGE→ `conclusion` | plural dup of singular | safe |
-| `hypothesis` | MERGE→ `claim` | deprecated; engine reads it, so back-compat required | structural |
+| `hypothesis` | MERGE→ `claim` | deprecated; engine reads it, so back-compat required | ✅ decided |
 | `expected_behavior` | DROP | legacy v3 DSL; superseded by `behavior_tests[]` | safe |
 | `tests` (config block) | MERGE→ `behavior_tests` | | structural |
 | `conclusion_logic` | DROP (schema) | absent | safe |
@@ -151,11 +179,11 @@ Kept as-is: the authored/computed verdict slots, `studies`, `acceptance_criteria
 | `parent_relations[]` | MERGE→ `parent_studies[]` | legacy back-compat edges | structural |
 | `builds_on[]` | MERGE→ `parent_studies[].relation: builds-on` | underscore alias | structural |
 | `handoff`, `plan_id` | MERGE→ `upstream_state_consumed[]` | numeric plan-id dataflow | structural |
-| `conditions{}` *vs* flat `baseline`/`variants`/`observables` | PICK ONE | two layouts for the same thing — recommend **flat** (instances use flat; `conditions{}` mostly empty) | open |
+| `conditions{}` | DROP (flatten) | adopt flat `baseline`/`variants`/`observables`; promote `conditions.model_settings`/`expert_inputs` → top-level `model_settings[]` | ✅ decided |
 | `readouts[]` *vs* `observables[]` | MERGE→ `observables[]` | two observable declarations | structural |
 | `variants[].base`/`.over` *vs* `.params` | ONE encoding | recommend `base`/`over` (matches instances) | structural |
 | `discovery_implications.followup_study_proposals` | canonical followups | reconcile the one follow-up encoding | structural |
-| `runs[]` | KEEP (flag) | `runs.db` is canonical; long-term, deprecate the inline array | open |
+| `runs[]` | DEPRECATE | `runs.db` is canonical; mark deprecated now, back-compat read for one window, then remove | ✅ decided |
 
 Kept as-is: `claim`, `question`, `experiment`, `result`, `conclusion`, the kept
 status axes (`design_status`, `simulation_status`, `evaluation_status`,
@@ -166,19 +194,28 @@ status axes (`design_status`, `simulation_status`, `evaluation_status`,
 
 ---
 
-## Open decisions (maintainer's call)
+## Decisions (resolved)
 
-1. **Config layout:** flat (`baseline`/`variants`/`observables`) or the v4
-   `conditions{}` block? (Recommend **flat**.)
-2. **Relocate the seed/authoring blocks** to `investigations/<slug>/plan.md`, or
-   drop them? (Recommend **relocate** — they're real campaign content, just not
-   schema content.)
-3. **Namespace the engine's instance-only writes** under one `engine:` key and
-   schematize them? (Recommend **yes** — cuts ~14 top-level keys to one and turns
-   an instance-only sprawl into a validated contract.)
-4. **`lead`:** fold into `background`, or keep as a separate short intro?
-5. **`runs[]`:** deprecate the inline array in favor of `runs.db` now, or later?
-6. **Study `hypothesis` / `concept`:** fold into `claim` / `question`?
+1. **Config layout → flat.** Drop the v4 `conditions{}` block; the canonical
+   layout is top-level `baseline` / `variants` / `observables`, with
+   `conditions.model_settings` / `expert_inputs` promoted to a top-level
+   `model_settings[]`.
+2. **Seed / authoring blocks → drop.** `transition_barriers`,
+   `candidate_composites`, `candidate_software`, `flagship_studies`,
+   `final_deliverable`, `regimes`, `model_families`, `physical_scalings`,
+   `first_cycle_priority`, `promotion_rules`, `seed_acceptance_checklist`,
+   `seed_id`, `plan_acts`, `object_of_evaluation` are removed from the schema (not
+   relocated).
+3. **Namespace engine writes → yes.** The engine's instance-only writes and the
+   extensions-schema cluster move under one `engine:` block and become a
+   validated contract (Target model 3).
+4. **`lead` → fold into `background`.** No separate short-intro field.
+5. **`runs[]` → deprecate.** Mark the inline array deprecated now; `runs.db` is
+   canonical. Back-compat read for one window, then removed.
+6. **Study `hypothesis` / `concept` → fold** into `claim` / `question`.
+
+One item is still open — **`proposed_inputs`** (wire the UI, or drop the orphan
+write endpoint): a workbench decision, not a schema one.
 
 ---
 
@@ -203,8 +240,8 @@ status axes (`design_status`, `simulation_status`, `evaluation_status`,
 
 | File | Field-groups today | After | Cut |
 |---|---|---|---|
-| `investigation.yaml` | ~62 | ~42 | legacy prose + argument merge + relocate seed blocks + namespace engine |
-| `study.yaml` | ~55 | ~35 | status-axis collapse + deprecated duplicates + schema-only removals + config merge |
+| `investigation.yaml` | ~62 | **~38** | prose + argument merge, drop seed blocks, ~19 engine keys → one `engine:` |
+| `study.yaml` | ~55 | **~32** | status-axis collapse, deprecated-duplicate drops, schema-only removals, flat config, deprecate `runs[]` |
 
 ## Non-goals
 
