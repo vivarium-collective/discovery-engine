@@ -1,0 +1,213 @@
+# Schema consolidation proposal — `investigation.yaml` & `study.yaml`
+
+**Status:** Proposed (draft, for discussion)
+**Date:** 2026-11-28
+**Related:** the [investigation & study field map](field-map.html) (PR #216) — this proposal is built from what that map surfaced.
+
+---
+
+## Why
+
+The field map quantified the slack: both schemas carry far more fields than
+either the **workbench** or the **engine** uses. The excess falls into three
+kinds, and each is treated differently here:
+
+1. **Legacy duplicates** — two fields for one thing, one superseded. Safe to drop
+   after a back-compat migration.
+2. **Schema-defined but never written** — properties in the JSON schema that no
+   instance populates and no code reads. Latent complexity; safe to delete from
+   the schema.
+3. **Unused authoring / seed blocks** — prose and plans neither system reads.
+   *Not* safe to delete on software grounds alone — a human may rely on them, so
+   these are **relocated**, not deleted.
+
+**Goal:** cut field count and redundancy without touching intentional design.
+
+## Principles
+
+- **Keep intentional parallel slots.** The authored-vs-computed pairs
+  (`verdict_status` / `computed_verdict_status`, `runs[].outcomes` /
+  `runs[].computed_outcomes`) are *by design*, not duplication. They stay.
+- **"Unused by software" ≠ "useless to humans."** Authoring prose is relocated
+  to a plan doc, not dropped.
+- **Migrate, don't just delete.** Every removal ships with a back-compat reader
+  (accept the old key, prefer the new) and a comment-preserving migration.
+- **The schema carries only what a tool reads/writes, or a human authors with
+  purpose.** Everything else leaves the canonical schema.
+- **Domain-neutral.** The engine serves any ecosystem; field names should not
+  bake in one domain.
+
+---
+
+## Decisions already taken
+
+- ✅ **Consolidate the claim/argument containers** into one `argument` model.
+- ✅ **Replace `biological_story`** with a general, domain-neutral long-form field
+  (it bakes "biology" into a domain-agnostic schema), folding legacy prose in.
+
+These two are specified below; the rest of the plan is proposed with open
+questions flagged for the maintainer.
+
+---
+
+## Target model 1 — one `argument` block (investigation)
+
+**Today — six overlapping containers:** `scientific_argument`, `key_claims[]`,
+`claims[]`, `hypotheses[]`, `competing_frameworks[]`, and the free-text
+`synthesis`. The workbench Background tab and the engine's coverage corpus both
+read across these; nothing needs them separate.
+
+**Target — a single `argument:` block:**
+
+```yaml
+argument:
+  main_claim: ""                    # was scientific_argument.main_claim
+  evidence_for: []                  # was scientific_argument.evidence_for
+  evidence_against: []
+  caveats: []
+  key_figures: []
+  claims:                           # merges key_claims[] + claims[] (the cited ledger)
+    - {id, statement, cites, status}
+  hypotheses:                       # moved under argument, unchanged shape
+    - {id, statement, predictions, status, competing_with}
+  competing_frameworks:             # moved under argument
+    - {name, relation}
+```
+
+`synthesis` splits: its prose goes to `background` (below); any structured
+`evidence_chain` folds into `argument.claims`. Then `synthesis`, `key_claims`,
+`claims`, top-level `hypotheses` and `competing_frameworks` are removed.
+
+## Target model 2 — one general `background` field (investigation)
+
+**Today — four free-text prose fields:** `lead`, `description` (legacy),
+`biological_story` (domain-specific name), and `executive.what_is_this`.
+
+**Target:**
+
+- `executive.what_is_this` — the short overview lede (**keep**).
+- `background` — **one general, domain-neutral long-form markdown field.**
+  **Replaces `biological_story`** and **absorbs legacy `description`** and the
+  prose half of `synthesis`.
+- `lead` — *open question:* fold into `background`'s first paragraph, or keep as
+  a separate short intro. (Recommend fold.)
+
+Rationale: `biological_story` names a domain in a schema that must stay
+domain-agnostic; `background` serves any investigation and collapses three prose
+fields to one.
+
+---
+
+## Full per-field plan
+
+Actions: **KEEP** · **DROP** (delete, with back-compat) · **MERGE→** (fold into
+another field) · **RELOCATE→** (out of the canonical schema) · **NAMESPACE→**
+(group under a parent key, no data lost). Only fields that change are listed;
+everything not listed is **KEEP**.
+
+### `investigation.yaml`
+
+| Field | Action | Notes | Tier |
+|---|---|---|---|
+| `biological_story` | MERGE→ `background` | general name; see model 2 | ✅ decided |
+| `description` | MERGE→ `background` | legacy prose | ✅ decided |
+| `lead` | MERGE→ `background` *(or keep)* | open: fold vs keep | ✅/open |
+| `scientific_argument` | RENAME→ `argument` | expanded; see model 1 | ✅ decided |
+| `key_claims[]` | MERGE→ `argument.claims` | | ✅ decided |
+| `claims[]` | MERGE→ `argument.claims` | instance-only ledger | ✅ decided |
+| `hypotheses[]` | MOVE→ `argument.hypotheses` | | ✅ decided |
+| `competing_frameworks[]` | MOVE→ `argument.competing_frameworks` | | ✅ decided |
+| `synthesis` | SPLIT→ `background` + `argument` | then remove | ✅ decided |
+| `executive.computed_verdict_status` + `computed_acceptance` | NAMESPACE→ `executive.computed{}` | one computed block | propose |
+| `decision_log`, `reconciliation_log`, `executed_actions`, `lifecycle_history`, `resolutions`, `cycle_flags`, `finding_candidates`, `discoveries`, `review_decisions`, `applied_feedback`, `pending_feedback`, `critique_reports`, `validation_snapshot`, `model_acquisition_proposals` | NAMESPACE→ `engine:{}` | engine-owned, instance-only today; schematize under one key | propose |
+| `model_versions`, `viz_proposals`, `capability_gaps`, `revision_proposals`, `cycle_state` | NAMESPACE→ `engine:{}` | already the extensions-schema cluster | propose |
+| `transition_barriers`, `candidate_composites`, `candidate_software`, `flagship_studies`, `final_deliverable`, `regimes`, `model_families`, `physical_scalings`, `first_cycle_priority`, `promotion_rules`, `seed_acceptance_checklist`, `seed_id`, `plan_acts`, `object_of_evaluation` | RELOCATE→ `investigations/<slug>/plan.md` | **neither system reads any of these** | open |
+| `proposed_inputs` | RESOLVE | wire the UI or drop the endpoint (orphan write path) | open |
+
+Kept as-is: the authored/computed verdict slots, `studies`, `acceptance_criteria`,
+`executive.*` verdict/decision fields, `how_to_read`, `glossary`, `contributors`
+(legit optional features), `plan_gates`, `narrative.questions`, `inputs`,
+`expert_docs`, `discovery.*` (engine config).
+
+### `study.yaml`
+
+| Field | Action | Notes | Tier |
+|---|---|---|---|
+| `status` | DROP | legacy single-axis; superseded by the multi-axis set | safe |
+| `phase` | DROP | derive for display from the axes | safe |
+| `confidence` | DROP | workbench *derives* it (`derive_confidence`); engine uses `verdict`/`gate_status` | safe |
+| `implementation_status` | DROP (schema) | **absent from all ~40 studies** | safe |
+| `expert_review_status` | DROP (schema) | absent from all studies | safe |
+| `objective` | DROP | deprecated; superseded by `experiment` | safe |
+| `purpose.question` | MERGE→ `question` | duplicate | safe |
+| `concept` | MERGE→ `claim`/`question` | instance-only | safe |
+| `conclusions` | MERGE→ `conclusion` | plural dup of singular | safe |
+| `hypothesis` | MERGE→ `claim` | deprecated; engine reads it, so back-compat required | structural |
+| `expected_behavior` | DROP | legacy v3 DSL; superseded by `behavior_tests[]` | safe |
+| `tests` (config block) | MERGE→ `behavior_tests` | | structural |
+| `conclusion_logic` | DROP (schema) | absent | safe |
+| `report`, `study_card`, `conclusion_verdicts`, `biological_summary`, `design_pivot_required` | DROP (schema) | v4 blocks, never adopted | safe |
+| `model_change`, `implementation_requirements`, `implementation_tasks`, `runtime`, `enforced_params`, `expert_questions`, `bibliography`, `seeded_from`, `follow_up_of`, `followup_proposals` | DROP (schema) | schema-only, absent from all instances | safe |
+| `parent_relations[]` | MERGE→ `parent_studies[]` | legacy back-compat edges | structural |
+| `builds_on[]` | MERGE→ `parent_studies[].relation: builds-on` | underscore alias | structural |
+| `handoff`, `plan_id` | MERGE→ `upstream_state_consumed[]` | numeric plan-id dataflow | structural |
+| `conditions{}` *vs* flat `baseline`/`variants`/`observables` | PICK ONE | two layouts for the same thing — recommend **flat** (instances use flat; `conditions{}` mostly empty) | open |
+| `readouts[]` *vs* `observables[]` | MERGE→ `observables[]` | two observable declarations | structural |
+| `variants[].base`/`.over` *vs* `.params` | ONE encoding | recommend `base`/`over` (matches instances) | structural |
+| `discovery_implications.followup_study_proposals` | canonical followups | reconcile the one follow-up encoding | structural |
+| `runs[]` | KEEP (flag) | `runs.db` is canonical; long-term, deprecate the inline array | open |
+
+Kept as-is: `claim`, `question`, `experiment`, `result`, `conclusion`, the kept
+status axes (`design_status`, `simulation_status`, `evaluation_status`,
+`gate_status`, `execution_status`, `verdict`, `evidence_tier`), `baseline`,
+`behavior_tests`, `pipeline_gate`, `findings`, `runs[].outcomes` /
+`computed_outcomes` (parallel slots), `arms`, `visualizations`, `narrative.*`,
+`parent_studies`.
+
+---
+
+## Open decisions (maintainer's call)
+
+1. **Config layout:** flat (`baseline`/`variants`/`observables`) or the v4
+   `conditions{}` block? (Recommend **flat**.)
+2. **Relocate the seed/authoring blocks** to `investigations/<slug>/plan.md`, or
+   drop them? (Recommend **relocate** — they're real campaign content, just not
+   schema content.)
+3. **Namespace the engine's instance-only writes** under one `engine:` key and
+   schematize them? (Recommend **yes** — cuts ~14 top-level keys to one and turns
+   an instance-only sprawl into a validated contract.)
+4. **`lead`:** fold into `background`, or keep as a separate short intro?
+5. **`runs[]`:** deprecate the inline array in favor of `runs.db` now, or later?
+6. **Study `hypothesis` / `concept`:** fold into `claim` / `question`?
+
+---
+
+## Migration & rollout
+
+- **Back-compat readers first.** `discovery_engine.investigation.canonicalize`
+  and the workbench loaders accept the old keys, prefer the new, and emit the
+  canonical shape — so old workspaces keep working through a deprecation window.
+- **Comment-preserving migration** (ruamel round-trip) run across `viva-genesis`
+  and the other workspaces; a `--check` mode for CI (mirror
+  `tests/test_cycle_spec_drift.py`).
+- **Blast-radius grep before each removal** across the consumers: `viva-superpowers`
+  (skills), `vivarium-workbench` (UI/server), and every workspace. A field is
+  removed from the schema only after no consumer references it.
+- **Schema deprecation window** — mark superseded props `deprecated: true` for one
+  release before deletion.
+- **Update the field map afterwards** — once the slim schema lands, update the
+  `INV`/`STUDY` arrays and the `SCH_*`/`TAB_*` maps in `docs/field-map.html` to
+  match. (This is the agreed "update the map after the plan" step.)
+
+## Projected reduction
+
+| File | Field-groups today | After | Cut |
+|---|---|---|---|
+| `investigation.yaml` | ~62 | ~42 | legacy prose + argument merge + relocate seed blocks + namespace engine |
+| `study.yaml` | ~55 | ~35 | status-axis collapse + deprecated duplicates + schema-only removals + config merge |
+
+## Non-goals
+
+- Not changing the **authored ↔ computed** design (verdict/outcome parallel slots).
+- Not removing the engine's **closed-loop fields** — they're used; they get
+  namespaced and schematized, not dropped.
