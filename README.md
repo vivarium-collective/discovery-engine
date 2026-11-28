@@ -170,6 +170,13 @@ Every subcommand is self-describing via `discover <verb> -h`.
   drive it, its inputs/outputs, and what it writes to investigations, studies and
   models. Also as a [PDF](docs/discovery-engine-cycle-map.pdf) and a
   [map specification](docs/discovery-engine-map-spec.md).
+- **[Investigation & study field map](https://vivarium-collective.github.io/discovery-engine/field-map.html)**
+  — an interactive, zoomable map of every `investigation.yaml` and `study.yaml`
+  field across three systems: the canonical **schema** (core / extensions /
+  instance-only), the **vivarium-workbench** (which tab shows it, and whether it's
+  display or user input), and **this engine** (what it reads and writes). Browse
+  by workbench tab to see, per tab, which fields the engine reads and writes.
+  Also as a [PDF](docs/field-map.pdf).
 - **[`docs/architecture.md`](docs/architecture.md)** — the full discovery-cycle
   reference: the two layers, the Phase A–F + N+2 model, the typed contracts
   (Hypothesis, Prediction, Evidence, ExperimentDesign, ModelVersion,

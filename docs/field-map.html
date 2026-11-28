@@ -1,0 +1,1015 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Investigation & Study Field Map</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Space+Grotesk:wght@500;600;700&display=swap">
+<style>
+/* Layout: a zoomable field-landscape. Three channels per tile — schema stripe on top,
+   workbench (left) + engine (right) on the status bar. Lens spotlights a system; a drawer opens the full read. */
+:root{
+  --bg:#f4f5f7; --panel:#ffffff; --panel-2:#fbfbfd; --ink:#1a1d24; --ink-2:#565c6b;
+  --line:#e3e6ec; --line-2:#eef0f4;
+  --accent:#4f46e5; --accent-soft:#eef0ff;
+  --input:#0f8a5f; --input-bg:#e6f6ee;
+  --display:#1f6fd6; --display-bg:#e8f1fd;
+  --derived:#0d8f9b; --derived-bg:#e3f6f7;
+  --write:#8b3ad6; --write-bg:#f3e9fc;
+  --read:#5a6274; --read-bg:#eef0f4;
+  --warn:#b9731a; --warn-bg:#fcf0df;
+  --ext:#0e8f9f; --ext-bg:#e2f4f6;
+  --mono:ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+  --shadow:0 10px 30px rgba(20,24,40,.14);
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --bg:#0f1116; --panel:#171a21; --panel-2:#1c2028; --ink:#e8eaef; --ink-2:#9aa1b1; --line:#2a2f3a; --line-2:#20242d;
+  --accent:#8b86f5; --accent-soft:#232743;
+  --input:#4ad99a; --input-bg:#143026;
+  --display:#6fb0f5; --display-bg:#12263c;
+  --derived:#3fd0dc; --derived-bg:#0f2d31;
+  --write:#c488f5; --write-bg:#281a39;
+  --read:#aab2c4; --read-bg:#222733;
+  --warn:#e3a34f; --warn-bg:#352816;
+  --ext:#49c7d6; --ext-bg:#0f2d33;
+  --shadow:0 12px 34px rgba(0,0,0,.5);
+  color-scheme:dark;
+}}
+:root[data-theme="dark"]{
+  --bg:#0f1116; --panel:#171a21; --panel-2:#1c2028; --ink:#e8eaef; --ink-2:#9aa1b1; --line:#2a2f3a; --line-2:#20242d;
+  --accent:#8b86f5; --accent-soft:#232743;
+  --input:#4ad99a; --input-bg:#143026;
+  --display:#6fb0f5; --display-bg:#12263c;
+  --derived:#3fd0dc; --derived-bg:#0f2d31;
+  --write:#c488f5; --write-bg:#281a39;
+  --read:#aab2c4; --read-bg:#222733;
+  --warn:#e3a34f; --warn-bg:#352816;
+  --ext:#49c7d6; --ext-bg:#0f2d33;
+  --shadow:0 12px 34px rgba(0,0,0,.5);
+  color-scheme:dark;
+}
+*{box-sizing:border-box}
+body{background:var(--bg);color:var(--ink);font-family:Inter,system-ui,sans-serif;font-size:14px;line-height:1.5;margin:0}
+.wrap{max-width:1280px;margin:0 auto;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px))}
+h1,h2,h3{font-family:"Space Grotesk",sans-serif;text-wrap:balance;margin:0}
+code,.mono{font-family:var(--mono)}
+
+/* hero */
+.hero{padding-block:22px 10px}
+.eyebrow{font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--accent);font-weight:600}
+.hero h1{font-size:clamp(22px,4.2vw,32px);font-weight:700;margin-top:6px;letter-spacing:-.01em}
+.hero p.sub{color:var(--ink-2);margin:7px 0 0;max-width:76ch;font-size:13.5px}
+.verband{display:flex;flex-wrap:wrap;gap:7px;margin-top:12px}
+.verpill{display:inline-flex;align-items:center;gap:6px;background:var(--panel);border:1px solid var(--line);border-radius:999px;padding:3px 10px;font-size:11.5px;color:var(--ink-2)}
+.verpill b{color:var(--ink);font-weight:600}
+.dot{width:7px;height:7px;border-radius:50%;background:var(--input);flex:none}
+
+/* control deck */
+.deck{position:sticky;top:env(safe-area-inset-top,0px);z-index:30;background:var(--bg);padding:10px 0 11px;border-bottom:1px solid var(--line)}
+.deckrow{display:flex;flex-wrap:wrap;gap:9px 14px;align-items:center}
+.grouplbl{font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--ink-2);font-weight:600}
+.seg{display:inline-flex;background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:3px;gap:2px}
+.seg button{border:0;background:transparent;color:var(--ink-2);font:inherit;font-weight:600;font-size:12.5px;padding:6px 12px;border-radius:7px;cursor:pointer;white-space:nowrap}
+.seg button[aria-pressed="true"]{background:var(--accent);color:#fff}
+.seg.lens button[aria-pressed="true"][data-lens="wb"]{background:var(--display)}
+.seg.lens button[aria-pressed="true"][data-lens="eng"]{background:var(--write)}
+.search{flex:1;min-width:170px;display:flex;align-items:center;gap:8px;background:var(--panel);border:1px solid var(--line);border-radius:9px;padding:0 11px}
+.search input{border:0;background:transparent;color:var(--ink);font:inherit;padding:8px 0;width:100%;outline:none}
+.search svg{flex:none;color:var(--ink-2)}
+select.grp{background:var(--panel);border:1px solid var(--line);border-radius:9px;color:var(--ink);font:inherit;font-size:13px;padding:8px 10px;cursor:pointer;max-width:230px}
+.zoom{display:inline-flex;align-items:center;gap:4px;background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:3px}
+.zoom button{width:30px;height:28px;border:0;background:transparent;color:var(--ink);font-size:16px;font-weight:600;border-radius:6px;cursor:pointer;display:flex;align-items:center;justify-content:center}
+.zoom button:hover{background:var(--panel-2)}
+.zoom button[disabled]{opacity:.35;cursor:default}
+.zoom .zlabel{font-size:11px;color:var(--ink-2);min-width:62px;text-align:center;font-weight:500}
+.meta{font-size:12px;color:var(--ink-2);margin-top:9px;display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;align-items:center}
+.linkbtn{background:none;border:0;color:var(--accent);font:inherit;font-size:12px;cursor:pointer;padding:0;text-decoration:underline}
+
+/* legend */
+.legend{display:flex;flex-wrap:wrap;gap:7px 16px;margin:12px 0 2px;font-size:11.5px;color:var(--ink-2);align-items:center}
+.legend .lg{display:inline-flex;align-items:center;gap:6px}
+.legend .sw{width:11px;height:11px;border-radius:3px;flex:none}
+.legend .swl{width:14px;height:5px;border-radius:2px;flex:none}
+.sw-input{background:var(--input)}.sw-display{background:var(--display)}.sw-derived{background:var(--derived)}
+.sw-write{background:var(--write)}.sw-read{background:var(--read)}.sw-warn{background:var(--warn)}.sw-none{background:var(--ink-2);opacity:.4}
+.sw-core{background:var(--accent)}.sw-ext{background:var(--ext)}.sw-inst{background:var(--ink-2);opacity:.55}
+.legend .side{font-weight:600;color:var(--ink)}
+.legend .div{width:1px;height:14px;background:var(--line)}
+
+/* observations */
+.obs{background:var(--panel);border:1px solid var(--line);border-radius:12px;margin:14px 0 2px}
+.obs>summary{cursor:pointer;list-style:none;padding:12px 15px;font-family:"Space Grotesk",sans-serif;font-weight:600;font-size:13.5px;display:flex;align-items:center;justify-content:space-between;gap:10px}
+.obs>summary::-webkit-details-marker{display:none}
+.obs>summary .chev{transition:transform .2s;color:var(--ink-2)}
+.obs[open]>summary .chev{transform:rotate(90deg)}
+.obs .obsbody{padding:0 15px 14px}
+.obs ul{margin:0;padding-left:0;list-style:none;display:flex;flex-direction:column;gap:9px}
+.obs li{padding-left:16px;position:relative;font-size:12.8px;line-height:1.5}
+.obs li::before{content:"";position:absolute;left:0;top:7px;width:6px;height:6px;border-radius:50%;background:var(--accent)}
+.obs li b{font-weight:600}
+.obs .tag{font-family:var(--mono);font-size:11px;background:var(--panel-2);border:1px solid var(--line);border-radius:5px;padding:1px 5px}
+
+/* ===== COVERAGE ===== */
+.coverage{border:1px solid var(--line);border-radius:12px;background:var(--panel);padding:14px 15px;margin:14px 0 0}
+.cov-head{display:flex;justify-content:space-between;align-items:baseline;gap:10px;flex-wrap:wrap;margin-bottom:10px}
+.cov-head h2{font-size:14px;font-weight:600}
+.cov-head .tot{font-size:11.5px;color:var(--ink-2)}
+.covtable{width:100%;border-collapse:collapse;min-width:440px}
+.covtable th{font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:var(--ink-2);font-weight:600;text-align:right;padding:5px 10px;white-space:nowrap}
+.covtable th.lft{text-align:left}
+.covtable td{padding:7px 10px;font-size:13px;border-top:1px solid var(--line-2);vertical-align:middle}
+.covtable td.lft{text-align:left}
+.covtable td.lft .lfti{display:flex;align-items:center;gap:8px}
+.covtable td.num{text-align:right;font-variant-numeric:tabular-nums;font-weight:600;white-space:nowrap}
+.covtable td.clk{cursor:pointer}
+.covtable td.clk:hover{background:var(--panel-2)}
+.covtable .covtot td{border-top:1.5px solid var(--line);font-weight:700}
+.covtable .warnnum{color:var(--warn)}
+.covbar{display:inline-block;width:44px;height:5px;border-radius:3px;background:var(--line-2);margin-left:8px;vertical-align:middle;overflow:hidden}
+.covbar i{display:block;height:100%}
+.covlabel{border:0;background:none;color:var(--ink);font:inherit;font-weight:500;cursor:pointer;padding:0;text-align:left}
+.covlabel:hover{color:var(--accent);text-decoration:underline}
+.covroles{display:flex;flex-wrap:wrap;gap:7px;align-items:center;margin-top:10px}
+.covroles .rlbl{font-size:10.5px;text-transform:uppercase;letter-spacing:.06em;font-weight:700;margin-right:3px}
+.covroles .chip{font-size:11.5px;color:var(--ink-2);background:var(--panel-2);border:1px solid var(--line);border-radius:999px;padding:2px 9px}
+.covroles .chip b{color:var(--ink);font-weight:700}
+
+/* ===== MAP ===== */
+#mapview{margin:14px 0 40px}
+.cluster{margin-bottom:22px}
+.chead{display:flex;align-items:center;gap:10px;margin-bottom:9px;flex-wrap:wrap}
+.chead h3{font-size:13px;font-weight:600;letter-spacing:.02em;color:var(--ink)}
+.chead .cnum{font-size:11px;color:var(--ink-2);background:var(--panel);border:1px solid var(--line);border-radius:999px;padding:1px 8px}
+.chead .mix{display:flex;height:6px;border-radius:3px;overflow:hidden;min-width:70px;flex:none}
+.chead .mix i{display:block;height:100%}
+.grid{display:grid;gap:9px;grid-template-columns:repeat(auto-fill,minmax(var(--tile,180px),1fr))}
+.tile{border:1px solid var(--line);border-radius:10px;background:var(--panel);cursor:pointer;overflow:hidden;display:flex;flex-direction:column;transition:border-color .12s,transform .08s;min-width:0}
+.tile:hover{border-color:var(--accent)}
+.tile:active{transform:translateY(1px)}
+.tile.sel{border-color:var(--accent);box-shadow:0 0 0 2px var(--accent-soft)}
+.sstripe{height:3px;flex:none}
+.sc-core{background:var(--accent)}.sc-ext{background:var(--ext)}.sc-inst{background:var(--ink-2);opacity:.45}.sc-na{background:transparent}
+.tname{padding:7px 9px 7px;font-family:var(--mono);font-size:12px;font-weight:500;color:var(--ink);line-height:1.3;word-break:break-word;flex:1}
+.treq{display:inline-block;font-size:8.5px;font-weight:700;background:var(--accent-soft);color:var(--accent);border-radius:3px;padding:0 3px;margin-left:3px;vertical-align:middle}
+.spill{float:right;font-size:8.5px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;padding:1px 4px;border-radius:4px;margin-left:5px}
+.spill.inl{float:none;display:inline-block;margin-left:4px}
+.sc-pill-core{background:var(--accent-soft);color:var(--accent)}
+.sc-pill-ext{background:var(--ext-bg);color:var(--ext)}
+.sc-pill-inst{background:var(--line-2);color:var(--ink-2)}
+.tbar{display:flex;height:21px;font-size:9.5px;font-weight:700;letter-spacing:.03em;border-top:1px solid var(--line-2)}
+.tseg{flex:1;display:flex;align-items:center;justify-content:center;gap:3px;min-width:0;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;padding:0 3px}
+.tseg.engseg{border-left:1px solid var(--line-2)}
+.wb-input{background:var(--input-bg);color:var(--input)}
+.wb-display{background:var(--display-bg);color:var(--display)}
+.wb-derived{background:var(--derived-bg);color:var(--derived)}
+.wb-dead,.wb-orphan{background:var(--warn-bg);color:var(--warn)}
+.wb-none{background:var(--panel-2);color:var(--ink-2)}
+.eng-w,.eng-rw{background:var(--write-bg);color:var(--write)}
+.eng-r{background:var(--read-bg);color:var(--read)}
+.eng-none{background:var(--panel-2);color:var(--ink-2)}
+body[data-lens="wb"] .engseg{opacity:.22;filter:grayscale(.7)}
+body[data-lens="eng"] .wbseg{opacity:.22;filter:grayscale(.7)}
+#mapview.z1 .grid{--tile:84px;gap:6px}
+#mapview.z1 .tname{display:none}
+#mapview.z1 .tbar{height:24px;font-size:10px}
+#mapview.z2 .grid{--tile:152px}
+#mapview.z2 .tname{font-size:11.5px}
+#mapview.z3 .grid{--tile:240px}
+.empty{padding:48px 16px;text-align:center;color:var(--ink-2)}
+
+/* ===== LIST ===== */
+.tablewrap{overflow-x:auto;margin:14px 0 40px;border:1px solid var(--line);border-radius:12px;background:var(--panel)}
+table{border-collapse:collapse;width:100%;min-width:720px}
+thead th{position:sticky;top:0;background:var(--panel-2);text-align:left;font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--ink-2);font-weight:600;padding:10px 13px;border-bottom:1px solid var(--line);z-index:2}
+tbody td{padding:11px 13px;border-bottom:1px solid var(--line-2);vertical-align:top}
+tbody tr.frow{cursor:pointer}
+tbody tr.frow:hover{background:var(--panel-2)}
+.grouprow td{background:var(--panel-2);font-family:"Space Grotesk",sans-serif;font-weight:600;font-size:12px;letter-spacing:.03em;color:var(--accent);text-transform:uppercase;padding:9px 13px;border-top:1px solid var(--line)}
+.fpath{font-family:var(--mono);font-size:12.5px;color:var(--ink);font-weight:500;word-break:break-word}
+.ftype{font-size:11px;color:var(--ink-2);margin-top:3px;font-family:var(--mono)}
+.ccell{font-size:12.5px;color:var(--ink-2)}
+.badge{display:inline-flex;align-items:center;gap:5px;font-size:11px;font-weight:600;padding:2px 8px;border-radius:6px;white-space:nowrap}
+.b-input{background:var(--input-bg);color:var(--input)}
+.b-display{background:var(--display-bg);color:var(--display)}
+.b-derived{background:var(--derived-bg);color:var(--derived)}
+.b-write,.b-rw{background:var(--write-bg);color:var(--write)}
+.b-read{background:var(--read-bg);color:var(--read)}
+.b-flag{background:var(--warn-bg);color:var(--warn)}
+.b-none{background:var(--line-2);color:var(--ink-2)}
+.b-core{background:var(--accent-soft);color:var(--accent)}
+.b-ext{background:var(--ext-bg);color:var(--ext)}
+.b-inst{background:var(--line-2);color:var(--ink-2)}
+.col-f{width:28%}.col-c{width:36%}.col-w{width:18%}.col-e{width:18%}
+.wnote{font-size:11.3px;color:var(--ink-2);line-height:1.45;margin-top:4px}
+.wnote code{font-size:10.5px;background:var(--panel-2);border:1px solid var(--line);border-radius:4px;padding:0 4px}
+
+/* ===== DRAWER ===== */
+.backdrop{position:fixed;inset:0;background:rgba(14,17,22,.45);opacity:0;pointer-events:none;transition:opacity .2s;z-index:40}
+.backdrop.on{opacity:1;pointer-events:auto}
+.drawer{position:fixed;top:0;right:0;height:100%;width:min(460px,94vw);background:var(--panel);border-left:1px solid var(--line);box-shadow:var(--shadow);transform:translateX(100%);transition:transform .24s cubic-bezier(.3,.8,.3,1);z-index:41;display:flex;flex-direction:column;padding-top:env(safe-area-inset-top,0px)}
+.drawer.on{transform:translateX(0)}
+.dhead{display:flex;align-items:flex-start;justify-content:space-between;gap:10px;padding:16px 18px 12px;border-bottom:1px solid var(--line)}
+.dcrumb{font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--ink-2);font-weight:600}
+.dpath{font-family:var(--mono);font-size:15px;font-weight:600;color:var(--ink);margin-top:6px;word-break:break-word;line-height:1.35}
+.dtype{font-family:var(--mono);font-size:11.5px;color:var(--ink-2);margin-top:5px}
+.dclose{flex:none;width:32px;height:32px;border:1px solid var(--line);background:var(--panel-2);border-radius:8px;color:var(--ink);font-size:17px;cursor:pointer;line-height:1}
+.dbody{overflow-y:auto;padding:16px 18px 30px;display:flex;flex-direction:column;gap:14px}
+.dsection .dlabel{font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--ink-2);font-weight:600;margin-bottom:6px}
+.dwhat{font-size:13.5px;color:var(--ink);line-height:1.55}
+.scard{border:1px solid var(--line);border-radius:11px;overflow:hidden}
+.scard .scaphead{display:flex;align-items:center;gap:9px;padding:10px 13px;font-weight:600;font-size:13px;font-family:"Space Grotesk",sans-serif}
+.scard.wb .scaphead{background:var(--display-bg);color:var(--display)}
+.scard.eng .scaphead{background:var(--write-bg);color:var(--write)}
+.scard.sch .scaphead{background:var(--accent-soft);color:var(--accent)}
+.scard .scaphead .ic{width:16px;height:16px;flex:none}
+.scard .scapbody{padding:11px 13px;font-size:12.8px;color:var(--ink);line-height:1.55}
+.scard .scapbody .role{margin-bottom:7px}
+.scard .scapbody code{font-size:11px;font-family:var(--mono);background:var(--panel-2);border:1px solid var(--line);border-radius:4px;padding:1px 5px;word-break:break-word}
+.scard .scapbody .muted{color:var(--ink-2)}
+.dtabs{margin-bottom:8px;display:flex;flex-wrap:wrap;gap:5px;align-items:center}
+.dtabs::before{content:"Appears in";font-size:10px;letter-spacing:.04em;text-transform:uppercase;color:var(--ink-2);font-weight:600;margin-right:3px}
+.tabchip{font-size:10.5px;font-weight:600;background:var(--display-bg);color:var(--display);border-radius:999px;padding:2px 9px}
+.seg.gmode button[aria-pressed="true"]{background:var(--accent);color:#fff}
+.nav{display:flex;gap:8px;margin-top:2px}
+.nav button{flex:1;border:1px solid var(--line);background:var(--panel-2);color:var(--ink);font:inherit;font-size:12px;font-weight:500;padding:8px;border-radius:8px;cursor:pointer}
+.nav button:hover{border-color:var(--accent)}
+
+footer{color:var(--ink-2);font-size:12px;padding:6px 0 34px;line-height:1.6;max-width:82ch}
+footer b{color:var(--ink)}
+@media(max-width:720px){
+  .col-f,.col-c,.col-w,.col-e{width:auto}
+  .drawer{width:100%;height:88%;top:auto;bottom:0;border-left:0;border-top:1px solid var(--line);border-radius:16px 16px 0 0;transform:translateY(100%);padding-top:0}
+  .drawer.on{transform:translateY(0)}
+}
+@media (prefers-reduced-motion:reduce){*{transition:none!important}}
+
+/* ===== PRINT / PDF ===== */
+.printonly{display:none}
+#printroot{margin-top:10px}
+.plegend{font-size:11px;color:var(--ink-2);border:1px solid var(--line);border-radius:8px;padding:8px 11px;margin-bottom:6px;line-height:1.5}
+.plegend b{color:var(--ink)}
+.pfile{margin-bottom:6px}
+.pfh{font-size:19px;margin:16px 0 3px;color:var(--ink);border-bottom:2px solid var(--accent);padding-bottom:4px}
+.pcov{font-size:11px;color:var(--ink-2);margin:4px 0 10px;font-variant-numeric:tabular-nums}
+.pgroup{margin-bottom:10px;break-inside:avoid}
+.pgh{font-size:11.5px;text-transform:uppercase;letter-spacing:.04em;color:var(--accent);margin:12px 0 7px;border-bottom:1px solid var(--line);padding-bottom:4px}
+.pgn{color:var(--ink-2);font-weight:500}
+.pgrid{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.pcard{border:1px solid var(--line);border-radius:8px;overflow:hidden;break-inside:avoid;background:var(--panel)}
+.pc-body{padding:7px 9px}
+.pc-path{font-family:var(--mono);font-size:11.5px;font-weight:600;color:var(--ink);word-break:break-word;line-height:1.3}
+.pc-type{font-family:var(--mono);font-size:10px;color:var(--ink-2);margin:2px 0 4px}
+.pc-what{font-size:11px;color:var(--ink);line-height:1.45;margin-bottom:5px}
+.pc-sys{font-size:10.5px;line-height:1.42;margin-top:3px;display:flex;gap:5px;flex-wrap:wrap;align-items:baseline}
+.pc-sys .plabel{font-size:9px;font-weight:700;letter-spacing:.04em;min-width:26px}
+.pc-note{color:var(--ink-2);font-size:10.5px}
+.pc-note.muted{opacity:.7}
+.pc-note code{font-size:9.5px;background:var(--panel-2);border:1px solid var(--line);border-radius:3px;padding:0 3px}
+body.printing .deck,body.printing #coverage,body.printing #mapview,body.printing #listview,body.printing footer,body.printing .wrap>.obs{display:none!important}
+body.printing #printroot{display:block}
+@media print{
+  @page{size:A4 portrait;margin:11mm 9mm}
+  *{-webkit-print-color-adjust:exact!important;print-color-adjust:exact!important}
+  .deck,#coverage,#mapview,#listview,footer,.drawer,.backdrop,.wrap>.obs{display:none!important}
+  #printroot{display:block!important}
+  .hero{padding-block:0 8px}
+  .hero p.sub{display:none}
+  .verband{gap:5px;margin-top:8px}
+  a{color:var(--ink)}
+}
+</style>
+</head>
+<body>
+
+<div class="wrap">
+  <header class="hero">
+    <div class="eyebrow">viva-genesis · workbench · discovery-engine</div>
+    <h1>Investigation &amp; Study Field Map</h1>
+    <p class="sub">Every field on <code>investigation.yaml</code> and <code>study.yaml</code>, read on three channels: a <b>schema</b> stripe on top (where it's defined), then <span style="color:var(--display);font-weight:600">workbench</span> on the left and <span style="color:var(--write);font-weight:600">discovery&nbsp;engine</span> on the right. Zoom out for the whole landscape; click any field for the full read.</p>
+    <div class="verband">
+      <span class="verpill"><span class="dot"></span>Reflects <b>origin/main</b> of both repos</span>
+      <span class="verpill">discovery-engine <b>7af2450</b></span>
+      <span class="verpill">vivarium-workbench <b>6c4ec5a5</b></span>
+      <span class="verpill">as of <b>2026-11-28</b></span>
+    </div>
+  </header>
+
+  <details class="obs">
+    <summary>12 things worth evaluating — seams, orphans &amp; dead weight<span class="chev">›</span></summary>
+    <div class="obsbody">
+      <ul>
+        <li><b>Authored vs computed run on parallel slots.</b> You author <span class="tag">executive.verdict_status</span>; the engine writes <span class="tag">computed_verdict_status</span> + <span class="tag">computed_acceptance</span> beside it and never clobbers yours (per-study: <span class="tag">gate_status</span> vs <span class="tag">pipeline_gate.gate_evaluator</span>).</li>
+        <li><b>Three decision objects, two mechanisms</b> in the Decisions tab: authored <span class="tag">decisions_needed</span>, engine <span class="tag">revision_proposals</span> (approve/reject), engine <span class="tag">reconciliation_log</span> (resolve). All write a human verdict the engine reads next cycle — none mutate the model.</li>
+        <li><b>Orphan write path:</b> <span class="tag">proposed_inputs</span> has an accept/decline endpoint but nothing in the SPA renders it.</li>
+        <li><b>Display dead-ends:</b> <span class="tag">at_a_glance</span>, <span class="tag">object_of_evaluation</span>, <span class="tag">acceptance_criteria</span> ride the payload unrendered (acceptance_criteria still drives the server roll-up).</li>
+        <li><b>The narrative lens is display-only.</b> "Reading for:" reads <span class="tag">narrative.questions</span> and re-scopes client-side; no write-back.</li>
+        <li><b>Claim identity is scope-sensitive &amp; never persisted.</b> <span class="tag">claim_key</span> hashes proposition + <span class="tag">scope</span>; <span class="tag">content_key</span> is in-memory only.</li>
+        <li><b>The knowledge layer is read-only audit.</b> <span class="tag">shared_claims</span>, <span class="tag">knowledge_lift</span>, <span class="tag">workspace_profile</span>, <span class="tag">evidence_routing</span> write nothing — "a human confirms a share."</li>
+        <li><b><span class="tag">decision_log</span> is the engine's one new mainline write</b> — appended once per generation output, comment-preserving.</li>
+        <li><b><span class="tag">discovery.goal</span>/<span class="tag">budget</span> are NOT read from YAML</b> (goal = <code>--goal</code> CLI; budget = AutonomyPolicy). Only coverage_dimensions / gates / skill_map are.</li>
+        <li><b>A big authoring layer is touched by neither system</b> — <span class="tag">transition_barriers</span>, <span class="tag">candidate_composites</span>, <span class="tag">flagship_studies</span>, <span class="tag">synthesis</span>, seed blocks. Filter Schema → Instance to see it.</li>
+        <li><b>Inputs own the broadest free-text surface</b> — <code>/api/prose-edit</code> is whitelisted to exact paths; anything else is rejected server-side.</li>
+        <li><b>Runs are the engine's only study-side write</b> — reads <span class="tag">runs[].outcomes</span>, writes <span class="tag">computed_outcomes</span>, preferred over authored.</li>
+      </ul>
+    </div>
+  </details>
+
+  <div class="deck">
+    <div class="deckrow">
+      <div class="seg" role="tablist">
+        <button id="tab-inv" aria-pressed="true" onclick="setFile('inv')">investigation.yaml</button>
+        <button id="tab-study" aria-pressed="false" onclick="setFile('study')">study.yaml</button>
+      </div>
+      <div class="seg" role="tablist">
+        <button id="view-map" aria-pressed="true" onclick="setView('map')">◳ Map</button>
+        <button id="view-list" aria-pressed="false" onclick="setView('list')">☰ List</button>
+      </div>
+      <div class="seg lens">
+        <span class="grouplbl" style="align-self:center;margin:0 4px 0 4px">Lens</span>
+        <button data-lens="both" aria-pressed="true" onclick="setLens('both')">Both</button>
+        <button data-lens="wb" aria-pressed="false" onclick="setLens('wb')">Workbench</button>
+        <button data-lens="eng" aria-pressed="false" onclick="setLens('eng')">Engine</button>
+      </div>
+      <div class="seg schema">
+        <span class="grouplbl" style="align-self:center;margin:0 4px 0 4px">Schema</span>
+        <button data-sch="all" aria-pressed="true" onclick="setSchema('all')">All</button>
+        <button data-sch="core" aria-pressed="false" onclick="setSchema('core')">Core</button>
+        <button data-sch="ext" aria-pressed="false" onclick="setSchema('ext')">Ext</button>
+        <button data-sch="inst" aria-pressed="false" onclick="setSchema('inst')">Instance</button>
+      </div>
+      <div class="zoom" id="zoomctl">
+        <button id="zout" onclick="zoomBy(-1)" aria-label="Zoom out">−</button>
+        <span class="zlabel" id="zlabel">Overview</span>
+        <button id="zin" onclick="zoomBy(1)" aria-label="Zoom in">+</button>
+      </div>
+    </div>
+    <div class="deckrow" style="margin-top:9px">
+      <div class="seg gmode">
+        <span class="grouplbl" style="align-self:center;margin:0 4px 0 4px">Group by</span>
+        <button data-gm="section" aria-pressed="true" onclick="setGroupMode('section')">Section</button>
+        <button data-gm="tab" aria-pressed="false" onclick="setGroupMode('tab')">Workbench tab</button>
+      </div>
+      <label class="search">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="m21 21-4-4"/></svg>
+        <input id="q" type="text" placeholder="Search field, content, or tab…" autocomplete="off">
+      </label>
+      <select class="grp" id="grp" onchange="render()"><option value="">All groups</option></select>
+    </div>
+    <div class="legend">
+      <span class="lg"><span class="side">Schema:</span></span>
+      <span class="lg"><span class="swl sw-core"></span>core</span>
+      <span class="lg"><span class="swl sw-ext"></span>extension</span>
+      <span class="lg"><span class="swl sw-inst"></span>instance-only</span>
+      <span class="div"></span>
+      <span class="lg"><span class="side">WB:</span></span>
+      <span class="lg"><span class="sw sw-input"></span>input</span>
+      <span class="lg"><span class="sw sw-display"></span>display</span>
+      <span class="lg"><span class="sw sw-derived"></span>computed</span>
+      <span class="lg"><span class="sw sw-warn"></span>dead/orphan</span>
+      <span class="div"></span>
+      <span class="lg"><span class="side">Engine:</span></span>
+      <span class="lg"><span class="sw sw-write"></span>writes</span>
+      <span class="lg"><span class="sw sw-read"></span>reads</span>
+      <span class="lg"><span class="sw sw-none"></span>none</span>
+    </div>
+    <div class="meta"><span id="count"></span><button class="linkbtn" id="clearbtn" onclick="clearAll()" hidden>clear filters</button></div>
+  </div>
+
+  <section class="coverage" id="coverage"></section>
+
+  <div id="mapview" class="z1"></div>
+
+  <div class="tablewrap" id="listview" hidden>
+    <table>
+      <thead><tr>
+        <th class="col-f">Field</th><th class="col-c">What it does</th>
+        <th class="col-w">Workbench</th><th class="col-e">Engine</th>
+      </tr></thead>
+      <tbody id="rows"></tbody>
+    </table>
+  </div>
+
+  <footer>
+    <b>Reading a tile.</b> The stripe on top marks where the field is defined — <span style="color:var(--accent);font-weight:600">core schema</span>, <span style="color:var(--ext);font-weight:600">engine extension</span>, or instance-only (valid under <code>additionalProperties:true</code>). The two-cell bar at the bottom is the field's status in each system — workbench on the left, engine on the right; grey = that system doesn't touch it. Switch the <b>Lens</b> to grey out one side, or filter <b>Schema</b> to isolate a layer. <b>Zoom out</b> (−) to shrink every tile to its stripe + status bar and see the whole file at once. Click a tile for the full read. Scope: <code>origin/main</code> of both repos + canonical schemas + three real investigations and ~40 studies.
+  </footer>
+
+  <details class="obs" style="margin-top:4px">
+    <summary>How to refresh this map<span class="chev">›</span></summary>
+    <div class="obsbody">
+      <p style="font-size:12.8px;color:var(--ink-2);line-height:1.55;margin:2px 0 10px">This is a hand-maintained reference — all of its content lives in this one HTML file (in the repo, <code>docs/field-map.html</code>), with no build step. To bring it up to date after the schemas, the workbench, or the engine change:</p>
+      <ul>
+        <li><b>Field rows</b> are the <code>INV</code> and <code>STUDY</code> arrays in the inline <code>&lt;script&gt;</code>. Each row is <code>{g:group, p:path, t:type, c:what-it-does, w:workbench-role, wn:workbench-note, e:engine-role, en:engine-note}</code>. <code>w</code> ∈ input · display · derived · dead · orphan · none; <code>e</code> ∈ w · r · rw · none.</li>
+        <li><b>Schema layer</b> is set per field path in the <code>SCH_INV</code> / <code>SCH_STUDY</code> maps: <code>core</code> (.pbg schema) · <code>ext</code> (investigation-extensions.schema.json) · <code>inst</code> (additionalProperties). Use <code>["core","note"]</code> to add the caveat shown in the drawer.</li>
+        <li><b>Provenance stamp</b> is the pill row in the header (the two commit SHAs + the date) and the footer scope line — bump these whenever you refresh.</li>
+        <li><b>Where the facts come from:</b> the workbench side is <code>report_views.build_iset_detail</code>, <code>investigation_graph_views.build_argument_overlay</code>, <code>lifecycle_mutations</code> / <code>models.py</code> / <code>api/app.py</code>, and <code>static/{walkthrough,argument-graph}.js</code>; the engine side is <code>discovery_engine/projection/*</code>, <code>investigation/*</code>, and <code>discover/*</code>. Re-read those for any changed field and update that row's <code>wn</code> / <code>en</code>.</li>
+      </ul>
+    </div>
+  </details>
+
+  <div id="printroot" class="printonly"></div>
+</div>
+
+<div class="backdrop" id="backdrop" onclick="closeDrawer()"></div>
+<aside class="drawer" id="drawer" role="dialog" aria-modal="true" aria-labelledby="dpath">
+  <div class="dhead">
+    <div>
+      <div class="dcrumb" id="dcrumb"></div>
+      <div class="dpath" id="dpath"></div>
+      <div class="dtype" id="dtype"></div>
+    </div>
+    <button class="dclose" onclick="closeDrawer()" aria-label="Close">✕</button>
+  </div>
+  <div class="dbody">
+    <div class="dsection">
+      <div class="dlabel">What it holds / does</div>
+      <div class="dwhat" id="dwhat"></div>
+    </div>
+    <div class="scard sch">
+      <div class="scaphead"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2 2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/></svg>Canonical schema</div>
+      <div class="scapbody" id="dsch"></div>
+    </div>
+    <div class="scard wb">
+      <div class="scaphead"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="14" rx="2"/><path d="M3 9h18M8 21h8"/></svg>Workbench</div>
+      <div class="scapbody" id="dwb"></div>
+    </div>
+    <div class="scard eng">
+      <div class="scaphead"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M5 5l2 2M17 17l2 2M19 5l-2 2M7 17l-2 2"/></svg>Discovery engine</div>
+      <div class="scapbody" id="deng"></div>
+    </div>
+    <div class="nav">
+      <button onclick="navField(-1)">← Previous</button>
+      <button onclick="navField(1)">Next →</button>
+    </div>
+  </div>
+</aside>
+
+<script>
+// ---- DATA  (w: input|display|derived|dead|orphan|none  ·  e: w|r|rw|none) ----
+const INV = [
+ {g:"Identity & provenance",p:"name",t:"string · slug · required",c:"URL-safe slug = directory name.",w:"display",wn:"Chrome header + graph id.",e:"r",en:"Member of every projection; roster key."},
+ {g:"Identity & provenance",p:"title",t:"string · required",c:"Human-readable investigation title.",w:"input",wn:"Inline prose-edit <code>title</code> → /api/prose-edit.",e:"r",en:"coverage.py corpus text."},
+ {g:"Identity & provenance",p:"created",t:"date",c:"ISO creation date.",w:"display",wn:"Card metadata.",e:"none",en:""},
+ {g:"Identity & provenance",p:"status",t:"enum{planning…closed}",c:"Overall lifecycle state.",w:"input",wn:"PATCH /api/investigation · /api/investigation-set-status.",e:"rw",en:"status.py reads; reopen→active, close→closed."},
+ {g:"Identity & provenance",p:"closed_at · report_url · contributors[]",t:"datetime · string · array",c:"Stamped when the investigation closes; contributors are git/agent-derived.",w:"dead",wn:"Written by /api/iset-close; not shown in tab strip.",e:"w",en:"close.py:close stamps all three."},
+
+ {g:"Framing & question",p:"question",t:"string",c:"Overarching research question.",w:"input",wn:"prose-edit + overview PATCH. Overview headline fallback.",e:"r",en:"coverage corpus; narrate() default narration question."},
+ {g:"Framing & question",p:"hypothesis",t:"string",c:"Predicted outcome across the study sequence.",w:"input",wn:"prose-edit · Background tab.",e:"r",en:"coverage corpus."},
+ {g:"Framing & question",p:"lead",t:"string · v2",c:"3–4 sentence front-of-textbook intro.",w:"input",wn:"prose-edit · Background intro.",e:"r",en:"coverage corpus."},
+ {g:"Framing & question",p:"description",t:"string · legacy",c:"Legacy markdown narrative (superseded by lead).",w:"input",wn:"prose-edit · Background fallback.",e:"r",en:"coverage corpus."},
+
+ {g:"Narrative spine (v2)",p:"biological_story",t:"string · md · v2",c:"Multi-paragraph mechanism narrative.",w:"display",wn:"Background → Biology. No write path.",e:"r",en:"coverage corpus."},
+ {g:"Narrative spine (v2)",p:"at_a_glance[]",t:"array{study,role} · v2",c:"One-line role per member study.",w:"dead",wn:"In payload; not rendered by walkthrough.",e:"r",en:"coverage corpus (role text)."},
+ {g:"Narrative spine (v2)",p:"how_to_read",t:"string | list · v2",c:"Evaluator tips.",w:"display",wn:"Dedicated How-to-read tab.",e:"none",en:""},
+ {g:"Narrative spine (v2)",p:"glossary[]",t:"array{term,definition} · v2",c:"Investigation-local term definitions.",w:"display",wn:"Glossary tab (definition list).",e:"none",en:""},
+ {g:"Narrative spine (v2)",p:"guidelines",t:"object · v2",c:"Investigation-wide rules, literature anchors, scientific standard.",w:"display",wn:"Partial render.",e:"none",en:""},
+
+ {g:"Executive / verdict",p:"executive.what_is_this",t:"string",c:"Reader-friendly lede for the Overview tab.",w:"input",wn:"prose-edit <code>executive.*</code> whitelist · Overview.",e:"none",en:""},
+ {g:"Executive / verdict",p:"executive.verdict",t:"string",c:"Headline statement of where it stands.",w:"input",wn:"prose-edit · Overview brief + Findings headline.",e:"r",en:"Authored verdict source; reconcile.py scans as prose."},
+ {g:"Executive / verdict",p:"executive.verdict_status",t:"string",c:"Authored verdict axis (passing / failing / in-progress …).",w:"derived",wn:"Verdict pill; <code>*</code> suffix when the source is derived.",e:"rw",en:"narrative_freshness classify; actions.accept_verdict overwrites (rationale-gated); reopen sets open."},
+ {g:"Executive / verdict",p:"executive.computed_verdict_status",t:"string",c:"Engine-computed parallel verdict = aggregate of acceptance criteria.",w:"none",wn:"",e:"w",en:"status.py:write_investigation_acceptance. Never clobbers the authored value."},
+ {g:"Executive / verdict",p:"executive.computed_acceptance",t:"object{criteria[],unmet[],diverges}",c:"Per-criterion computed results + divergence flag.",w:"dead",wn:"Only the diverges flag folds into UI.",e:"w",en:"status.py; read back by freshness classify."},
+ {g:"Executive / verdict",p:"executive.decisions_needed[]",t:"array{question,context}",c:"Open blocking decisions for a human.",w:"input",wn:"Decisions tab resolve cards → /api/investigation-decision-resolve.",e:"rw",en:"synthesis.open_calls surfaces; cycle renew moves resolved ones out."},
+ {g:"Executive / verdict",p:"executive.decisions_resolved[]",t:"array · instance",c:"Archive of resolved decisions.",w:"display",wn:"Decisions tab fold.",e:"w",en:"cycle._renew_executive_decisions (dedup by question)."},
+ {g:"Executive / verdict",p:"executive.verdict_detail",t:"string · instance",c:"Numeric backing for the verdict.",w:"display",wn:"Overview brief.",e:"none",en:""},
+ {g:"Executive / verdict",p:"executive.narrative_basis",t:"string · extension",c:"Content fingerprint of member claims/findings (narrative freshness).",w:"none",wn:"",e:"rw",en:"narrative_freshness stamp/classify; refresh_narrative writes (rationale-gated)."},
+ {g:"Executive / verdict",p:"executive.narrative_history[] · verdict_history[]",t:"array{…,rationale,by,at} · ext",c:"Append-only audit of narrative re-stamps / verdict acceptances.",w:"none",wn:"",e:"w",en:"stamp_narrative / renew_executive."},
+
+ {g:"Scientific argument",p:"scientific_argument.main_claim",t:"string",c:"Primary claim, one statement.",w:"display",wn:"Background → Hypothesis & evidence. No write path.",e:"r",en:"coverage corpus; reconcile prose scan."},
+ {g:"Scientific argument",p:"scientific_argument.evidence_for[] / against[] / caveats[] / key_figures[]",t:"arrays<string>",c:"Supporting / contradicting bullets, caveats, figure anchors.",w:"display",wn:"Background tab.",e:"r",en:"coverage corpus; reconcile scans for refs to removed studies."},
+ {g:"Scientific argument",p:"key_claims[]",t:"array{claim,cites} · instance",c:"Cited claim chips (counter-claims amber).",w:"display",wn:"Background evidence list. No write path.",e:"r",en:"coverage corpus."},
+ {g:"Scientific argument",p:"competing_frameworks[]",t:"array{name,relation} · instance",c:"Alternative interpretive lenses adjudicated.",w:"display",wn:"Background → Competing frameworks. No write path.",e:"none",en:""},
+
+ {g:"Member studies & acceptance",p:"studies[] / members",t:"array<slug>",c:"Ordered member study roster.",w:"display",wn:"Investigation graph + rail.",e:"rw",en:"Every per-study projection reads; seed/reopen append slugs."},
+ {g:"Member studies & acceptance",p:"acceptance_criteria[]",t:"array{study,behavior}",c:"Success criteria → a study's behavior name.",w:"dead",wn:"In payload; not rendered in the SPA tab strip — but drives the server roll-up.",e:"rw",en:"status.roll_up_acceptance; engine.opportunities; seed/reopen append."},
+ {g:"Member studies & acceptance",p:"plan_gates[]",t:"array{id,name,criterion,member_studies[]} · instance",c:"Named plan gates over member studies.",w:"display",wn:"Plan progress tab (derived plan_board).",e:"r",en:"synthesis.synthesize_gates rolls up each gate's verdict from member claims."},
+ {g:"Member studies & acceptance",p:"expert_docs[] / inputs.expert_docs[]",t:"array",c:"Campaign-plan doc references.",w:"display",wn:"Decisions tab → Campaign plan links.",e:"none",en:""},
+ {g:"Member studies & acceptance",p:"inputs.references[]",t:"array · v2",c:"Bib references, resolved from papers.bib.",w:"display",wn:"Citation chips. Written on proposed-input accept.",e:"none",en:""},
+ {g:"Member studies & acceptance",p:"proposed_inputs.items[]",t:"array{id,kind,citation,status} · instance",c:"Agent-suggested inputs the expert didn't provide.",w:"orphan",wn:"/api/proposed-input-decision sets status (accept of reference → inputs.references). NOT rendered anywhere in the SPA.",e:"none",en:""},
+
+ {g:"Discovery controls (engine config)",p:"discovery.coverage_dimensions[]",t:"array{name,keywords[],question}",c:"Dimensions checked for proactive gap coverage.",w:"none",wn:"",e:"r",en:"coverage.coverage_gap_items — a missing dimension raises a coverage:<slug> frontier item."},
+ {g:"Discovery controls (engine config)",p:"discovery.gates",t:"object{default,by_kind}",c:"Which generation-request kinds auto-fire vs gate.",w:"none",wn:"",e:"r",en:"cli builds GateConfig."},
+ {g:"Discovery controls (engine config)",p:"discovery.skill_map",t:"object",c:"Per-kind skill routing override.",w:"none",wn:"",e:"r",en:"phases/generation routing."},
+ {g:"Discovery controls (engine config)",p:"discovery.goal · discovery.budget",t:"string · number",c:"Steering goal / budget — NOT read from YAML.",w:"none",wn:"",e:"none",en:"Goal is a --goal CLI arg; budget is AutonomyPolicy. Not read from this block."},
+
+ {g:"Engine closed-loop",p:"model_versions[]",t:"array{id:mv:…,composite,params,bound_to[]} · ext",c:"Versioned model registry; study arms bind to mv ids.",w:"none",wn:"",e:"rw",en:"cycle project/persist regenerates; actions.apply_revision appends; workspace_profile reads."},
+ {g:"Engine closed-loop",p:"viz_proposals[]",t:"array{id:vp:…,status,study} · ext",c:"Proposed visualizations lifecycle (proposed→built).",w:"none",wn:"",e:"rw",en:"cycle persist + _close_built; actions declare/accept/reject."},
+ {g:"Engine closed-loop",p:"capability_gaps[]",t:"array{id:cg:…,status,mechanism,resolution_route} · ext",c:"Buildable-mechanism gap queue, 4-strategy routing.",w:"none",wn:"",e:"rw",en:"cycle persist + close_built; resolution.py normalizes route."},
+ {g:"Engine closed-loop",p:"revision_proposals[]",t:"array{id,status,candidate_changes[],discriminating_test} · ext",c:"Engine-proposed model revisions awaiting a human call.",w:"input",wn:"Decisions tab → ⚙ Engine decisions. Approve/Reject → /api/investigation-revision-proposal-resolve (sets status, reviewed_by:human, review_note). Signal only — doesn't apply the model.",e:"rw",en:"engine.opportunities surfaces; cycle persist merges; actions.apply_revision applies."},
+ {g:"Engine closed-loop",p:"reconciliation_log[]",t:"array{id,severity,observation,request,status} · instance",c:"Reconciliation requests (code-vs-authored divergences).",w:"input",wn:"Decisions tab → ⚙ Engine decisions. Resolve → /api/investigation-reconciliation-resolve (status→resolved, resolved_by:human, resolution note).",e:"w",en:"feedback/compiler.record_reconciliation (append, dedup by id)."},
+ {g:"Engine closed-loop",p:"executed_actions[]",t:"array{action,command,status,outcome,at} · instance",c:"After-the-fact log of what the autonomous bridge ran.",w:"display",wn:"Passthrough into Decisions/report payload. No control.",e:"w",en:"cycle._append_executed (append-only)."},
+ {g:"Engine closed-loop",p:"decision_log[]",t:"array{policy_version,actor,target,consequence,rationale,result,at} · instance",c:"Per-decision provenance for every consequential generation op.",w:"none",wn:"Not surfaced.",e:"w",en:"actions.record_decision — once per generation output each loop iteration (ruamel, comment-preserving)."},
+ {g:"Engine closed-loop",p:"resolutions[]",t:"array{kind,target,rationale,by} · instance",c:"Human discharge records that remove a frontier item.",w:"none",wn:"",e:"rw",en:"actions.add_resolution writes; engine.opportunities + cycle read to discharge."},
+ {g:"Engine closed-loop",p:"cycle_state",t:"object · ext (regenerated)",c:"Engine cycle bookkeeping: frontier, next_action, freshness, snapshots.",w:"none",wn:"freshness consumed indirectly by tab chips.",e:"w",en:"cycle.build_cycle_state/persist_cycle regenerates each cycle."},
+ {g:"Engine closed-loop",p:"cycle_flags",t:"object{viz_untied,autonomy,reopened} · instance",c:"Autonomy mode + reopened marker.",w:"none",wn:"",e:"rw",en:"feedback.set_cycle_flags; _policy reads autonomy."},
+ {g:"Engine closed-loop",p:"lifecycle_history[]",t:"array{at,event,prior_status,rationale} · instance",c:"Append-only reopen ledger.",w:"none",wn:"",e:"w",en:"feedback/compiler (reopen); cycle carries forward."},
+ {g:"Engine closed-loop",p:"finding_candidates[] · discoveries[] · review_decisions[]",t:"arrays · instance",c:"Verified verdict-flip candidates promoted to discoveries under autonomy policy.",w:"none",wn:"",e:"rw",en:"actions.review_findings; closure_states uses finding_candidates for discovery_active."},
+ {g:"Engine closed-loop",p:"required_mechanisms[] · bridge_composite",t:"array<string> · object · instance",c:"Buildable-mechanism vocabulary; proposed integrating composite.",w:"none",wn:"",e:"rw",en:"feedback capability_gaps / propose_composite; reopen appends mechanisms."},
+ {g:"Engine closed-loop",p:"applied_feedback[] · pending_feedback[] · critique_reports[] · validation_snapshot · model_acquisition_proposals[]",t:"arrays / object · instance",c:"Feedback routing, critique exclusions, drift detection, acquisition frontier.",w:"none",wn:"",e:"r",en:"engine.opportunities reads for the frontier."},
+
+ {g:"Narrative lenses",p:"narrative.questions[]  (fallback narrative_questions[])",t:"array{question|q, studies|focus, id?} · instance",c:"Authored reading-lenses, each a question focused on a claim subset.",w:"display",wn:'Findings "Reading for:" <select> — re-scopes the rendered reading client-side. No write-back / no persistence.',e:"r",en:"narrative.narrative_questions(inv_spec) → [{id,question,focus:[claim_id]}]. narrate(focus=) scoping is read-only."},
+
+ {g:"Knowledge layer (reads)",p:"hypotheses[]",t:"array{id,statement,predictions[],status} · instance",c:"Competing hypotheses with observable predictions.",w:"display",wn:"Report payload passthrough. No write control.",e:"r",en:"coverage corpus; reopen appends bridge hypotheses."},
+ {g:"Knowledge layer (reads)",p:"hypotheses[].requires",t:"array · instance",c:"Mechanisms a hypothesis requires (model-adequacy gate).",w:"none",wn:"",e:"r",en:"closure_states model_adequate gate (opt-in; fires only if declared)."},
+ {g:"Knowledge layer (reads)",p:"established_mechanisms[]",t:"array<string> · instance",c:"Mechanisms treated as established (+ from verified findings).",w:"none",wn:"",e:"r",en:"closure_states._established_mechanisms."},
+
+ {g:"Authoring / seed blocks — neither system",p:"transition_barriers[]",t:"array{gate,barrier,study,status,method} · instance",c:"The gate chain G0…G6 with required evidence per barrier.",w:"none",wn:"Not surfaced by the workbench.",e:"none",en:"Authoring only — not read by engine core."},
+ {g:"Authoring / seed blocks — neither system",p:"candidate_composites[] · candidate_software[] · flagship_studies[]",t:"arrays · instance",c:"Planned composites, software stack, flagship framings.",w:"none",wn:"",e:"none",en:"Authoring only."},
+ {g:"Authoring / seed blocks — neither system",p:"synthesis",t:"object{headline,evidence_chain[],phase_diagram} · instance",c:"Free-text synthesis block.",w:"none",wn:"",e:"none",en:"Authoring only (distinct from scientific_argument)."},
+ {g:"Authoring / seed blocks — neither system",p:"final_deliverable · regimes[] · claims[] · references[]",t:"string / arrays · instance",c:"Capstone description, outcome regimes, author claim ledger, reference ledger.",w:"none",wn:"",e:"none",en:"Authoring only."},
+ {g:"Authoring / seed blocks — neither system",p:"model_families[] · physical_scalings · first_cycle_priority · promotion_rules · seed_acceptance_checklist[] · seed_id · plan_acts",t:"mixed · instance",c:"Seed-program scaffolding from the campaign seed.",w:"none",wn:"",e:"none",en:"Authoring/seed only."},
+ {g:"Authoring / seed blocks — neither system",p:"object_of_evaluation",t:"string · instance",c:"What the investigation evaluates.",w:"dead",wn:"Passed through; not rendered.",e:"none",en:""},
+];
+
+const STUDY = [
+ {g:"Identity",p:"name",t:"string · slug · required",c:"Kebab-case slug = directory.",w:"display",wn:"Graph node id, study header.",e:"r",en:"Roster key / frontier signals."},
+ {g:"Identity",p:"title",t:"string · instance",c:"Human title.",w:"input",wn:"prose-edit <code>title</code> (kind=study) · node label.",e:"r",en:"argument proposition fallback (claim→title→question)."},
+ {g:"Identity",p:"schema_version · created · $schema",t:"int · date · string",c:"3=legacy, 4=conditions{}+narrative.",w:"display",wn:"",e:"none",en:""},
+ {g:"Identity",p:"investigation · simulator · topic · tags · slug",t:"string / object / arrays · instance",c:"Parent slug, pinned simulator package, classification.",w:"display",wn:"Passthrough.",e:"none",en:""},
+
+ {g:"Lifecycle status (multi-axis)",p:"status · phase",t:"enum / enum{Design…Decide}",c:"Legacy single status; coarse phase.",w:"display",wn:"Node badge.",e:"r",en:"status.py / engine frontier."},
+ {g:"Lifecycle status (multi-axis)",p:"design_status · implementation_status · simulation_status · evaluation_status · expert_review_status",t:"enums",c:"Per-axis maturity (Pass A).",w:"display",wn:"Node pills; _study_display_status rolls up.",e:"r",en:"status.py readiness signals."},
+ {g:"Lifecycle status (multi-axis)",p:"gate_status",t:"enum{not_started…passed/failed/stale}",c:"Pipeline-gate verdict — the headline pill.",w:"display",wn:"Node gate pill (+ gate_status_source authored|derived).",e:"r",en:"status.verdict / verdict.write_study_verdict compares to the coded roll-up; argument._arm_verdict."},
+ {g:"Lifecycle status (multi-axis)",p:"execution_status · verdict · evidence_tier",t:"enums",c:"EXECUTION axis (what happened) vs SCIENTIFIC verdict axis vs evidence-strength tier.",w:"display",wn:"Node.",e:"r",en:"knowledge.canonical_verdict (authored verdict wins if canonical); argument qualifiers."},
+ {g:"Lifecycle status (multi-axis)",p:"confidence",t:"string · instance",c:"Legacy confidence/status proxy (Accepted/Investigating/Refuted).",w:"derived",wn:"Node confidence label.",e:"none",en:"derive_confidence in workbench; engine uses verdict/gate instead."},
+ {g:"Lifecycle status (multi-axis)",p:"verdict_rationale · primary_limitation",t:"strings · instance",c:"Why this verdict; the one caveat that bounds the result.",w:"display",wn:"",e:"r",en:"argument.canonical_claim uses primary_limitation as Claim scope."},
+ {g:"Lifecycle status (multi-axis)",p:"parked",t:"bool · instance",c:"Future-direction marker.",w:"display",wn:"\"Parked · future direction\" chip; drives exec state.",e:"none",en:""},
+
+ {g:"Question / claim",p:"claim",t:"string | null",c:"One-sentence headline claim.",w:"input",wn:"prose-edit <code>claim</code> · node Finds: (gated on evidence).",e:"r",en:"argument._proposition; claim_key hash basis; narrative_basis fingerprint."},
+ {g:"Question / claim",p:"question",t:"string · instance",c:"Research question.",w:"input",wn:"prose-edit · overview.",e:"r",en:"proposition/concept-question fallback (claim→title→question)."},
+ {g:"Question / claim",p:"purpose.question",t:"string",c:"Canonical 8-section question.",w:"input",wn:"prose-edit <code>purpose.question</code>.",e:"r",en:"knowledge._concept_question fallback."},
+ {g:"Question / claim",p:"hypothesis",t:"string · deprecated",c:"Testable prediction.",w:"input",wn:"prose-edit · predicted-direction chip when parked.",e:"r",en:"argument.canonical_claim carries it onto the Claim."},
+ {g:"Question / claim",p:"experiment · result",t:"strings",c:"TEST: what was built/run · RESULT: what happened.",w:"input",wn:"prose-edit <code>result</code>; overview.",e:"none",en:""},
+ {g:"Question / claim",p:"objective",t:"string · deprecated",c:"Legacy objective.",w:"input",wn:"PATCH /api/study <code>objective</code>.",e:"none",en:""},
+ {g:"Question / claim",p:"concept · description · conclusion · conclusions",t:"strings",c:"Concept probed, background, post-analysis conclusion.",w:"input",wn:"prose-edit / PATCH (conclusions 256KB cap).",e:"none",en:""},
+
+ {g:"Graph wiring",p:"parent_studies[]",t:"array{study,condition,relation}",c:"Gating dependencies + typed edges.",w:"display",wn:"Graph edges (normalize_dag_edges).",e:"r",en:"relations.study_relations; relation_registry normalizes the relation string (unknown-dialect lint)."},
+ {g:"Graph wiring",p:"parent_relations[]",t:"array{study,relation,rationale}",c:"Legacy typed epistemic edges (back-compat).",w:"display",wn:"Graph edges.",e:"r",en:"relations.study_relations; registry normalize."},
+ {g:"Graph wiring",p:"builds_on[]",t:"array<int|string> · instance",c:"Numeric plan-id / slug predecessors.",w:"display",wn:"",e:"r",en:"relations → relation:builds-on (registry alias)."},
+ {g:"Graph wiring",p:"upstream_state_consumed[]",t:"array{from,provides} · instance",c:"Computational dataflow this study consumes.",w:"display",wn:"",e:"r",en:"relations → provides (never an argument edge)."},
+ {g:"Graph wiring",p:"handoff · plan_id · extends · design_ref",t:"object / int / string · instance",c:"Numeric plan-id dataflow + lineage pointers.",w:"display",wn:"Mostly passthrough.",e:"none",en:""},
+
+ {g:"Baseline / variants / sims",p:"baseline[]",t:"array{name,composite,params} · required",c:"Named sim configs; composite is a dotted import path.",w:"input",wn:"/api/study-baseline-add · -set · -remove.",e:"r",en:"argument evidence ref; workspace_profile composite count."},
+ {g:"Baseline / variants / sims",p:"variants[] / simulation_set",t:"array{name,base,over} | sweep",c:"Parameter perturbations on baseline; concrete run plans.",w:"input",wn:"/api/study-variant-add · -delete · -set-params.",e:"r",en:"run-readiness / simulation_set resolution."},
+ {g:"Baseline / variants / sims",p:"interventions[]",t:"array{name,kind,description}",c:"Structural mods (add/remove process, rewire).",w:"input",wn:"/api/study-intervention-add · -update · -delete.",e:"none",en:""},
+ {g:"Baseline / variants / sims",p:"conditions{} (v4)",t:"object{baseline,variants,model_settings,expert_inputs} · v4",c:"v4 grouping block for configs + tunable knobs.",w:"input",wn:"observables / expert_input PATCH paths.",e:"r",en:"readiness."},
+ {g:"Baseline / variants / sims",p:"observables[] / readouts[]",t:"array{name,store_path} | <string>",c:"Store-path bindings / canonical observable declarations.",w:"input",wn:"PATCH <code>observables</code> / emit_all · Readouts tab.",e:"r",en:"run_observables resolution feeds the frontier."},
+ {g:"Baseline / variants / sims",p:"conditions.model_settings[] · expert_inputs[]",t:"array{name,current,range} · v4",c:"Tunable param catalog / dashboard-twistable knobs.",w:"input",wn:"PATCH <code>expert_input:{name,current}</code>.",e:"none",en:""},
+
+ {g:"Expected behavior / tests",p:"behavior_tests[]",t:"array{name,classification,measure,pass_if,cites,gate_class}",c:"The graded report-card tests.",w:"display",wn:"behavior_tests verdict rollup. Band provenance via /api/band-provenance.",e:"r",en:"argument._warrants/_evidence_refs; measure.path + pass_if drive grading; registry on gate condition."},
+ {g:"Expected behavior / tests",p:"pipeline_gate.prerequisites[]",t:"array{study,outputs_used,condition}",c:"Study-level DAG prerequisites.",w:"display",wn:"",e:"r",en:"relations.study_relations canonical edges; registry (E_org execution-gate axis)."},
+ {g:"Expected behavior / tests",p:"pipeline_gate.gate_evaluator",t:"object{result,blocked_by[],diverges}",c:"Coded parallel verdict slot.",w:"display",wn:"computed_gate_verdict passthrough.",e:"w",en:"verdict.write_study_verdict — never touches authored gate_status/report.verdict."},
+ {g:"Expected behavior / tests",p:"acceptance_criteria[] (study-level)",t:"array{behavior} · instance",c:"Study-level AC pointers (schema defines on investigation).",w:"display",wn:"",e:"r",en:"status roll-up (via investigation)."},
+ {g:"Expected behavior / tests",p:"preregistered.thresholds · proposed_controls[]",t:"object / array · instance",c:"Pre-registration signal; matched-null controls.",w:"display",wn:"",e:"r",en:"argument._warrants (thresholds); proposed_controls → Claim rebuttals."},
+ {g:"Expected behavior / tests",p:"expected_behavior · tests · conclusion_logic",t:"array/object · legacy v3",c:"Legacy v3 DSL / test-config / if-pass-if-fail map.",w:"display",wn:"Superseded by behavior_tests.",e:"r",en:"status._study_tests where present."},
+
+ {g:"Findings",p:"findings[]",t:"array{id,kind,status,statement,evidence,provenance,cites}",c:"First-class learnings, each with its evidence + reproducibility metadata.",w:"input",wn:"/api/study-finding-add · -delete · -findings (draft) · -populate-observations; prose-edit statement/summary. Node Finds: + chains.",e:"r",en:"knowledge._finding_ids; argument evidence refs/rebuttals (status refutes/challenges); narrative basis. On seed, engine writes findings:[] placeholder."},
+ {g:"Findings",p:"findings[].mechanism · findings[].evidence.status",t:"string · enum",c:"Mechanism claimed; verified/provisional status.",w:"display",wn:"",e:"r",en:"closure_states — verified finding mechanisms add to established set; provisional-only blocks resolution."},
+ {g:"Findings",p:"findings[].provenance",t:"object{run_ids,hashes,seeds,model_version}",c:"Reproducibility metadata.",w:"display",wn:"Study page.",e:"r",en:"evidence refs."},
+
+ {g:"Runs",p:"runs[]",t:"array{run_id,status,params,provenance} · deprecated",c:"Per-run records (runs.db canonical; field is deprecated but heavily populated).",w:"input",wn:"/api/study-run-delete · -runs-clear · -sync-runs (recompute + roll up).",e:"rw",en:"knowledge._merged_run_outcomes reads; name→evidence ref."},
+ {g:"Runs",p:"runs[].computed_outcomes.<behavior>",t:"object{result,measured_value,axis} · instance",c:"Coded grade computed from run data.",w:"display",wn:"Counts + status in node.",e:"w",en:"evaluator/outcomes.py (ruamel) — preferred over authored outcomes. The engine's one study-side write."},
+ {g:"Runs",p:"runs[].outcomes.<behavior>",t:"object{result,axis,auto_evaluated} · instance",c:"Authored/auto fallback grade.",w:"display",wn:"",e:"r",en:"outcomes.graded_outcomes_for_run fallback when no computed_outcomes."},
+
+ {g:"Knowledge layer (reads)",p:"knowledge_inputs.claims[]",t:"array · instance",c:"Claim refs a study tests but does not own.",w:"none",wn:"",e:"r",en:"evidence_routing.study_evidence routes this study's verdict to each referenced claim."},
+ {g:"Knowledge layer (reads)",p:"claim scope",t:"string · instance",c:"Scope qualifier — part of claim identity.",w:"display",wn:"",e:"r",en:"claim_identity.claim_key joins scope to proposition (\\x1f) — different scope = different claim."},
+ {g:"Knowledge layer (reads)",p:"claim content_key",t:"string · clm-… · instance",c:"Content-addressed claim id (sha1[:12]).",w:"none",wn:"",e:"w",en:"claim_identity.stamp_claim_keys — in-memory only, never persisted to disk."},
+ {g:"Knowledge layer (reads)",p:"arms[]",t:"array{id,source_study,verdict,matched_null,composite,finding_ids} · instance",c:"Consolidated multi-arm study arms.",w:"display",wn:"Node (synthesis scoping).",e:"r",en:"argument._arm_claim/_arm_verdict; model_architect binds model_versions.bound_to."},
+
+ {g:"Verdicts & rigor",p:"limitations[] · literature_anchors[]",t:"array<string> · array{expectation,model_observable} · v4",c:"Out-of-scope claims; lit claim ↔ observable map.",w:"display",wn:"Study page.",e:"none",en:""},
+ {g:"Verdicts & rigor",p:"discovery_implications.followup_study_proposals[]",t:"array",c:"Decide-phase follow-up study seeds.",w:"input",wn:"/api/study-seed-followup creates a child study.",e:"none",en:""},
+ {g:"Verdicts & rigor",p:"report{} · study_card{} · conclusion_verdicts{} · biological_summary · design_pivot_required[]",t:"objects · v4",c:"Executive summary panel, dashboard card, three-track verdict, textbook write-up, open decision points.",w:"display",wn:"Study page where present (mostly unused on engine-generated studies).",e:"none",en:""},
+ {g:"Verdicts & rigor",p:"proposed_controls[] · falsifiability[] · alternative_hypotheses[]",t:"arrays · instance",c:"Matched-null controls, what would overturn the claim, competing explanations.",w:"display",wn:"",e:"r",en:"argument._rebuttals uses proposed_controls."},
+
+ {g:"Narrative / provenance",p:"visualizations[]",t:"array{name,address,covers,rendered,source_run_id}",c:"Declared visualizations.",w:"input",wn:"/api/study-refresh-viz/{name} · study viz.",e:"r",en:"argument evidence ref; viz freshness via source_run_id vs latest run; workspace_profile."},
+ {g:"Narrative / provenance",p:"narrative.* (tree leaves)",t:"object tree · v4",c:"Study narrative tree.",w:"input",wn:"PATCH /api/study <code>narrative:{path,value}</code> (null prunes leaf).",e:"none",en:""},
+ {g:"Narrative / provenance",p:"expert_input",t:"object{name,current} · instance",c:"Model-settings current value.",w:"input",wn:"PATCH /api/study <code>expert_input</code>.",e:"none",en:""},
+ {g:"Narrative / provenance",p:"data_inputs[] · primary_output",t:"array{name,use,url} · string · instance",c:"External datasets; what the study emits.",w:"display",wn:"",e:"r",en:"readiness; primary_output → evidence ref."},
+ {g:"Narrative / provenance",p:"program · study_type · gate_reason · required_mechanisms[] · consolidation_note · split_note",t:"mixed · instance",c:"Grouping, type, gate rationale, consolidation/split provenance.",w:"display",wn:"Mostly passthrough.",e:"none",en:""},
+ {g:"Narrative / provenance",p:"whole study — rename / delete / create",t:"file op",c:"Lifecycle file operations.",w:"input",wn:"/api/study-rename · -delete · -create-from-run.",e:"none",en:""},
+];
+
+// ---- SCHEMA PROVENANCE  (core = .pbg schema · ext = investigation-extensions.schema.json · inst = additionalProperties) ----
+const SCH_INV = {
+ "name":"core","title":"core","created":"core","status":"core",
+ "closed_at · report_url · contributors[]":["core","contributors is schema-defined but absent from all sampled instances"],
+ "question":"core","hypothesis":"core","lead":"core","description":"core",
+ "biological_story":"core","at_a_glance[]":"core","how_to_read":"core","glossary[]":"core","guidelines":"core",
+ "executive.what_is_this":"core","executive.verdict":"core","executive.verdict_status":"core",
+ "executive.computed_verdict_status":"inst","executive.computed_acceptance":"inst",
+ "executive.decisions_needed[]":"core","executive.decisions_resolved[]":"inst","executive.verdict_detail":"inst",
+ "executive.narrative_basis":"ext","executive.narrative_history[] · verdict_history[]":"ext",
+ "scientific_argument.main_claim":"core","scientific_argument.evidence_for[] / against[] / caveats[] / key_figures[]":"core",
+ "key_claims[]":"inst","competing_frameworks[]":"inst",
+ "studies[] / members":"core","acceptance_criteria[]":"core","plan_gates[]":"inst",
+ "expert_docs[] / inputs.expert_docs[]":"core","inputs.references[]":"core","proposed_inputs.items[]":"inst",
+ "discovery.coverage_dimensions[]":["inst","engine-config block, read at runtime"],"discovery.gates":"inst","discovery.skill_map":"inst","discovery.goal · discovery.budget":"inst",
+ "model_versions[]":"ext","viz_proposals[]":"ext","capability_gaps[]":"ext","revision_proposals[]":"ext",
+ "reconciliation_log[]":"inst","executed_actions[]":"inst","decision_log[]":["inst","record shape defined in discover/_policy.py, not a schema property"],"resolutions[]":"inst",
+ "cycle_state":"ext","cycle_flags":"inst","lifecycle_history[]":"inst",
+ "finding_candidates[] · discoveries[] · review_decisions[]":"inst",
+ "required_mechanisms[] · bridge_composite":"inst",
+ "applied_feedback[] · pending_feedback[] · critique_reports[] · validation_snapshot · model_acquisition_proposals[]":"inst",
+ "narrative.questions[]  (fallback narrative_questions[])":"inst",
+ "hypotheses[]":"inst","hypotheses[].requires":"inst","established_mechanisms[]":"inst",
+ "transition_barriers[]":"inst","candidate_composites[] · candidate_software[] · flagship_studies[]":"inst",
+ "synthesis":"inst","final_deliverable · regimes[] · claims[] · references[]":"inst",
+ "model_families[] · physical_scalings · first_cycle_priority · promotion_rules · seed_acceptance_checklist[] · seed_id · plan_acts":"inst",
+ "object_of_evaluation":"inst",
+};
+const SCH_STUDY = {
+ "name":"core","title":"inst","schema_version · created · $schema":"core","investigation · simulator · topic · tags · slug":"inst",
+ "status · phase":"core","design_status · implementation_status · simulation_status · evaluation_status · expert_review_status":"core",
+ "gate_status":"core","execution_status · verdict · evidence_tier":"core","confidence":"inst",
+ "verdict_rationale · primary_limitation":"inst","parked":"inst",
+ "claim":"core","question":["inst","used everywhere but not a documented schema property"],"purpose.question":"core","hypothesis":"core","experiment · result":"core","objective":"core",
+ "concept · description · conclusion · conclusions":["core","description/conclusion are schema props; concept is instance-only"],
+ "parent_studies[]":"core","parent_relations[]":"core","builds_on[]":"inst","upstream_state_consumed[]":"inst",
+ "handoff · plan_id · extends · design_ref":"inst",
+ "baseline[]":"core","variants[] / simulation_set":"core","interventions[]":"core","conditions{} (v4)":"core",
+ "observables[] / readouts[]":"core","conditions.model_settings[] · expert_inputs[]":"core",
+ "behavior_tests[]":"core","pipeline_gate.prerequisites[]":"core","pipeline_gate.gate_evaluator":"core",
+ "acceptance_criteria[] (study-level)":["inst","schema defines acceptance_criteria on the investigation, not the study"],"preregistered.thresholds · proposed_controls[]":"inst",
+ "expected_behavior · tests · conclusion_logic":"core",
+ "findings[]":"core","findings[].mechanism · findings[].evidence.status":["core","evidence is a schema prop; mechanism is instance-only"],"findings[].provenance":"core",
+ "runs[]":"core","runs[].computed_outcomes.<behavior>":"inst","runs[].outcomes.<behavior>":"inst",
+ "knowledge_inputs.claims[]":"inst","claim scope":"inst","claim content_key":"inst","arms[]":"inst",
+ "limitations[] · literature_anchors[]":"core","discovery_implications.followup_study_proposals[]":["core","discovery_implications is a schema prop; instances use followup_study_proposals vs schema's followup_proposals"],
+ "report{} · study_card{} · conclusion_verdicts{} · biological_summary · design_pivot_required[]":"core",
+ "proposed_controls[] · falsifiability[] · alternative_hypotheses[]":"inst",
+ "visualizations[]":"core","narrative.* (tree leaves)":"core","expert_input":"inst",
+ "data_inputs[] · primary_output":"inst",
+ "program · study_type · gate_reason · required_mechanisms[] · consolidation_note · split_note":"inst",
+ "whole study — rename / delete / create":"na",
+};
+
+// ---- WORKBENCH TAB / SURFACE  (where each field shows up in the dashboard) ----
+const INV_TABS=["Overview","Background","Findings","Decisions","Plan progress","How to read","Glossary","Investigation graph","Header & cards","Citations","Report payload","Not surfaced"];
+const STUDY_TABS=["Graph node","Study page","Readouts","Report card / Tests","Not surfaced"];
+const TAB_INV={
+ "name":["Header & cards","Investigation graph"],"title":["Header & cards"],"created":["Header & cards"],"status":["Header & cards"],
+ "closed_at · report_url · contributors[]":["Not surfaced"],
+ "question":["Overview","Background"],"hypothesis":["Background"],"lead":["Background"],"description":["Background"],
+ "biological_story":["Background"],"at_a_glance[]":["Not surfaced"],"how_to_read":["How to read"],"glossary[]":["Glossary"],"guidelines":["Background"],
+ "executive.what_is_this":["Overview"],"executive.verdict":["Overview","Findings"],"executive.verdict_status":["Overview","Findings"],
+ "executive.computed_verdict_status":["Not surfaced"],"executive.computed_acceptance":["Not surfaced"],
+ "executive.decisions_needed[]":["Decisions"],"executive.decisions_resolved[]":["Decisions"],"executive.verdict_detail":["Overview"],
+ "executive.narrative_basis":["Not surfaced"],"executive.narrative_history[] · verdict_history[]":["Not surfaced"],
+ "scientific_argument.main_claim":["Background"],"scientific_argument.evidence_for[] / against[] / caveats[] / key_figures[]":["Background"],
+ "key_claims[]":["Background"],"competing_frameworks[]":["Background"],
+ "studies[] / members":["Investigation graph"],"acceptance_criteria[]":["Not surfaced"],"plan_gates[]":["Plan progress"],
+ "expert_docs[] / inputs.expert_docs[]":["Decisions"],"inputs.references[]":["Citations"],"proposed_inputs.items[]":["Not surfaced"],
+ "discovery.coverage_dimensions[]":["Not surfaced"],"discovery.gates":["Not surfaced"],"discovery.skill_map":["Not surfaced"],"discovery.goal · discovery.budget":["Not surfaced"],
+ "model_versions[]":["Not surfaced"],"viz_proposals[]":["Not surfaced"],"capability_gaps[]":["Not surfaced"],
+ "revision_proposals[]":["Decisions"],"reconciliation_log[]":["Decisions"],"executed_actions[]":["Decisions"],
+ "decision_log[]":["Not surfaced"],"resolutions[]":["Not surfaced"],"cycle_state":["Not surfaced"],"cycle_flags":["Not surfaced"],"lifecycle_history[]":["Not surfaced"],
+ "finding_candidates[] · discoveries[] · review_decisions[]":["Not surfaced"],"required_mechanisms[] · bridge_composite":["Not surfaced"],
+ "applied_feedback[] · pending_feedback[] · critique_reports[] · validation_snapshot · model_acquisition_proposals[]":["Not surfaced"],
+ "narrative.questions[]  (fallback narrative_questions[])":["Findings"],
+ "hypotheses[]":["Report payload"],"hypotheses[].requires":["Not surfaced"],"established_mechanisms[]":["Not surfaced"],
+ "transition_barriers[]":["Not surfaced"],"candidate_composites[] · candidate_software[] · flagship_studies[]":["Not surfaced"],
+ "synthesis":["Not surfaced"],"final_deliverable · regimes[] · claims[] · references[]":["Not surfaced"],
+ "model_families[] · physical_scalings · first_cycle_priority · promotion_rules · seed_acceptance_checklist[] · seed_id · plan_acts":["Not surfaced"],
+ "object_of_evaluation":["Not surfaced"],
+};
+const TAB_STUDY={
+ "name":["Graph node","Study page"],"title":["Graph node","Study page"],"schema_version · created · $schema":["Study page"],"investigation · simulator · topic · tags · slug":["Study page"],
+ "status · phase":["Graph node"],"design_status · implementation_status · simulation_status · evaluation_status · expert_review_status":["Graph node"],
+ "gate_status":["Graph node"],"execution_status · verdict · evidence_tier":["Graph node"],"confidence":["Graph node"],
+ "verdict_rationale · primary_limitation":["Study page"],"parked":["Graph node"],
+ "claim":["Graph node","Study page"],"question":["Graph node","Study page"],"purpose.question":["Study page"],"hypothesis":["Graph node","Study page"],
+ "experiment · result":["Study page"],"objective":["Study page"],"concept · description · conclusion · conclusions":["Study page"],
+ "parent_studies[]":["Graph node"],"parent_relations[]":["Graph node"],"builds_on[]":["Graph node"],"upstream_state_consumed[]":["Graph node"],
+ "handoff · plan_id · extends · design_ref":["Study page"],
+ "baseline[]":["Study page"],"variants[] / simulation_set":["Study page"],"interventions[]":["Study page"],"conditions{} (v4)":["Study page"],
+ "observables[] / readouts[]":["Readouts","Study page"],"conditions.model_settings[] · expert_inputs[]":["Study page"],
+ "behavior_tests[]":["Report card / Tests"],"pipeline_gate.prerequisites[]":["Study page"],"pipeline_gate.gate_evaluator":["Report card / Tests"],
+ "acceptance_criteria[] (study-level)":["Study page"],"preregistered.thresholds · proposed_controls[]":["Study page"],
+ "expected_behavior · tests · conclusion_logic":["Report card / Tests"],
+ "findings[]":["Graph node","Study page"],"findings[].mechanism · findings[].evidence.status":["Study page"],"findings[].provenance":["Study page"],
+ "runs[]":["Study page","Report card / Tests"],"runs[].computed_outcomes.<behavior>":["Report card / Tests"],"runs[].outcomes.<behavior>":["Report card / Tests"],
+ "knowledge_inputs.claims[]":["Not surfaced"],"claim scope":["Not surfaced"],"claim content_key":["Not surfaced"],"arms[]":["Graph node"],
+ "limitations[] · literature_anchors[]":["Study page"],"discovery_implications.followup_study_proposals[]":["Study page"],
+ "report{} · study_card{} · conclusion_verdicts{} · biological_summary · design_pivot_required[]":["Study page"],
+ "proposed_controls[] · falsifiability[] · alternative_hypotheses[]":["Study page"],
+ "visualizations[]":["Study page"],"narrative.* (tree leaves)":["Study page"],"expert_input":["Study page"],
+ "data_inputs[] · primary_output":["Study page"],"program · study_type · gate_reason · required_mechanisms[] · consolidation_note · split_note":["Study page"],
+ "whole study — rename / delete / create":["Study page"],
+};
+
+// ---- STATE ----
+let file="inv", view="map", lens="both", zoom=1, qstr="", schemaFilter="all", groupMode="section", _covTabs=[];
+const ZL=["Overview","Comfortable","Detail"];
+const WBMAP={input:["wb-input","input","User input"],display:["wb-display","disp","Display"],derived:["wb-derived","calc","Computed"],dead:["wb-dead","dead","Dead end"],orphan:["wb-orphan","orphan","Orphan"],none:["wb-none","—","Not surfaced"]};
+const ENMAP={w:["eng-w","writes","Writes"],r:["eng-r","reads","Reads"],rw:["eng-rw","r/w","Reads & writes"],none:["eng-none","—","Untouched"]};
+const WBCOL={input:"var(--input)",display:"var(--display)",derived:"var(--derived)",dead:"var(--warn)",orphan:"var(--warn)",none:"var(--ink-2)"};
+const ENCOL={w:"var(--write)",r:"var(--read)",rw:"var(--write)",none:"var(--ink-2)"};
+const SCHLBL={core:["b-core","Core schema",".pbg/schemas — a documented property of the canonical schema."],ext:["b-ext","Engine-extension schema","investigation-extensions.schema.json — an engine closed-loop block."],inst:["b-inst","Instance-only","Valid under additionalProperties:true — authored or engine-injected, not a documented schema property."],na:["b-none","—","Not a stored field (a file operation)."]};
+
+function data(){return file==="inv"?INV:STUDY;}
+function groups(){return [...new Set(data().map(r=>r.g))];}
+function esc(s){return String(s).replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));}
+function schemaOf(r){const m=file==="inv"?SCH_INV:SCH_STUDY;const v=m[r.p];return v?(Array.isArray(v)?v[0]:v):"inst";}
+function schemaNote(r){const m=file==="inv"?SCH_INV:SCH_STUDY;const v=m[r.p];return (Array.isArray(v)&&v[1])?v[1]:"";}
+function tabsOf(r){const m=file==="inv"?TAB_INV:TAB_STUDY;return m[r.p]||["Not surfaced"];}
+function groupsFor(){ if(groupMode==="tab"){const order=file==="inv"?INV_TABS:STUDY_TABS;const present=new Set();data().forEach(r=>tabsOf(r).forEach(t=>present.add(t)));return order.filter(t=>present.has(t));} return [...new Set(data().map(r=>r.g))]; }
+function memberOf(r,key){ return groupMode==="tab" ? tabsOf(r).includes(key) : r.g===key; }
+function rebuildGroupSelect(){ const sel=document.getElementById("grp"); sel.innerHTML='<option value="">'+(groupMode==="tab"?"All tabs":"All groups")+'</option>'+groupsFor().map(g=>`<option value="${esc(g)}">${esc(g)}</option>`).join(""); }
+
+function filtered(){
+  const grpSel=document.getElementById("grp").value;
+  return data().filter(r=>{
+    if(grpSel && !memberOf(r,grpSel)) return false;
+    if(lens==="wb" && r.w==="none") return false;
+    if(lens==="eng" && r.e==="none") return false;
+    if(schemaFilter!=="all" && schemaOf(r)!==schemaFilter) return false;
+    if(qstr){const h=(r.p+" "+r.c+" "+r.wn+" "+r.en+" "+tabsOf(r).join(" ")).toLowerCase(); if(!h.includes(qstr)) return false;}
+    return true;
+  });
+}
+
+// ---- MAP ----
+function tileHTML(r,idx){
+  const[wc,wshort]=WBMAP[r.w], wlong=WBMAP[r.w][2];
+  const[ec,eshort]=ENMAP[r.e], elong=ENMAP[r.e][2];
+  const sc=schemaOf(r);
+  const wtxt = zoom===1?wshort:("WB "+wshort);
+  const etxt = zoom===1?eshort:("ENG "+eshort);
+  const req=/required/.test(r.t)?'<span class="treq">REQ</span>':'';
+  const pill = sc!=="na"?`<span class="spill sc-pill-${sc}">${sc}</span>`:'';
+  return `<div class="tile" data-idx="${idx}" title="${esc(r.p)} — schema: ${sc} · WB: ${wlong} · ENG: ${elong}" onclick="openDrawer(${idx})" role="button" tabindex="0">
+    <div class="sstripe sc-${sc}"></div>
+    <div class="tname">${esc(r.p)}${req}${pill}</div>
+    <div class="tbar">
+      <div class="tseg wbseg ${wc}">${esc(wtxt)}</div>
+      <div class="tseg engseg ${ec}">${esc(etxt)}</div>
+    </div>
+  </div>`;
+}
+function renderMap(rows){
+  const host=document.getElementById("mapview");
+  host.className="z"+zoom;
+  if(!rows.length){host.innerHTML='<div class="empty">No fields match these filters.</div>';return;}
+  const idxOf=new Map(data().map((r,i)=>[r,i]));
+  let html="";
+  for(const g of groupsFor()){
+    const gr=rows.filter(r=>memberOf(r,g));
+    if(!gr.length) continue;
+    const mix=gr.map(r=>{
+      const wcol=WBCOL[r.w], ecol=ENCOL[r.e];
+      return `<i style="flex:1;background:linear-gradient(90deg,${wcol} 50%,${ecol} 50%)"></i>`;
+    }).join("");
+    html+=`<section class="cluster">
+      <div class="chead"><h3>${esc(g)}</h3><span class="cnum">${gr.length}</span><span class="mix">${mix}</span></div>
+      <div class="grid">${gr.map(r=>tileHTML(r,idxOf.get(r))).join("")}</div>
+    </section>`;
+  }
+  host.innerHTML=html;
+}
+
+// ---- LIST ----
+function rowHTML(r,idx){
+  const[,,wlong]=WBMAP[r.w]; const wbBadge={input:"b-input",display:"b-display",derived:"b-derived",dead:"b-flag",orphan:"b-flag",none:"b-none"}[r.w];
+  const enBadge={w:"b-write",r:"b-read",rw:"b-rw",none:"b-none"}[r.e]; const elong=ENMAP[r.e][2];
+  const req=/required/.test(r.t)?'<span class="treq">REQ</span>':'';
+  const sc=schemaOf(r); const scp=sc!=="na"?` <span class="spill inl sc-pill-${sc}">${sc}</span>`:'';
+  return `<tr class="frow" onclick="openDrawer(${idx})">
+    <td><div class="fpath">${esc(r.p)}${req}</div><div class="ftype">${esc(r.t)}${scp}</div></td>
+    <td class="ccell">${esc(r.c)}</td>
+    <td><span class="badge ${wbBadge}">${wlong}</span>${r.wn?`<div class="wnote">${r.wn}</div>`:""}</td>
+    <td><span class="badge ${enBadge}">${elong}</span>${r.en?`<div class="wnote">${r.en}</div>`:""}</td>
+  </tr>`;
+}
+function renderList(rows){
+  const tb=document.getElementById("rows");
+  if(!rows.length){tb.innerHTML=`<tr><td colspan="4" class="empty">No fields match these filters.</td></tr>`;return;}
+  const idxOf=new Map(data().map((r,i)=>[r,i]));
+  let html="";
+  for(const g of groupsFor()){
+    const gr=rows.filter(r=>memberOf(r,g)); if(!gr.length) continue;
+    html+=`<tr class="grouprow"><td colspan="4">${esc(g)} · ${gr.length}</td></tr>`;
+    html+=gr.map(r=>rowHTML(r,idxOf.get(r))).join("");
+  }
+  tb.innerHTML=html;
+}
+
+function render(){
+  const rows=filtered();
+  if(view==="map") renderMap(rows); else renderList(rows);
+  const extra=[lens==="wb"?"workbench only":lens==="eng"?"engine only":"",schemaFilter!=="all"?("schema: "+schemaFilter):""].filter(Boolean).join(" · ");
+  document.getElementById("count").textContent=`${rows.length} of ${data().length} fields`+(extra?" · "+extra:"");
+  const grpSel=document.getElementById("grp").value;
+  document.getElementById("clearbtn").hidden=!(grpSel||qstr||lens!=="both"||schemaFilter!=="all");
+}
+
+// ---- COVERAGE ----
+function renderCoverage(){
+  const rows=data();
+  if(groupMode==="tab"){ renderCoverageByTab(rows); return; }
+  const layers=[["core","Core schema","sw-core","var(--accent)"],["ext","Engine extension","sw-ext","var(--ext)"],["inst","Instance-only","sw-inst","var(--ink-2)"]];
+  const naRows=rows.filter(r=>schemaOf(r)==="na").length;
+  const bar=(n,tot,col)=>`<span class="covbar"><i style="width:${tot?Math.round(n/tot*100):0}%;background:${col}"></i></span>`;
+  let body="";
+  for(const[key,label,sw] of layers){
+    const lr=rows.filter(r=>schemaOf(r)===key);
+    if(!lr.length) continue;
+    const tot=lr.length;
+    const wb=lr.filter(r=>r.w!=="none").length;
+    const eng=lr.filter(r=>r.e!=="none").length;
+    const neither=lr.filter(r=>r.w==="none"&&r.e==="none").length;
+    body+=`<tr>
+      <td class="lft"><div class="lfti"><span class="sw swl ${sw}"></span><button class="covlabel" onclick="covFilter('${key}','both')">${label}</button></div></td>
+      <td class="num">${tot}</td>
+      <td class="num clk" onclick="covFilter('${key}','wb')">${wb}${bar(wb,tot,"var(--display)")}</td>
+      <td class="num clk" onclick="covFilter('${key}','eng')">${eng}${bar(eng,tot,"var(--write)")}</td>
+      <td class="num ${neither?'warnnum':''}">${neither}</td>
+    </tr>`;
+  }
+  const tot=rows.length;
+  const wbT=rows.filter(r=>r.w!=="none").length;
+  const engT=rows.filter(r=>r.e!=="none").length;
+  const neiT=rows.filter(r=>r.w==="none"&&r.e==="none").length;
+  body+=`<tr class="covtot">
+    <td class="lft"><div class="lfti">All fields${naRows?` <span class="muted" style="color:var(--ink-2);font-weight:500">(+${naRows} file op)</span>`:''}</div></td>
+    <td class="num">${tot}</td><td class="num">${wbT}</td><td class="num">${engT}</td><td class="num ${neiT?'warnnum':''}">${neiT}</td>
+  </tr>`;
+  const wbRoles=[["input","input"],["display","display"],["derived","computed"],["dead","dead"],["orphan","orphan"]];
+  const wbChips=wbRoles.map(([k,l])=>{const n=rows.filter(r=>r.w===k).length;return n?`<span class="chip">${l} <b>${n}</b></span>`:"";}).filter(Boolean).join("");
+  const engRoles=[["w","writes"],["r","reads"],["rw","reads & writes"]];
+  const engChips=engRoles.map(([k,l])=>{const n=rows.filter(r=>r.e===k).length;return n?`<span class="chip">${l} <b>${n}</b></span>`:"";}).filter(Boolean).join("");
+  document.getElementById("coverage").innerHTML=`
+    <div class="cov-head"><h2>Coverage — ${file==="inv"?"investigation.yaml":"study.yaml"}</h2><span class="tot">whole-file totals · click a cell to filter</span></div>
+    <div style="overflow-x:auto"><table class="covtable">
+      <thead><tr><th class="lft">Schema layer</th><th>Fields</th><th>Workbench</th><th>Engine</th><th>Neither</th></tr></thead>
+      <tbody>${body}</tbody>
+    </table></div>
+    <div class="covroles"><span class="rlbl" style="color:var(--display)">WB</span>${wbChips||'<span class="chip">none</span>'}</div>
+    <div class="covroles"><span class="rlbl" style="color:var(--write)">Engine</span>${engChips||'<span class="chip">none</span>'}</div>`;
+}
+function covFilter(layer,system){ setSchema(layer); setLens(system); if(view!=="map") setView("map"); }
+function renderCoverageByTab(rows){
+  const order=(file==="inv"?INV_TABS:STUDY_TABS);
+  const present=new Set(); rows.forEach(r=>tabsOf(r).forEach(t=>present.add(t)));
+  const tabs=order.filter(t=>present.has(t)); _covTabs=tabs;
+  const bar=(n,tot,col)=>`<span class="covbar"><i style="width:${tot?Math.round(n/tot*100):0}%;background:${col}"></i></span>`;
+  let body="";
+  tabs.forEach((tab,i)=>{
+    const mem=rows.filter(r=>tabsOf(r).includes(tab));
+    const tot=mem.length;
+    const reads=mem.filter(r=>r.e==="r"||r.e==="rw").length;
+    const writes=mem.filter(r=>r.e==="w"||r.e==="rw").length;
+    const none=mem.filter(r=>r.e==="none").length;
+    const wbIn=mem.filter(r=>r.w==="input").length;
+    const ns=(tab==="Not surfaced");
+    body+=`<tr>
+      <td class="lft"><div class="lfti"><button class="covlabel" onclick="covFilterTabIdx(${i})">${esc(tab)}</button></div></td>
+      <td class="num">${tot}</td>
+      <td class="num">${ns?'<span style="color:var(--ink-2)">—</span>':wbIn}</td>
+      <td class="num clk" onclick="covFilterTabIdx(${i})">${reads}${bar(reads,tot,"var(--read)")}</td>
+      <td class="num clk" onclick="covFilterTabIdx(${i})">${writes}${bar(writes,tot,"var(--write)")}</td>
+      <td class="num">${none}</td>
+    </tr>`;
+  });
+  document.getElementById("coverage").innerHTML=`
+    <div class="cov-head"><h2>Coverage by workbench tab — ${file==="inv"?"investigation.yaml":"study.yaml"}</h2><span class="tot">how each tab's fields connect to the engine · click a row to focus it</span></div>
+    <div style="overflow-x:auto"><table class="covtable">
+      <thead><tr><th class="lft">Workbench tab</th><th>Fields</th><th>WB input</th><th>Engine reads</th><th>Engine writes</th><th>Engine none</th></tr></thead>
+      <tbody>${body}</tbody>
+    </table></div>`;
+}
+function covFilterTabIdx(i){ const t=_covTabs[i]; if(t==null) return; document.getElementById("grp").value=t; render(); if(view!=="map") setView("map"); }
+
+// ---- DRAWER ----
+let curIdx=-1;
+function openDrawer(idx){
+  curIdx=idx; const r=data()[idx];
+  document.getElementById("dcrumb").textContent=(file==="inv"?"investigation.yaml":"study.yaml")+"  ·  "+r.g;
+  const req=/required/.test(r.t)?' <span class="treq">REQ</span>':'';
+  document.getElementById("dpath").innerHTML=esc(r.p)+req;
+  document.getElementById("dtype").textContent=r.t;
+  document.getElementById("dwhat").textContent=r.c;
+  const[,,wlong]=WBMAP[r.w]; const elong=ENMAP[r.e][2];
+  const wbBadge={input:"b-input",display:"b-display",derived:"b-derived",dead:"b-flag",orphan:"b-flag",none:"b-none"}[r.w];
+  const enBadge={w:"b-write",r:"b-read",rw:"b-rw",none:"b-none"}[r.e];
+  const sc=schemaOf(r), sn=schemaNote(r), sm=SCHLBL[sc]||SCHLBL.inst;
+  document.getElementById("dsch").innerHTML=`<div class="role"><span class="badge ${sm[0]}">${sm[1]}</span></div><div>${sm[2]}${sn?` <span class="muted">— ${esc(sn)}</span>`:""}</div>`;
+  const _tabs=tabsOf(r);
+  const _tabsLine=(_tabs.length===1&&_tabs[0]==="Not surfaced")?'':`<div class="dtabs">${_tabs.map(t=>`<span class="tabchip">${esc(t)}</span>`).join("")}</div>`;
+  document.getElementById("dwb").innerHTML=`<div class="role"><span class="badge ${wbBadge}">${wlong}</span></div>`+_tabsLine+(r.wn?`<div>${r.wn}</div>`:`<div class="muted">Not surfaced in the dashboard.</div>`);
+  document.getElementById("deng").innerHTML=`<div class="role"><span class="badge ${enBadge}">${elong}</span></div>`+(r.en?`<div>${r.en}</div>`:`<div class="muted">Not read or written by the engine.</div>`);
+  document.querySelectorAll(".tile.sel").forEach(t=>t.classList.remove("sel"));
+  const t=document.querySelector(`.tile[data-idx="${idx}"]`); if(t) t.classList.add("sel");
+  document.getElementById("backdrop").classList.add("on");
+  document.getElementById("drawer").classList.add("on");
+}
+function closeDrawer(){
+  document.getElementById("backdrop").classList.remove("on");
+  document.getElementById("drawer").classList.remove("on");
+  document.querySelectorAll(".tile.sel").forEach(t=>t.classList.remove("sel"));
+  curIdx=-1;
+}
+function navField(d){
+  const rows=filtered(); if(!rows.length) return;
+  const cur=data()[curIdx];
+  let pos=rows.indexOf(cur); if(pos<0) pos=0;
+  let np=(pos+d+rows.length)%rows.length;
+  const gi=data().indexOf(rows[np]);
+  openDrawer(gi);
+  const t=document.querySelector(`.tile[data-idx="${gi}"]`);
+  if(t) t.scrollIntoView({block:"nearest",behavior:"smooth"});
+}
+document.addEventListener("keydown",e=>{
+  if(e.key==="Escape") closeDrawer();
+  else if(curIdx>=0 && e.key==="ArrowDown"){e.preventDefault();navField(1);}
+  else if(curIdx>=0 && e.key==="ArrowUp"){e.preventDefault();navField(-1);}
+});
+
+// ---- CONTROLS ----
+function setFile(f){
+  file=f; closeDrawer();
+  document.getElementById("tab-inv").setAttribute("aria-pressed",f==="inv");
+  document.getElementById("tab-study").setAttribute("aria-pressed",f==="study");
+  rebuildGroupSelect();
+  renderCoverage(); render();
+}
+function setView(v){
+  view=v;
+  document.getElementById("view-map").setAttribute("aria-pressed",v==="map");
+  document.getElementById("view-list").setAttribute("aria-pressed",v==="list");
+  document.getElementById("mapview").hidden=(v!=="map");
+  document.getElementById("listview").hidden=(v!=="list");
+  document.getElementById("zoomctl").style.visibility=(v==="map")?"visible":"hidden";
+  render();
+}
+function setLens(l){
+  lens=l; document.body.setAttribute("data-lens",l);
+  document.querySelectorAll(".seg.lens button").forEach(b=>b.setAttribute("aria-pressed",b.getAttribute("data-lens")===l));
+  render();
+}
+function setSchema(s){
+  schemaFilter=s;
+  document.querySelectorAll(".seg.schema button").forEach(b=>b.setAttribute("aria-pressed",b.getAttribute("data-sch")===s));
+  render();
+}
+function setGroupMode(m){
+  groupMode=m;
+  document.querySelectorAll(".seg.gmode button").forEach(b=>b.setAttribute("aria-pressed",b.getAttribute("data-gm")===m));
+  rebuildGroupSelect();
+  renderCoverage(); render();
+}
+function zoomBy(d){
+  zoom=Math.max(1,Math.min(3,zoom+d));
+  document.getElementById("zlabel").textContent=ZL[zoom-1];
+  document.getElementById("zout").disabled=(zoom===1);
+  document.getElementById("zin").disabled=(zoom===3);
+  if(view==="map") render();
+}
+function clearAll(){
+  qstr=""; document.getElementById("q").value=""; document.getElementById("grp").value=""; setLens("both"); setSchema("all");
+}
+// ---- PRINT / PDF (comprehensive static render of everything) ----
+function cardHTML(r){
+  const sc=schemaOf(r);
+  const wbBadge={input:"b-input",display:"b-display",derived:"b-derived",dead:"b-flag",orphan:"b-flag",none:"b-none"}[r.w];
+  const wlong=WBMAP[r.w][2]; const enBadge={w:"b-write",r:"b-read",rw:"b-rw",none:"b-none"}[r.e]; const elong=ENMAP[r.e][2];
+  const scPill=sc!=="na"?`<span class="spill inl sc-pill-${sc}">${sc}</span>`:'';
+  const req=/required/.test(r.t)?'<span class="treq">REQ</span>':'';
+  const tabs=tabsOf(r); const ns=(tabs.length===1&&tabs[0]==="Not surfaced");
+  return `<div class="pcard"><div class="sstripe sc-${sc}"></div><div class="pc-body">
+    <div class="pc-path">${esc(r.p)}${req}${scPill}</div>
+    <div class="pc-type">${esc(r.t)}</div>
+    <div class="pc-what">${esc(r.c)}</div>
+    <div class="pc-sys"><span class="plabel" style="color:var(--display)">WB</span><span class="badge ${wbBadge}">${wlong}</span>${ns?'':`<span class="pc-note"><b>tab:</b> ${esc(tabs.join(" · "))}</span>`}</div>
+    ${r.wn?`<div class="pc-sys"><span class="plabel"></span><span class="pc-note">${r.wn}</span></div>`:''}
+    <div class="pc-sys"><span class="plabel" style="color:var(--write)">ENG</span><span class="badge ${enBadge}">${elong}</span>${r.en?`<span class="pc-note">${r.en}</span>`:'<span class="pc-note muted">untouched</span>'}</div>
+  </div></div>`;
+}
+function buildPrintView(){
+  const save=file;
+  let html=`<div class="plegend"><b>Schema stripe:</b> core (.pbg schema) · ext (extensions schema) · inst (instance-only). &nbsp; <b>Each field</b> shows its workbench role + the tab(s) it appears in, and the discovery-engine role (reads / writes / r&amp;w / untouched).</div>`;
+  for(const f of ["inv","study"]){
+    file=f;
+    const arr=f==="inv"?INV:STUDY;
+    const tot=arr.length, wbT=arr.filter(r=>r.w!=="none").length, engT=arr.filter(r=>r.e!=="none").length, nei=arr.filter(r=>r.w==="none"&&r.e==="none").length;
+    const core=arr.filter(r=>schemaOf(r)==="core").length, ext=arr.filter(r=>schemaOf(r)==="ext").length, inst=arr.filter(r=>schemaOf(r)==="inst").length;
+    html+=`<section class="pfile"><h2 class="pfh">${f==="inv"?"investigation.yaml":"study.yaml"}</h2>
+      <div class="pcov">${tot} fields &nbsp;·&nbsp; schema: core ${core} · extension ${ext} · instance-only ${inst} &nbsp;·&nbsp; workbench surfaces ${wbT} · engine touches ${engT} · neither ${nei}</div>`;
+    for(const g of [...new Set(arr.map(r=>r.g))]){
+      const gr=arr.filter(r=>r.g===g);
+      html+=`<div class="pgroup"><h3 class="pgh">${esc(g)} <span class="pgn">${gr.length}</span></h3><div class="pgrid">${gr.map(cardHTML).join("")}</div></div>`;
+    }
+    html+=`</section>`;
+  }
+  file=save;
+  document.getElementById("printroot").innerHTML=html;
+}
+document.getElementById("q").addEventListener("input",e=>{qstr=e.target.value.trim().toLowerCase();render();});
+document.body.setAttribute("data-lens","both");
+setFile("inv"); setView("map"); zoomBy(0);
+buildPrintView();
+if(location.hash==="#print"){ document.documentElement.setAttribute("data-theme","light"); document.body.classList.add("printing"); }
+</script>
+</body>
+</html>
