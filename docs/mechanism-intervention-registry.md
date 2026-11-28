@@ -163,9 +163,36 @@ Investigating *why* surfaced the real finding: **the whole-cell reconstruction h
 - **Brake (absent, code-verified):** ppGpp-driven GTP-substrate depletion (Kriel 2012; Wang 2020, Mol Cell). ppGpp lowers GTP both by consuming it and by inhibiting GTP-biosynthesis enzymes (Gmk/GuaB); GTP is RelA's substrate, so high ppGpp starves RelA → synthesis self-limits. Verified missing in the model: RelA's rate has no GTP term (`v_rela = k_RelA·rela·frac_rela`), and the ppGpp→metabolism coupling is growth-objective only, with no ppGpp regulation of Gmk/GuaB (which exist, unregulated).
 - **Poor-carbon-aware by construction:** the brake keys on `[ppGpp]` (the product), not uncharged tRNA. The ratio-cap failed on acetate precisely because it keyed on the *wrong* variable.
 
-So `synth-cap`'s `param:` is not a per-condition table — it becomes: *"self-limiting via ppGpp→GTP-depletion→RelA-substrate-limitation (Kriel 2012; Shyp 2012); condition-aware by construction; param = the ppGpp–GTP coupling constant, ONE value."* And `requires_seam_refactor` becomes concrete: promotion = two genuine composite changes — (a) model ppGpp inhibition of Gmk/GuaB in metabolism, (b) add GTP-substrate saturation to the RelA rate. Both are real source changes, not a flag. *(Status stays `experiment`: the GTP-brake implementation is under test — basal setpoint/stability sweep, then poor carbon — as of this writing.)*
+The fix — recorded in investigation `growth-rate-control`, study
+`grc-05-divergence-onset-positive-feedback`, as finding **grc05-f4** (the *cure*)
+against discovery **grc05-f3** (the *missing brake*); the earlier degradation-side
+`ultrasensitive` approach (grc-04) was folded in as the compared arm it supersedes —
+adds the brake as a real self-limitation: **self-limiting via ppGpp → GTP-depletion
+→ RelA-substrate-limitation** (Kriel 2012; cooperative Gmk inhibition, Wang 2020; the
+accelerator is genuine biology, Shyp 2012). Its `param:` is therefore **not** a
+per-condition table but **one coupling constant `KI = 90`**, keyed on `[ppGpp]` —
+condition-aware by construction. `requires_seam_refactor` is concrete: two composite
+changes — (a) model ppGpp inhibition of Gmk/GuaB in metabolism, (b) add GTP-substrate
+saturation to the RelA rate.
 
-This is a **stronger example than a tuned cap**: a missing-mechanism discovery surfaced by the discovery cycle, carrying all three honest gaps at once (experiment→reconfirm, requires-seam-refactor, and the "universal scalar param" assumption failing on the first real fix).
+**Validated as a mechanism** — status still `experiment` (a runtime mechanism-patch,
+pending a source-build reconfirm + a multi-seed panel): the brake bounds `[ppGpp]`
+across media, preserves the set-point ordering, **and** preserves the Scott-Hwa growth
+law the grc-03 gate requires — R² = 0.999 with acetate correctly slowest (vs the
+earlier `k_RelA ×0.6` interim, which *regressed* the law by wrongly speeding acetate
+up). Because it keys on the product `[ppGpp]` rather than uncharged tRNA, it self-scales
+per condition without a per-condition knob, exactly where the ratio-cap failed.
+Residuals kept for honesty: acetate is still noisy (std 20), and the poor-carbon
+growth-rate range is compressed vs vEcoli — a separate metabolism axis, not the ppGpp
+loop. (References: `Kriel2012`, `Shyp2012`, `Wang2020ppGppGmk` in the workspace
+`references/papers.bib`.)
+
+This is the worked example at full strength: a **missing-mechanism discovery**
+(accelerator without brake) that yielded a **biologically-interpretable, condition-aware
+fix** passing the growth-law gate — the experiment → mechanism → reconfirm arc the
+registry is for. It still carries its honest gaps (experiment→reconfirm,
+requires-seam-refactor), but the "universal scalar param" problem is now *resolved by
+the mechanism*: the single `KI` is condition-aware by construction, not a tuned table.
 
 ---
 
