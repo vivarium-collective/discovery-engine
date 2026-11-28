@@ -29,15 +29,23 @@ from discovery_engine.reporting.linter.context import *  # noqa: F401,F403
 _REQUIRED_INVESTIGATION_SECTIONS = (
     ("executive", "Executive summary"),
     ("scientific_argument", "Scientific argument"),
-    ("biological_story", "Biology — the mechanism"),
+    ("background", "Background — the mechanism"),
 )
+
+# Legacy section keys that still satisfy a renamed section's skip list, so an
+# investigation authored before the rename keeps opting out (deprecation window).
+_SECTION_SKIP_ALIASES = {"background": ("biological_story",)}
 
 
 def _inv_section_present(spec: dict, key: str) -> bool:
     """True when an investigation has authored content for a narrative section."""
     v = spec.get(key)
-    if key == "biological_story":
-        return isinstance(v, str) and bool(v.strip())
+    if key == "background":
+        # Back-compat: the legacy domain-specific `biological_story` satisfies
+        # the general `background` section during the deprecation window.
+        legacy = spec.get("biological_story")
+        return (isinstance(v, str) and bool(v.strip())) or (
+            isinstance(legacy, str) and bool(legacy.strip()))
     if key == "executive":
         ex = v if isinstance(v, dict) else {}
         return bool(_is_nonempty(ex.get("what_is_this")) or _is_nonempty(ex.get("verdict")))
@@ -64,7 +72,8 @@ def _check_investigation_narrative_spine(ctx: "_LintContext") -> None:
         skip = []
     skip_set = {str(s).strip().lower() for s in skip}
     for key, label in _REQUIRED_INVESTIGATION_SECTIONS:
-        if key in skip_set or _inv_section_present(spec, key):
+        aliases = _SECTION_SKIP_ALIASES.get(key, ())
+        if key in skip_set or any(a in skip_set for a in aliases) or _inv_section_present(spec, key):
             continue
         ctx.add(
             level="warning",
