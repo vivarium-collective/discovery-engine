@@ -135,7 +135,7 @@ def detect_drift(ws_root, inv_slug: str) -> list[DriftItem]:
     prose_sources = {
         "executive.what_is_this": ex.get("what_is_this"),
         "executive.verdict": ex.get("verdict"),
-        "biological_story": spec.get("biological_story"),
+        "background": spec.get("background") or spec.get("biological_story"),
         "scientific_argument.evidence_for": sa.get("evidence_for"),
         "scientific_argument.evidence_against": sa.get("evidence_against"),
         "scientific_argument.key_figures": sa.get("key_figures"),

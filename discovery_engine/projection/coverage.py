@@ -26,7 +26,7 @@ def _corpus(cycle_result: dict, inv_spec: dict) -> str:
     claim statements."""
     inv = inv_spec if isinstance(inv_spec, dict) else {}
     parts: list[str] = []
-    for k in ("question", "hypothesis", "lead", "biological_story"):
+    for k in ("question", "hypothesis", "lead", "background", "biological_story"):
         v = inv.get(k)
         if isinstance(v, str):
             parts.append(v)

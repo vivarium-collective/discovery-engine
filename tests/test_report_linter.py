@@ -1086,7 +1086,7 @@ def _narrative_findings(ws):
 def test_investigation_narrative_required_fires_when_missing(tmp_path):
     ws = _mk_investigation(tmp_path, {"name": "demo", "schema_version": 2})
     f = _narrative_findings(ws)
-    assert {x.field_path for x in f} == {"executive", "scientific_argument", "biological_story"}
+    assert {x.field_path for x in f} == {"executive", "scientific_argument", "background"}
     assert all(x.level == "warning" for x in f)  # required = blocking
 
 
@@ -1117,6 +1117,28 @@ def test_investigation_narrative_partial_skip(tmp_path):
     })
     f = _narrative_findings(ws)
     assert {x.field_path for x in f} == {"scientific_argument"}  # only the un-skipped, un-authored one
+
+
+def test_investigation_narrative_background_canonical(tmp_path):
+    # the renamed `background` section (was biological_story): authored satisfies it.
+    ws = _mk_investigation(tmp_path, {
+        "name": "demo",
+        "executive": {"what_is_this": "x"},
+        "scientific_argument": {"main_claim": "y"},
+        "background": "the mechanism narrative",
+    })
+    assert _narrative_findings(ws) == []
+
+
+def test_investigation_narrative_background_skip_canonical(tmp_path):
+    # the new canonical key `background` works in the skip list too.
+    ws = _mk_investigation(tmp_path, {
+        "name": "demo",
+        "executive": {"verdict": "passing"},
+        "scientific_argument": {"main_claim": "y"},
+        "narrative_spine_skip": ["background"],
+    })
+    assert _narrative_findings(ws) == []
 
 
 # ---------------------------------------------------------------------------
