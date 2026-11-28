@@ -58,9 +58,9 @@ the stages, the functions, the skills, and the flow into investigations, studies
 \vspace{1.1em}
 {\large\color{ink}\textbf{Question \,$\rightarrow$\, Hypothesize \,$\rightarrow$\, Model \,$\rightarrow$\, Experiment \,$\rightarrow$\, Evaluate \,$\rightarrow$\, Synthesize}\par}
 \vspace{2.4cm}
-{\large discovery-engine \textbf{0.7.5} \; (\code{main})\par}
+{\large discovery-engine \textbf{0.7.6} \; (\code{main})\par}
 \vspace{0.4em}
-{\color{muted} 2026-11-23\par}
+{\color{muted} 2026-11-27\par}
 \vspace{2cm}
 {\color{muted}\small
 \begin{tabular}{@{}r@{\;\;}l@{}}
@@ -214,6 +214,25 @@ the existing ledger into a defensible go/no-go; with \code{-{}-record} it persis
 \code{upgrade\_decision} block + an \code{open\_decision} resolution stamped with the evidence
 signature it rests on, so a later re-run against drifted evidence is detectable (the
 \code{snapshot-validations} contract, for decisions).
+
+\paragraph{Since 0.7.5 --- per-study environments and the knowledge layer.} \textbf{Per-study
+simulator environments (RFC-0008).} Every study carries its \emph{own} pinned simulator environment ---
+a declared-vs-recorded env audit (\code{discover study-env}) checked against the run that produced each
+result --- and the \textbf{Progress} axis is now \emph{derived} from evidence, flagging stale authored
+state rather than trusting it. \textbf{The knowledge layer.} The derive-first projections ---
+\code{knowledge} / \code{argument} / \code{narrative} --- consolidate under one
+\code{discovery\_engine.projection.*} namespace and read as a distinct \textbf{knowledge layer} over the
+authored substrate: content-addressed \textbf{claim identity} (\code{clm-} keys, \code{claim\_identity});
+a canonical \textbf{relation registry} (\code{builds-on}, \code{tests}, \code{refutes}, \code{motivates},
+\code{alternative-to}, grouped into semantic families, with a drift guard); \textbf{shared-claim}
+detection \emph{across} investigations (\code{shared\_claims}; \code{discover profile} reports
+membership vs.\ independent overlap); a read-only \textbf{lift} that proves record-to-argument parity
+before any migration (\code{knowledge\_lift}, the WP1 gate); and \code{knowledge\_inputs} \textbf{evidence
+routing} with an \code{EvidenceStep} seam (\code{evidence\_routing}, WP2). The cycle's own branch-points
+--- model-revision proposals and open reconciliation items --- are surfaced (via vivarium-workbench) for
+a one-click \emph{approve / reject / resolve}, with the candidate change, the inadequacy, and the
+discriminating test shown inline; approving a revision is a \emph{signal} the engine applies on its next
+cycle, never an in-place model edit.
 
 % ===========================================================================
 \section{The cycle at a glance}
