@@ -50,33 +50,40 @@ All remaining open questions have since been resolved — see
 
 ---
 
-## Target model 1 — one `argument` block (investigation)
+## Target model 1 — expand `scientific_argument` (investigation)
+
+> **The name `argument` is already taken.** It is the *derived* RFC-0005 Claim +
+> argument-graph store (`discovery_engine.projection.argument.derive_argument`,
+> merged authored-over-derived). So the authored containers consolidate into the
+> existing **`scientific_argument`** block — **not** a new `argument` key, which
+> would collide with the derived store.
 
 **Today — six overlapping containers:** `scientific_argument`, `key_claims[]`,
 `claims[]`, `hypotheses[]`, `competing_frameworks[]`, and the free-text
 `synthesis`. The workbench Background tab and the engine's coverage corpus both
 read across these; nothing needs them separate.
 
-**Target — a single `argument:` block:**
+**Target — an expanded `scientific_argument:`:**
 
 ```yaml
-argument:
-  main_claim: ""                    # was scientific_argument.main_claim
-  evidence_for: []                  # was scientific_argument.evidence_for
+scientific_argument:
+  main_claim: ""
+  evidence_for: []
   evidence_against: []
   caveats: []
   key_figures: []
   claims:                           # merges key_claims[] + claims[] (the cited ledger)
     - {id, statement, cites, status}
-  hypotheses:                       # moved under argument, unchanged shape
+  hypotheses:                       # moved in, unchanged shape
     - {id, statement, predictions, status, competing_with}
-  competing_frameworks:             # moved under argument
+  competing_frameworks:             # moved in
     - {name, relation}
 ```
 
 `synthesis` splits: its prose goes to `background` (below); any structured
-`evidence_chain` folds into `argument.claims`. Then `synthesis`, `key_claims`,
-`claims`, top-level `hypotheses` and `competing_frameworks` are removed.
+`evidence_chain` folds into `scientific_argument.claims`. Then `synthesis`,
+`key_claims`, `claims`, top-level `hypotheses` and `competing_frameworks` are
+removed.
 
 ## Target model 2 — one general `background` field (investigation)
 
@@ -140,12 +147,12 @@ everything not listed is **KEEP**.
 | `biological_story` | MERGE→ `background` | general name; see model 2 | ✅ decided |
 | `description` | MERGE→ `background` | legacy prose | ✅ decided |
 | `lead` | MERGE→ `background` | folded in as first paragraph | ✅ decided |
-| `scientific_argument` | RENAME→ `argument` | expanded; see model 1 | ✅ decided |
-| `key_claims[]` | MERGE→ `argument.claims` | | ✅ decided |
-| `claims[]` | MERGE→ `argument.claims` | instance-only ledger | ✅ decided |
-| `hypotheses[]` | MOVE→ `argument.hypotheses` | | ✅ decided |
-| `competing_frameworks[]` | MOVE→ `argument.competing_frameworks` | | ✅ decided |
-| `synthesis` | SPLIT→ `background` + `argument` | then remove | ✅ decided |
+| `scientific_argument` | EXPAND | absorbs the containers below (see model 1); `argument` is the derived store, so it stays the authored container | ✅ decided |
+| `key_claims[]` | MERGE→ `scientific_argument.claims` | | ✅ decided |
+| `claims[]` | MERGE→ `scientific_argument.claims` | instance-only ledger | ✅ decided |
+| `hypotheses[]` | MOVE→ `scientific_argument.hypotheses` | | ✅ decided |
+| `competing_frameworks[]` | MOVE→ `scientific_argument.competing_frameworks` | | ✅ decided |
+| `synthesis` | SPLIT→ `background` + `scientific_argument` | then remove | ✅ decided |
 | `executive.computed_verdict_status` + `computed_acceptance` | NAMESPACE→ `executive.computed{}` | one computed block | propose |
 | `decision_log`, `reconciliation_log`, `executed_actions`, `lifecycle_history`, `resolutions`, `cycle_flags`, `finding_candidates`, `discoveries`, `review_decisions`, `applied_feedback`, `pending_feedback`, `critique_reports`, `validation_snapshot`, `model_acquisition_proposals` | NAMESPACE→ `engine:{}` | engine-owned, instance-only today; schematize under one key | ✅ decided |
 | `model_versions`, `viz_proposals`, `capability_gaps`, `revision_proposals`, `cycle_state` | NAMESPACE→ `engine:{}` | already the extensions-schema cluster | ✅ decided |
